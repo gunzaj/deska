@@ -3,7 +3,7 @@
 | Milestone | Status | PR | Notes |
 |---|---|---|---|
 | D0 | done | [#1](https://github.com/gunzaj/deska/pull/1) | Predecessor imported and scrubbed |
-| D1 | todo | | |
+| D1 | in progress | | Token probe + security doc |
 | D2 | todo | | |
 | D3 | todo | | |
 | D4 | todo | | |
@@ -29,9 +29,17 @@
 - D0: The baseline migration starts with `CREATE EXTENSION IF NOT EXISTS pg_trgm` (drizzle-kit does not emit extensions). The test of the old cleanup migrations now checks the baseline's constraints instead.
 - D0: One CI workflow (`ci.yml`): the leak guard runs on every push; the full checks run on pull requests and `main`.
 - D0: Inherited hardcoded option name: the seed view "Core current Release board" looks up the Team option by name (`lib/views/seeds.ts`). Left as is (no feature work in D0); D4's dimension work should remove it.
+- D1: The probe uses its own small `fetch` client (not Octokit), so the read-only guarantee is checked in one place: REST `GET` only, relative API paths only, and GraphQL documents must start with a query and contain no `mutation`/`subscription` outside comments and strings. It records counts and statuses, not issue contents.
+- D1: The probe reads the token from `GITHUB_TOKEN` (like `sync:full --live`) and the target from the existing `GITHUB_REPO` / `GITHUB_ORG` / `GITHUB_PROJECT_NUMBER`; `PROBE_ISSUE_NUMBER` optionally picks the issue for per-issue checks.
+- D1: `docs/security.md` describes the target design (§2–§3) and says up front that the desktop shell lands in D2–D5. A test keeps it free of org, repo, person and node-ID names (fictional ones included).
 - D0: Some e2e specs are timing-sensitive under `next dev` on a loaded machine (5 s assertions while a page compiles). They pass on rerun; CI retries once.
 
 ## Maintainer to-do
+- [ ] Create a **read-only** fine-grained PAT: resource owner = the org, repository access = only the one repo; Repository → Metadata: Read, Repository → Issues: Read, Organization → Projects: Read, Organization → Issue types: Read (optional); nothing else. Then run the probe (report lands in `private/findings/`):
+  ```bash
+  read -rs GITHUB_TOKEN && export GITHUB_TOKEN
+  GITHUB_REPO=<owner>/<repo> GITHUB_ORG=<org> GITHUB_PROJECT_NUMBER=<n> pnpm probe:pat
+  ```
 - [ ] Optional: add a `.env.example` if you want one (the agent could not write `.env.*` files). Use only fictional values.
 
 ## Blockers
