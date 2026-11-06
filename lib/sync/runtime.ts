@@ -1,8 +1,8 @@
 // Sync runtime. Key/value sync state (ETag, since, lastSync) lives in the
-// Postgres sync_state table when DATABASE_URL is set, so a Vercel Cron
+// Postgres sync_state table when DESKA_DB_DIR is set, so a Vercel Cron
 // invocation, the web app and `pnpm worker` all observe the same cursor.
 // Without a database it falls back to a process-local map (dev/tests only).
-import { databaseUrl, getDb } from "@/db";
+import { dbDir, getDb } from "@/db";
 import { syncState } from "@/db/schema";
 import { bumpGenerationOnce } from "./generation";
 import { FIELD_MAP_KEY, parseFieldMap, resolveFieldMap, type ProjectFieldMap } from "./field-map";
@@ -59,7 +59,7 @@ class DbKv implements Kv {
 
   /** Re-read from the database, so a cron run in another process is visible. */
   async refresh(keys: string[]): Promise<void> {
-    if (!databaseUrl()) return;
+    if (!dbDir()) return;
     // Our own queued writes must land first, or the re-read resurrects the
     // previous cursor.
     await this.flush();
@@ -110,7 +110,7 @@ export async function flushSyncKv(): Promise<void> {
 
 /** The KV a sync cycle should use: shared when a database is configured. */
 export async function getSyncKv(): Promise<Kv> {
-  if (!databaseUrl()) return syncKv;
+  if (!dbDir()) return syncKv;
   if (!dbKv) dbKv = new DbKv();
   await dbKv.refresh(SHARED_KEYS);
   return dbKv;
@@ -143,7 +143,7 @@ export async function withLockedSyncKv<T>(fn: (kv: Kv) => Promise<T>, opts?: Loc
  * running cycle is using (a status request used to overwrite its in-memory values).
  */
 async function readShared(keys: string[]): Promise<Map<string, string | null>> {
-  if (!databaseUrl()) return new Map(keys.map((k) => [k, syncKv.get(k)]));
+  if (!dbDir()) return new Map(keys.map((k) => [k, syncKv.get(k)]));
   const rows = await getDb().select().from(syncState);
   const found = new Map(rows.map((r) => [r.key, r.value]));
   return new Map(keys.map((k) => [k, found.get(k) ?? null]));

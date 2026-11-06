@@ -5,7 +5,7 @@
 // instead of a full payload. Task data is separate and not part of it.
 import { AsyncLocalStorage } from "node:async_hooks";
 import { sql } from "drizzle-orm";
-import { databaseUrl, getDb } from "@/db";
+import { dbDir, getDb } from "@/db";
 import type { Tx } from "./pg-batch";
 
 export const GENERATION_KEY = "sync.generation";
@@ -51,7 +51,7 @@ export async function bumpGeneration(tx: Tx | ReturnType<typeof getDb>): Promise
 
 /** The current generation ("0" before the first write). */
 export async function readGeneration(): Promise<string> {
-  if (!databaseUrl()) return LOCAL_GENERATION;
+  if (!dbDir()) return LOCAL_GENERATION;
   const res = await getDb().execute(sql`SELECT value FROM sync_state WHERE key = ${GENERATION_KEY}`);
   return String((res.rows[0] as { value?: string } | undefined)?.value ?? "0");
 }

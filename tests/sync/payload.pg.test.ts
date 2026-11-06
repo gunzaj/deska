@@ -1,15 +1,12 @@
 // S5 against Postgres: the sync generation, the ETag following it, and a read
-// model without bodies. Skipped unless TEST_DATABASE_URL is set.
-import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+// model without bodies. Runs on in-memory PGlite (tests/setup/db.ts).
+import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { NextRequest } from "next/server";
 import { sql } from "drizzle-orm";
 
 vi.mock("@/lib/session", () => ({ getViewerLogin: async () => "alice" }));
 
-const url = process.env.TEST_DATABASE_URL;
-const suite = url ? describe : describe.skip;
-
-suite("sync generation and ETags (Postgres)", async () => {
+describe("sync generation and ETags (Postgres)", async () => {
   const { getDb } = await import("@/db");
   const { importFull } = await import("@/lib/sync/import");
   const { readGeneration } = await import("@/lib/sync/generation");
@@ -20,16 +17,12 @@ suite("sync generation and ETags (Postgres)", async () => {
   const { fixtureSnapshot } = await import("../fixtures/github");
 
   beforeAll(async () => {
-    process.env.DATABASE_URL = url;
     await getDb().execute(
       sql`TRUNCATE issues, issue_labels, issue_assignees, project_items, project_scan_seen, field_options, iterations, project_fields, labels, milestones, gh_users, issue_types, sync_state, pull_requests, pr_labels, pr_assignees, pr_review_requests, pr_reviews, pr_issue_links, gh_team_members RESTART IDENTITY CASCADE`,
     );
     await importFull(fixtureSnapshot(), new PostgresStore());
   });
   afterEach(() => vi.useRealTimers());
-  afterAll(() => {
-    delete process.env.DATABASE_URL;
-  });
 
   it("bumps the generation on a change, not on an unchanged import", async () => {
     const before = Number(await readGeneration());

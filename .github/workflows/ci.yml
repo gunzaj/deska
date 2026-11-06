@@ -29,22 +29,6 @@ jobs:
     if: github.event_name == 'pull_request' || github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    services:
-      postgres:
-        image: postgres:16
-        env:
-          POSTGRES_USER: deska
-          POSTGRES_PASSWORD: deska
-          POSTGRES_DB: deska
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-    env:
-      TEST_DATABASE_URL: postgres://deska:deska@localhost:5432/deska
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -64,11 +48,7 @@ jobs:
           pnpm db:generate
           git diff --exit-code drizzle/
           test -z "$(git status --porcelain drizzle/)"
-      # Applies the migrations so the Postgres integration tests (skipped
-      # without TEST_DATABASE_URL) actually run in CI.
-      - run: pnpm db:migrate
-        env:
-          DATABASE_URL: postgres://deska:deska@localhost:5432/deska
+      # Database tests run on in-memory PGlite: no Postgres service needed.
       - run: pnpm test
       - run: pnpm build
         env:
@@ -102,4 +82,37 @@ jobs:
           path: |
             playwright-report/
             test-results/
+          retention-days: 7
+
+  # The desktop app (SPEC D2): the unsigned universal .dmg builds, and the
+  # packaged app passes the Electron smoke test.
+  desktop:
+    if: github.event_name == 'pull_request' || github.ref == 'refs/heads/main'
+    runs-on: macos-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - uses: actions/cache@v4
+        with:
+          path: ~/Library/Caches/electron
+          key: electron-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+      - run: pnpm desktop:build
+        env:
+          GITHUB_CLIENT_ID: ci-placeholder
+          GITHUB_CLIENT_SECRET: ci-placeholder
+          AUTH_SECRET: ci-placeholder-secret
+          TOKEN_ENC_KEY: 0000000000000000000000000000000000000000000000000000000000000000
+      - run: pnpm test:desktop
+      - name: Upload the Playwright traces
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-traces
+          path: test-results/
           retention-days: 7

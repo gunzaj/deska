@@ -1,6 +1,6 @@
 // F6 against Postgres: the watchlist and what changed since the last look.
-// Skipped unless TEST_DATABASE_URL points at a throwaway, migrated database.
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+// Runs on an in-memory PGlite database (tests/setup/db.ts).
+import { beforeEach, describe, expect, it } from "vitest";
 import { sql } from "drizzle-orm";
 import { getDb } from "@/db";
 import { importFull } from "@/lib/sync/import";
@@ -10,9 +10,6 @@ import { addWatch, listWatches, markSeen, removeWatch } from "@/lib/watch/repo";
 import { saveView } from "@/lib/views/runtime";
 import { fixtureSnapshot } from "../fixtures/github";
 
-const url = process.env.TEST_DATABASE_URL;
-const suite = url ? describe : describe.skip;
-
 async function truncate() {
   await getDb().execute(
     sql`TRUNCATE watches, views, issues, issue_labels, issue_assignees, project_items, project_scan_seen, field_options, iterations, project_fields, labels, milestones, gh_users, issue_types, sync_state, pull_requests, pr_labels, pr_assignees, pr_review_requests, pr_reviews, pr_issue_links, gh_team_members RESTART IDENTITY CASCADE`,
@@ -20,14 +17,8 @@ async function truncate() {
 }
 const tick = () => new Promise((r) => setTimeout(r, 15));
 
-suite("watchlist (Postgres)", () => {
-  beforeAll(() => {
-    process.env.DATABASE_URL = url;
-  });
+describe("watchlist (Postgres)", () => {
   beforeEach(truncate);
-  afterAll(() => {
-    delete process.env.DATABASE_URL;
-  });
 
   it("watches are per person; watching again keeps the old last-seen time; stop removes", async () => {
     const first = await addWatch("Alice", "issue", "I_1", new Date("2026-10-01T00:00:00Z"));

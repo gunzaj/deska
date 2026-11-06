@@ -7,7 +7,7 @@ import type { Kv } from "./poll";
 export const MAX_ERROR_LENGTH = 500;
 
 /** Env vars whose values must never reach sync_state, the chip or a log. */
-const SECRET_ENV = ["GITHUB_TOKEN", "GITHUB_CLIENT_SECRET", "CRON_SECRET", "AUTH_SECRET", "TOKEN_ENC_KEY", "DATABASE_URL", "DATABASE_URL_DIRECT"];
+const SECRET_ENV = ["GITHUB_TOKEN", "GITHUB_CLIENT_SECRET", "CRON_SECRET", "AUTH_SECRET", "TOKEN_ENC_KEY"];
 
 /**
  * An error message safe to store and show: configured secrets, GitHub token

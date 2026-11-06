@@ -1,5 +1,5 @@
 import { and, eq, gte, inArray, notInArray } from "drizzle-orm";
-import { databaseUrl, getDb } from "@/db";
+import { dbDir, getDb } from "@/db";
 import { issueFieldChanges, issues } from "@/db/schema";
 import { BOOKKEEPING_SOURCES, type FieldChange, type TrackedField } from "@/lib/sync/changes";
 import { getStore } from "@/lib/store";
@@ -17,7 +17,7 @@ export type ChangeQuery = {
  * in-memory store's own record in demo and fixture runs.
  */
 export async function listFieldChanges(q: ChangeQuery): Promise<FieldChange[]> {
-  if (!databaseUrl()) {
+  if (!dbDir()) {
     const store = await getStore();
     return store.fieldChanges
       .filter(

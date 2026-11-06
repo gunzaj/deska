@@ -1,23 +1,14 @@
 // F3 against Postgres: personal triage snoozes.
-// Skipped unless TEST_DATABASE_URL points at a throwaway, migrated database.
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+// Runs on an in-memory PGlite database (tests/setup/db.ts).
+import { beforeEach, describe, expect, it } from "vitest";
 import { sql } from "drizzle-orm";
 import { getDb } from "@/db";
 import { runRetention } from "@/lib/maintenance/retention";
 import { clearSnooze, listSnoozes, setSnooze } from "@/lib/triage/snoozes";
 
-const url = process.env.TEST_DATABASE_URL;
-const suite = url ? describe : describe.skip;
-
-suite("triage snoozes (Postgres)", () => {
-  beforeAll(() => {
-    process.env.DATABASE_URL = url;
-  });
+describe("triage snoozes (Postgres)", () => {
   beforeEach(async () => {
     await getDb().execute(sql`TRUNCATE triage_snoozes`);
-  });
-  afterAll(() => {
-    delete process.env.DATABASE_URL;
   });
 
   it("keeps each person's snoozes apart, updates in place and clears", async () => {

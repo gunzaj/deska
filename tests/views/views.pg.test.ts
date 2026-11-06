@@ -1,13 +1,10 @@
 // The views repo on Postgres (v5 2.10 and 2.6): save, delete, restore, the
 // seeding flag, system-owned seeds and server-made IDs.
-// Skipped unless TEST_DATABASE_URL points at a throwaway, migrated database.
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+// Runs on an in-memory PGlite database (tests/setup/db.ts).
+import { beforeEach, describe, expect, it } from "vitest";
 import { sql } from "drizzle-orm";
 
-const url = process.env.TEST_DATABASE_URL;
-const suite = url ? describe : describe.skip;
-
-suite("saved views (Postgres)", async () => {
+describe("saved views (Postgres)", async () => {
   const { getDb } = await import("@/db");
   const { importFull } = await import("@/lib/sync/import");
   const { PostgresStore } = await import("@/lib/sync/store-postgres");
@@ -19,17 +16,11 @@ suite("saved views (Postgres)", async () => {
 
   const mine = (over: Partial<View> = {}): View => ({ id: "v-mine", name: "Mine", ownerId: "alice", visibility: "shared", layout: "list", filters: [], sort: [], ...over });
 
-  beforeAll(() => {
-    process.env.DATABASE_URL = url;
-  });
   beforeEach(async () => {
     await getDb().execute(sql`TRUNCATE views, sync_state, issues, project_fields, field_options, iterations RESTART IDENTITY CASCADE`);
     await importFull(fixtureSnapshot(), new PostgresStore());
     invalidateReadCache();
     __resetViews();
-  });
-  afterAll(() => {
-    delete process.env.DATABASE_URL;
   });
 
   it("seeds once, as a system-owned shared set, and remembers it across restarts", async () => {

@@ -1,6 +1,6 @@
 // W1 against Postgres: the durable outbox, with GitHub faked.
-// Skipped unless TEST_DATABASE_URL points at a throwaway, migrated database.
-import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+// Runs on an in-memory PGlite database (tests/setup/db.ts).
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { sql } from "drizzle-orm";
 
 // The cache re-read after a write goes through GitHubSource: fake it, and
@@ -22,9 +22,6 @@ vi.mock("@/lib/sync/source-github", async (orig) => {
   }
   return { ...real, GitHubSource: FakeSource };
 });
-
-const url = process.env.TEST_DATABASE_URL;
-const suite = url ? describe : describe.skip;
 
 type Client = import("@/lib/outbox/worker").WriteClient & { applied: string[] };
 function fakeClient(remote: Record<string, unknown>, opts: { failWith?: number; delayMs?: number } = {}): Client {
@@ -51,8 +48,8 @@ function fakeClient(remote: Record<string, unknown>, opts: { failWith?: number; 
   };
 }
 
-suite("durable outbox (Postgres)", async () => {
-  const { getDb } = await import("@/db");
+describe("durable outbox (Postgres)", async () => {
+  const { getDb, getPglite } = await import("@/db");
   const { importFull } = await import("@/lib/sync/import");
   const { readGeneration } = await import("@/lib/sync/generation");
   const { PostgresStore, readSnapshot } = await import("@/lib/sync/store-postgres");
@@ -66,9 +63,6 @@ suite("durable outbox (Postgres)", async () => {
   const LOW = "b0000001";
   const count = async (table: string) => Number((await getDb().execute(sql.raw(`SELECT count(*)::int AS n FROM ${table}`))).rows[0]!.n);
 
-  beforeAll(() => {
-    process.env.DATABASE_URL = url;
-  });
   beforeEach(async () => {
     await getDb().execute(
       sql`TRUNCATE issues, issue_labels, issue_assignees, project_items, project_scan_seen, field_options, iterations, project_fields, labels, milestones, gh_users, issue_types, sync_state, outbox, audit_log RESTART IDENTITY CASCADE`,
@@ -78,9 +72,6 @@ suite("durable outbox (Postgres)", async () => {
     github.issueTitle = "Bug: crash on start";
     github.priority = null;
     delete process.env.STATUS_DONE_OPTION_ID;
-  });
-  afterAll(() => {
-    delete process.env.DATABASE_URL;
   });
 
   const edit = async (body: Parameters<typeof submitEdit>[0]["body"], client: Client, refresh?: (id: string) => Promise<void>) =>
@@ -264,24 +255,22 @@ suite("durable outbox (Postgres)", async () => {
   });
 
   it("outbox timestamps carry a time zone, so a non-UTC session cannot shift leases (v5 2.5)", async () => {
-    const { Client } = await import("pg");
     const row = await enqueueEdit({ userId: "alice", issueNodeId: "I_bug", op: "update", field: "priority", base: null, next: HIGH, idempotencyKey: "alice:tz" });
     // A lease 10 minutes out, written the way the store writes it (a UTC Date).
     await getDb().execute(sql`UPDATE outbox SET next_attempt_at = now() + interval '10 minutes' WHERE id = ${row.id}`);
     const types = (await getDb().execute(sql`SELECT column_name, data_type FROM information_schema.columns WHERE table_name = 'outbox' AND column_name IN ('next_attempt_at','created_at','updated_at')`)).rows as { data_type: string }[];
     expect(types.map((t) => t.data_type)).toEqual(["timestamp with time zone", "timestamp with time zone", "timestamp with time zone"]);
 
-    // Read it back from sessions in far-apart zones, as `due` does (next_attempt_at <= now()).
-    for (const zone of ["Pacific/Kiritimati", "Pacific/Pago_Pago", "UTC"]) {
-      const client = new Client({ connectionString: url });
-      await client.connect();
-      try {
-        await client.query(`SET TIME ZONE '${zone}'`);
-        const r = await client.query("SELECT next_attempt_at <= now() AS due FROM outbox WHERE id = $1", [row.id]);
-        expect(r.rows[0].due, zone).toBe(false);
-      } finally {
-        await client.end();
+    // Read it back in far-apart session time zones, as `due` does (next_attempt_at <= now()).
+    const pg = getPglite();
+    try {
+      for (const zone of ["Pacific/Kiritimati", "Pacific/Pago_Pago", "UTC"]) {
+        await pg.exec(`SET TIME ZONE '${zone}'`);
+        const r = await pg.query<{ due: boolean }>("SELECT next_attempt_at <= now() AS due FROM outbox WHERE id = $1", [row.id]);
+        expect(r.rows[0]!.due, zone).toBe(false);
       }
+    } finally {
+      await pg.exec("RESET TIME ZONE");
     }
   });
 

@@ -7,13 +7,13 @@ function setNodeEnv(value: string) {
 
 describe("demo fixtures must never be the production default", () => {
   afterEach(() => {
-    delete process.env.DATABASE_URL;
+    delete process.env.DESKA_DB_DIR;
     delete process.env.DEMO;
     delete process.env.WRITE_MODE;
     setNodeEnv("test");
   });
 
-  it("is off in production with no DATABASE_URL", () => {
+  it("is off in production with no DESKA_DB_DIR", () => {
     // Regression: getStore() fell back to fixtures whenever the sync store was
     // empty, so a cold production start served fabricated issues to real users.
     setNodeEnv("production");
@@ -47,13 +47,13 @@ describe("demo fixtures must never be the production default", () => {
   it("is on locally when nothing else is configured", () => {
     setNodeEnv("development");
     delete process.env.DEMO;
-    delete process.env.DATABASE_URL;
+    delete process.env.DESKA_DB_DIR;
     expect(demoEnabled()).toBe(true);
   });
 
   it("is off when a database is configured", () => {
     setNodeEnv("development");
-    process.env.DATABASE_URL = "postgres://localhost/deska";
+    process.env.DESKA_DB_DIR = "memory://";
     expect(demoEnabled()).toBe(false);
   });
 });

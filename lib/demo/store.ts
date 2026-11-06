@@ -6,7 +6,7 @@ import { demoSnapshot } from "./generate";
 let demo: Promise<MemoryStore> | null = null;
 
 /**
- * Fixture-backed store for local dev (no DATABASE_URL). The rich generated
+ * Fixture-backed store for local dev (no DESKA_DB_DIR). The rich generated
  * dataset is the default so the UI can be reviewed realistically;
  * `DEMO_DATASET=fixtures` selects the tiny fixture set the e2e tests assert on.
  */

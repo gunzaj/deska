@@ -1,5 +1,5 @@
 import { eq, sql } from "drizzle-orm";
-import { databaseUrl, getDb } from "@/db";
+import { dbDir, getDb } from "@/db";
 import { issues } from "@/db/schema";
 import { CLOSED_WINDOW_DAYS, findDuplicates, MAX_DUPLICATES, SIMILARITY_THRESHOLD, type DuplicateCandidate } from "@/lib/client/similarity";
 import { getStore } from "@/lib/store";
@@ -11,7 +11,7 @@ import { getStore } from "@/lib/store";
  * database the same measure runs over the in-memory cache. Null: no such issue.
  */
 export async function duplicatesOf(number: number): Promise<DuplicateCandidate[] | null> {
-  if (!databaseUrl()) {
+  if (!dbDir()) {
     const store = await getStore();
     const rows = [...store.issues.values()];
     const self = rows.find((r) => r.number === number);

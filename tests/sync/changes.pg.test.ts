@@ -1,14 +1,11 @@
 // F0 against Postgres: field change history written by the sync upserts.
-// Skipped unless TEST_DATABASE_URL points at a throwaway, migrated database.
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+// Runs on an in-memory PGlite database (tests/setup/db.ts).
+import { beforeEach, describe, expect, it } from "vitest";
 import { sql } from "drizzle-orm";
 import { getDb } from "@/db";
 import { importFull } from "@/lib/sync/import";
 import { PostgresStore } from "@/lib/sync/store-postgres";
 import { fixtureSnapshot } from "../fixtures/github";
-
-const url = process.env.TEST_DATABASE_URL;
-const suite = url ? describe : describe.skip;
 
 async function truncate() {
   await getDb().execute(
@@ -25,14 +22,8 @@ const changes = async () =>
     source: string;
   }[];
 
-suite("field change history (F0)", () => {
-  beforeAll(() => {
-    process.env.DATABASE_URL = url;
-  });
+describe("field change history (F0)", () => {
   beforeEach(truncate);
-  afterAll(() => {
-    delete process.env.DATABASE_URL;
-  });
 
   it("the initial import writes zero rows", async () => {
     await importFull(fixtureSnapshot(), new PostgresStore());
@@ -83,14 +74,8 @@ suite("field change history (F0)", () => {
 
 import { listFieldChanges } from "@/lib/server/changes";
 
-suite("reading field changes (F0/F2)", () => {
-  beforeAll(() => {
-    process.env.DATABASE_URL = url;
-  });
+describe("reading field changes (F0/F2)", () => {
   beforeEach(truncate);
-  afterAll(() => {
-    delete process.env.DATABASE_URL;
-  });
 
   it("lists changes since a date that set a given Release, and none for issues present at the start", async () => {
     const store = new PostgresStore();

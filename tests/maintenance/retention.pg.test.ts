@@ -1,27 +1,19 @@
 // S8 against Postgres: one test per retention rule, rows on both sides of
-// each cut-off. Skipped unless TEST_DATABASE_URL is set.
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+// each cut-off. Runs on in-memory PGlite (tests/setup/db.ts).
+import { beforeEach, describe, expect, it } from "vitest";
 import { sql } from "drizzle-orm";
 import { getDb } from "@/db";
 import { runRetention } from "@/lib/maintenance/retention";
 import { PostgresTaskRepo } from "@/lib/tasks/repo";
 
-const url = process.env.TEST_DATABASE_URL;
-const suite = url ? describe : describe.skip;
 const NOW = new Date("2026-10-13T03:00:00Z");
 const daysAgo = (d: number) => new Date(NOW.getTime() - d * 86_400_000).toISOString();
 const count = async (table: string) => Number((await getDb().execute(sql.raw(`SELECT count(*)::int AS n FROM ${table}`))).rows[0]!.n);
 
-suite("retention (Postgres)", () => {
-  beforeAll(() => {
-    process.env.DATABASE_URL = url;
-  });
+describe("retention (Postgres)", () => {
   beforeEach(async () => {
     await getDb().execute(sql`TRUNCATE tasks, task_comments, notifications, audit_log, task_completions, issues, issue_field_changes RESTART IDENTITY CASCADE`);
     await getDb().execute(sql`INSERT INTO tasks (id, creator_login, title) VALUES ('50000000-0000-0000-0000-000000000001', 'alice', 'Live')`);
-  });
-  afterAll(() => {
-    delete process.env.DATABASE_URL;
   });
 
   it("notifications: read ones after 90 days, unread ones after 180", async () => {

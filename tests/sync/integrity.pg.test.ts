@@ -1,11 +1,12 @@
 // S7 against Postgres: the baseline's foreign keys, cascades, one
 // project item per issue, and a store that survives a cache rebuild.
-// Skipped unless TEST_DATABASE_URL points at a throwaway Postgres.
+// Runs on PGlite (tests/setup/db.ts); the migration test uses its own instance.
 import { join } from "node:path";
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { Pool } from "pg";
-import { drizzle } from "drizzle-orm/node-postgres";
-import { migrate } from "drizzle-orm/node-postgres/migrator";
+import { beforeEach, describe, expect, it } from "vitest";
+import { PGlite } from "@electric-sql/pglite";
+import { pg_trgm } from "@electric-sql/pglite/contrib/pg_trgm";
+import { drizzle } from "drizzle-orm/pglite";
+import { migrate } from "drizzle-orm/pglite/migrator";
 import { sql } from "drizzle-orm";
 import { getDb } from "@/db";
 import { projectItems } from "@/db/schema";
@@ -15,8 +16,6 @@ import { PostgresStore, readSnapshot } from "@/lib/sync/store-postgres";
 import type { SnapshotProjectItem } from "@/lib/sync/types";
 import { fixtureSnapshot } from "../fixtures/github";
 
-const url = process.env.TEST_DATABASE_URL;
-const suite = url ? describe : describe.skip;
 const MIGRATIONS = join(process.cwd(), "drizzle");
 
 const ORPHAN_CHECK = sql`
@@ -32,38 +31,22 @@ const ORPHAN_CHECK = sql`
   + (SELECT count(*) FROM task_comments c WHERE NOT EXISTS (SELECT 1 FROM tasks p WHERE p.id = c.task_id))
   AS n`;
 
-suite("schema integrity (Postgres)", () => {
-  beforeAll(() => {
-    process.env.DATABASE_URL = url;
-  });
-  afterAll(() => {
-    delete process.env.DATABASE_URL;
-  });
-
+describe("schema integrity (Postgres)", () => {
   it("the baseline migration creates the extension, foreign keys and case-insensitive label uniqueness", async () => {
-    const name = `deska_mig_${Date.now().toString(36)}`;
-    const admin = new Pool({ connectionString: url });
-    await admin.query(`CREATE DATABASE ${name}`);
-    const target = new URL(url!);
-    target.pathname = `/${name}`;
-    const pool = new Pool({ connectionString: target.toString() });
-    // DROP DATABASE … WITH (FORCE) below terminates any connection still
-    // closing; that must not surface as an uncaught pool error.
-    pool.on("error", () => {});
+    // A fresh database of its own, so the migration runs from scratch.
+    const pg = new PGlite("memory://", { extensions: { pg_trgm } });
     try {
-      const db = drizzle(pool);
+      const db = drizzle(pg);
       await migrate(db, { migrationsFolder: MIGRATIONS });
 
-      const ext = await pool.query(`SELECT 1 FROM pg_extension WHERE extname = 'pg_trgm'`);
-      expect(ext.rowCount).toBe(1);
+      const ext = await pg.query(`SELECT 1 FROM pg_extension WHERE extname = 'pg_trgm'`);
+      expect(ext.rows).toHaveLength(1);
       expect(Number((await db.execute(ORPHAN_CHECK)).rows[0]!.n)).toBe(0);
-      await expect(pool.query(`INSERT INTO issue_labels (issue_id, label_id) VALUES ('10000000-0000-0000-0000-0000000000aa', 'L1')`)).rejects.toThrow(/foreign key/);
-      await pool.query(`INSERT INTO labels (id, name) VALUES ('L_dup', 'Bug')`);
-      await expect(pool.query(`INSERT INTO labels (id, name) VALUES ('L_x', 'BUG')`)).rejects.toThrow(/duplicate key/);
+      await expect(pg.query(`INSERT INTO issue_labels (issue_id, label_id) VALUES ('10000000-0000-0000-0000-0000000000aa', 'L1')`)).rejects.toThrow(/foreign key/);
+      await pg.query(`INSERT INTO labels (id, name) VALUES ('L_dup', 'Bug')`);
+      await expect(pg.query(`INSERT INTO labels (id, name) VALUES ('L_x', 'BUG')`)).rejects.toThrow(/duplicate key/);
     } finally {
-      await pool.end().catch(() => {});
-      await admin.query(`DROP DATABASE ${name} WITH (FORCE)`);
-      await admin.end();
+      await pg.close();
     }
   });
 

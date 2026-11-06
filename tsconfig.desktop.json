@@ -1,0 +1,21 @@
+{
+  // Compiles the Electron main process, preload and server entry (desktop/*.ts)
+  // to CommonJS in desktop/dist. The root tsconfig type-checks them too.
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "commonjs",
+    "moduleResolution": "node",
+    "lib": ["es2022", "dom"],
+    "types": ["node"],
+    "rootDir": "desktop",
+    "outDir": "desktop/dist",
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "sourceMap": false
+  },
+  "include": ["desktop/*.ts"]
+}

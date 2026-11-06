@@ -1,5 +1,5 @@
 import { and, asc, eq, isNotNull, isNull } from "drizzle-orm";
-import { databaseUrl, getDb } from "@/db";
+import { dbDir, getDb } from "@/db";
 import { syncState, views as viewsTable } from "@/db/schema";
 import { canEditView, newViewId, SYSTEM_OWNER } from "./ids";
 import { seedViews, trySeedViews } from "./seeds";
@@ -10,7 +10,7 @@ import { getStore } from "../store";
 /**
  * Saved views — the one thing GitHub does not hold (SPEC §1).
  *
- * With DATABASE_URL they live in the `views` table, so they survive restarts
+ * With DESKA_DB_DIR they live in the `views` table, so they survive restarts
  * and every serverless instance sees the same set. Previously they lived only
  * in a module-level Map: every deploy or cold start silently dropped all saved
  * views, and two Vercel instances showed different ones.
@@ -139,7 +139,7 @@ const memory = (g.__deskaViews ??= new MemoryRepo());
 let seeded = false;
 
 function repo(): ViewRepo {
-  return databaseUrl() ? new PostgresRepo() : memory;
+  return dbDir() ? new PostgresRepo() : memory;
 }
 
 /**

@@ -1,7 +1,7 @@
 import NextAuth from "next-auth";
 import GitHub from "next-auth/providers/github";
 import { accessMode, decideAccess, recheckMs } from "./allowlist";
-import { databaseUrl } from "@/db";
+import { dbDir } from "@/db";
 import { decryptToken, encryptToken } from "./crypto";
 import { checkOrgMembership } from "./github/membership";
 import { requestedScopes, scopeMatchesMode, scopeModeOf } from "./github/scopes";
@@ -34,7 +34,7 @@ export const { handlers, auth, signIn, signOut, unstable_update } = NextAuth({
         }
         // Best-effort DB upsert; never fail sign-in if DB is unavailable (M1).
         try {
-          if (databaseUrl()) {
+          if (dbDir()) {
             const { recordSignIn } = await import("./auth-tokens");
             await recordSignIn({
               githubId: String(p.id ?? p.login),

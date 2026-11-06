@@ -1,6 +1,6 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import { and, asc, count, desc, eq, gt, gte, inArray, isNotNull, isNull, lte, or, sql } from "drizzle-orm";
-import { databaseUrl, getDb } from "@/db";
+import { dbDir, getDb } from "@/db";
 import {
   notifications as notificationsTable,
   taskComments,
@@ -28,7 +28,7 @@ function conn(): ReturnType<typeof getDb> {
 }
 
 /**
- * Task storage (SPEC §12). With DATABASE_URL tasks live in Postgres; without
+ * Task storage (SPEC §12). With DESKA_DB_DIR tasks live in Postgres; without
  * one (demo fixtures, tests) in-memory maps are the store, as for views.
  *
  * Every task read takes the viewer and filters by visibility in the query
@@ -830,7 +830,7 @@ if (!g.__deskaTasks || !methods.every((m) => typeof g.__deskaTasks![m] === "func
 const memory = g.__deskaTasks as unknown as MemoryTaskRepo;
 
 export function taskRepo(): TaskRepo {
-  return databaseUrl() ? new PostgresTaskRepo() : memory;
+  return dbDir() ? new PostgresTaskRepo() : memory;
 }
 
 /** Test helper: reset the in-memory task store. */

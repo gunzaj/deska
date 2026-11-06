@@ -6,14 +6,17 @@
  * through still does not run, because only scripts Next.js (or the theme
  * snippet) stamped with this request's nonce may. `style-src` keeps
  * 'unsafe-inline' for React style attributes; `img-src` allows https because
- * issue and comment HTML embeds GitHub-hosted images.
+ * issue and comment HTML embeds GitHub-hosted images (only GitHub's hosts in
+ * the desktop app).
  */
-export function contentSecurityPolicy(nonce: string, dev = process.env.NODE_ENV !== "production"): string {
+export function contentSecurityPolicy(nonce: string, dev = process.env.NODE_ENV !== "production", desktop = false): string {
   return [
     "default-src 'self'",
     `script-src 'self' 'nonce-${nonce}' 'strict-dynamic'${dev ? " 'unsafe-eval'" : ""}`,
     "style-src 'self' 'unsafe-inline'",
-    "img-src 'self' data: https:",
+    // The desktop app loads nothing from the network but GitHub (SPEC §2.2):
+    // images in issue bodies and avatars come from GitHub's hosts.
+    desktop ? "img-src 'self' data: https://github.com https://*.githubusercontent.com" : "img-src 'self' data: https:",
     "font-src 'self' data:",
     `connect-src 'self'${dev ? " ws: wss:" : ""}`,
     "object-src 'none'",

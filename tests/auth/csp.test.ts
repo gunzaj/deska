@@ -30,4 +30,11 @@ describe("content security policy (v5 4.10)", () => {
   it("uses a different nonce per call site input", () => {
     expect(contentSecurityPolicy("a", false)).not.toBe(contentSecurityPolicy("b", false));
   });
+
+  it("loads images only from GitHub in the desktop app (SPEC §2.2)", () => {
+    expect(directive(prod, "img-src")).toBe("img-src 'self' data: https:");
+    const desktop = contentSecurityPolicy("n", false, true);
+    expect(directive(desktop, "img-src")).toBe("img-src 'self' data: https://github.com https://*.githubusercontent.com");
+    expect(directive(desktop, "connect-src")).toBe("connect-src 'self'");
+  });
 });

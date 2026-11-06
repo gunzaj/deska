@@ -1,5 +1,5 @@
 // S11: /api/sync-now end to end against Postgres, with GitHub replaced by a
-// fake GitHubSource through a module mock. Skipped without TEST_DATABASE_URL.
+// fake GitHubSource through a module mock. Runs on in-memory PGlite (tests/setup/db.ts).
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { sql } from "drizzle-orm";
 import { NextRequest } from "next/server";
@@ -52,15 +52,11 @@ vi.mock("@/lib/sync/source-github", async (orig) => {
   return { ...real, GitHubSource: FakeGitHubSource };
 });
 
-const url = process.env.TEST_DATABASE_URL;
-const suite = url ? describe : describe.skip;
-
-suite("/api/sync-now (Postgres, fake GitHub)", async () => {
+describe("/api/sync-now (Postgres, fake GitHub)", async () => {
   const { getDb } = await import("@/db");
   const { GET, POST } = await import("@/app/api/sync-now/route");
 
   beforeAll(() => {
-    process.env.DATABASE_URL = url;
     process.env.GITHUB_TOKEN = "ghp_fake_token_for_route_tests_0000000000";
     process.env.CRON_SECRET = "cron-secret";
   });
@@ -71,7 +67,6 @@ suite("/api/sync-now (Postgres, fake GitHub)", async () => {
     await getDb().execute(sql`INSERT INTO sync_state (key, value) VALUES ('issues.since', '2026-10-01T00:00:00Z')`);
   });
   afterAll(() => {
-    delete process.env.DATABASE_URL;
     delete process.env.GITHUB_TOKEN;
     delete process.env.CRON_SECRET;
   });

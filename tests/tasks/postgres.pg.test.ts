@@ -1,14 +1,10 @@
-// Integration test for PostgresTaskRepo. Skipped unless TEST_DATABASE_URL points
-// at a throwaway Postgres with the Drizzle migrations applied — it truncates
-// tables, so never point it at anything you care about.
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+// Integration test for PostgresTaskRepo. Runs on an in-memory
+// PGlite database (tests/setup/db.ts).
+import { beforeAll, describe, expect, it } from "vitest";
 import { sql } from "drizzle-orm";
 import { getDb } from "@/db";
 import { taskProjects, taskReminders, users } from "@/db/schema";
 import { COMPLETED_LIMIT, PostgresTaskRepo, type StoredTask } from "@/lib/tasks/repo";
-
-const url = process.env.TEST_DATABASE_URL;
-const suite = url ? describe : describe.skip;
 
 function row(p: Partial<StoredTask>): StoredTask {
   const now = new Date().toISOString();
@@ -35,16 +31,11 @@ function row(p: Partial<StoredTask>): StoredTask {
   };
 }
 
-suite("PostgresTaskRepo", () => {
+describe("PostgresTaskRepo", () => {
   const repo = new PostgresTaskRepo();
 
   beforeAll(async () => {
-    process.env.DATABASE_URL = url;
     await getDb().execute(sql`TRUNCATE tasks, task_links, task_projects, task_placements, task_labels, task_label_links, task_reminders, task_completions, task_comments, notifications, user_prefs, users RESTART IDENTITY CASCADE`);
-  });
-
-  afterAll(() => {
-    delete process.env.DATABASE_URL;
   });
 
   it("round-trips fields, including the date and priority", async () => {

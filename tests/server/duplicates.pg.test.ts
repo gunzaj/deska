@@ -1,6 +1,6 @@
-// F7 against Postgres with pg_trgm. Skipped unless TEST_DATABASE_URL points at a
-// throwaway, migrated database (the migration creates the extension).
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+// F7 against PGlite with pg_trgm (tests/setup/db.ts; the migration creates the
+// extension).
+import { beforeAll, describe, expect, it } from "vitest";
 import { sql } from "drizzle-orm";
 import { getDb } from "@/db";
 import { demoSnapshot } from "@/lib/demo/generate";
@@ -8,9 +8,6 @@ import { duplicatesOf } from "@/lib/server/duplicates";
 import { importFull } from "@/lib/sync/import";
 import { PostgresStore } from "@/lib/sync/store-postgres";
 import type { SnapshotIssue } from "@/lib/sync/types";
-
-const url = process.env.TEST_DATABASE_URL;
-const suite = url ? describe : describe.skip;
 
 const extra = (n: number, title: string, over: Partial<SnapshotIssue> = {}): SnapshotIssue => ({
   nodeId: `I_dup${n}`,
@@ -32,9 +29,8 @@ const extra = (n: number, title: string, over: Partial<SnapshotIssue> = {}): Sna
   ...over,
 });
 
-suite("possible duplicates (Postgres, pg_trgm)", () => {
+describe("possible duplicates (Postgres, pg_trgm)", () => {
   beforeAll(async () => {
-    process.env.DATABASE_URL = url;
     await getDb().execute(
       sql`TRUNCATE issues, issue_labels, issue_assignees, project_items, project_scan_seen, field_options, iterations, project_fields, labels, milestones, gh_users, issue_types, sync_state, pull_requests, pr_labels, pr_assignees, pr_review_requests, pr_reviews, pr_issue_links, gh_team_members RESTART IDENTITY CASCADE`,
     );
@@ -55,9 +51,6 @@ suite("possible duplicates (Postgres, pg_trgm)", () => {
       new PostgresStore(),
     );
   }, 120_000);
-  afterAll(() => {
-    delete process.env.DATABASE_URL;
-  });
 
   it("near-identical titles find each other, closed ones only when recent, unrelated ones never", async () => {
     const first = await duplicatesOf(900_001);

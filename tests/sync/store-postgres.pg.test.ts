@@ -1,16 +1,12 @@
-// Integration test for PostgresStore. Skipped unless TEST_DATABASE_URL points
-// at a throwaway Postgres with the Drizzle migrations applied — it truncates
-// tables, so never point it at anything you care about.
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+// Integration test for PostgresStore. Runs on an in-memory
+// PGlite database (tests/setup/db.ts).
+import { beforeAll, describe, expect, it } from "vitest";
 import { sql } from "drizzle-orm";
 import { getDb } from "@/db";
 import { importFull } from "@/lib/sync/import";
 import { MemoryStore } from "@/lib/sync/store-memory";
 import { PostgresStore, readSnapshot } from "@/lib/sync/store-postgres";
 import { fixtureSnapshot } from "../fixtures/github";
-
-const url = process.env.TEST_DATABASE_URL;
-const suite = url ? describe : describe.skip;
 
 async function truncate() {
   const db = getDb();
@@ -19,14 +15,9 @@ async function truncate() {
   );
 }
 
-suite("PostgresStore round-trip", () => {
+describe("PostgresStore round-trip", () => {
   beforeAll(async () => {
-    process.env.DATABASE_URL = url;
     await truncate();
-  });
-
-  afterAll(() => {
-    delete process.env.DATABASE_URL;
   });
 
   it("imports the fixture snapshot, and a re-import changes nothing", async () => {

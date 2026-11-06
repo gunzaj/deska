@@ -3,12 +3,12 @@
 // body it needs from Postgres. Without a database (demo, tests) the in-memory
 // store still has them.
 import { and, eq } from "drizzle-orm";
-import { databaseUrl, getDb } from "@/db";
+import { dbDir, getDb } from "@/db";
 import { issues, pullRequests } from "@/db/schema";
 
 /** The cached body for an issue or PR node, or `fallback` without a database. */
 export async function cachedBody(kind: "issue" | "pr", nodeId: string, fallback: string | null | undefined): Promise<string | null> {
-  if (!databaseUrl()) return fallback ?? null;
+  if (!dbDir()) return fallback ?? null;
   const db = getDb();
   const rows =
     kind === "issue"
@@ -22,7 +22,7 @@ export async function cachedBody(kind: "issue" | "pr", nodeId: string, fallback:
  * aged out), looked up by number with its cached body.
  */
 export async function removedItem(kind: "issue" | "pr", number: number): Promise<{ body: string | null; reason: string | null } | null> {
-  if (!databaseUrl()) return null;
+  if (!dbDir()) return null;
   const db = getDb();
   const rows =
     kind === "issue"

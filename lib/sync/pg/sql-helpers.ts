@@ -1,7 +1,6 @@
 // Shared SQL and transaction helpers for the batched Postgres writes (v5 4.5).
-import * as schema from "@/db/schema";
+import type { Db } from "@/db";
 import { getTableColumns, inArray, sql, type SQL } from "drizzle-orm";
-import type { NodePgDatabase } from "drizzle-orm/node-postgres";
 import type { PgColumn, PgTable } from "drizzle-orm/pg-core";
 import { issues, issueFieldChanges } from "@/db/schema";
 import type { ChangeSource, ImportOptions, TrackedField } from "../changes";
@@ -22,7 +21,7 @@ export async function recordChanges(tx: Tx, rows: ChangeRow[], source: ChangeSou
   await tx.insert(issueFieldChanges).values(rows.map((r) => ({ ...r, source })));
 }
 
-export type Db = NodePgDatabase<typeof schema>;
+export type { Db };
 export type Tx = Parameters<Parameters<Db["transaction"]>[0]>[0];
 export type Result = "inserted" | "updated" | "unchanged";
 

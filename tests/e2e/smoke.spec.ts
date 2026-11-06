@@ -8,13 +8,11 @@ async function as(browser: Browser, login = "alice") {
   return { context, page: await context.newPage() };
 }
 
-test("backlog lists open issues without a release and searches by #number", async ({ browser }, testInfo) => {
+test("backlog lists open issues without a release and searches by #number", async ({ browser }) => {
   const { context, page } = await as(browser);
   await page.goto("/backlog");
-  // The Postgres project reads the fixture cache, so the sample-data banner stays off.
-  if (testInfo.project.name !== "e2e-postgres") {
-    await expect(page.getByText("Sample data. Titles, numbers, and assignees on this preview are generated in Deska.")).toBeVisible();
-  }
+  // Both projects show sample data: the preview, or a database seeded with it.
+  await expect(page.getByText("Sample data. Titles, numbers, and assignees on this preview are generated in Deska.")).toBeVisible();
   await expect(page.getByText("Sub: dashboard widget")).toBeVisible();
   await expect(page.getByText("Bug: crash on start")).toBeVisible();
   // The epic is planned into Sprint 23, so it is not in the backlog.
@@ -130,7 +128,7 @@ test("clicking a row opens the side panel with description and comments; Esc clo
   await expect(panel.getByText("Child")).toBeVisible();
   // Comments come from GitHub; demo data fakes a thread, the Postgres run
   // (no GitHub token) shows the cached description with a note.
-  if (testInfo.project.name === "e2e-postgres") await expect(panel.getByText(/cached description/)).toBeVisible();
+  if (testInfo.project.name === "e2e-db") await expect(panel.getByText(/cached description/)).toBeVisible();
   else {
     await expect(panel.getByText("1 comment")).toBeVisible();
     await expect(panel.getByRole("link", { name: "GitHub" })).toHaveCount(0);

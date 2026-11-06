@@ -83,7 +83,7 @@ describe("cycle health bookkeeping", () => {
 
 describe("redactError", () => {
   it("removes configured secrets, token shapes, bearer values and URL credentials", () => {
-    const env = { GITHUB_TOKEN: "s3cr3t-token-value-xyz", DATABASE_URL: "postgres://u:pw@db/x" };
+    const env = { GITHUB_TOKEN: "s3cr3t-token-value-xyz" };
     const out = redactError(
       new Error(
         `failed with s3cr3t-token-value-xyz; Authorization: Bearer abcdefghijklmnop1234; ${FAKE_TOKEN}; ${FAKE_PAT}; connect postgres://deska:hunter2@host/db; ?access_token=zzz`,

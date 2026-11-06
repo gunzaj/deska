@@ -22,14 +22,14 @@ export default defineConfig({
         test: { name: "unit", include: ["tests/**/*.test.ts"], exclude: ["tests/**/*.pg.test.ts"] },
       },
       {
-        // Postgres integration tests (skipped without TEST_DATABASE_URL) share
-        // one database and truncate tables, so their files run one at a time.
+        // Database tests: an in-memory PGlite per test process
+        // (tests/setup/db.ts), migrated before the first test.
         extends: true,
         test: {
-          name: "postgres",
+          name: "db",
           include: ["tests/**/*.pg.test.ts"],
+          setupFiles: ["tests/setup/db.ts"],
           pool: "forks",
-          poolOptions: { forks: { singleFork: true } },
         },
       },
     ],

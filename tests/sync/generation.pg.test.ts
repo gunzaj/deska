@@ -1,13 +1,10 @@
 // v5 3.6 against Postgres: one generation bump per sync cycle or drain, and
 // deleted issues stay out of the read model.
-// Skipped unless TEST_DATABASE_URL points at a throwaway, migrated database.
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+// Runs on an in-memory PGlite database (tests/setup/db.ts).
+import { beforeEach, describe, expect, it } from "vitest";
 import { sql } from "drizzle-orm";
 
-const url = process.env.TEST_DATABASE_URL;
-const suite = url ? describe : describe.skip;
-
-suite("sync generation (Postgres)", async () => {
+describe("sync generation (Postgres)", async () => {
   const { getDb } = await import("@/db");
   const { importFull } = await import("@/lib/sync/import");
   const { bumpGenerationOnce, readGeneration } = await import("@/lib/sync/generation");
@@ -16,15 +13,9 @@ suite("sync generation (Postgres)", async () => {
   const { partialSnapshot } = await import("@/lib/sync/types");
   const { fixtureSnapshot } = await import("../fixtures/github");
 
-  beforeAll(() => {
-    process.env.DATABASE_URL = url;
-  });
   beforeEach(async () => {
     await getDb().execute(sql`TRUNCATE issues, issue_labels, issue_assignees, project_items, project_scan_seen, field_options, iterations, project_fields, labels, milestones, gh_users, issue_types, sync_state RESTART IDENTITY CASCADE`);
     await importFull(fixtureSnapshot(), new PostgresStore());
-  });
-  afterAll(() => {
-    delete process.env.DATABASE_URL;
   });
 
   const bumpsDuring = async (fn: () => Promise<unknown>) => {

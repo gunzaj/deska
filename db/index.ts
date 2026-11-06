@@ -1,63 +1,100 @@
-import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
-import { Pool } from "pg";
+// The local database: embedded Postgres (PGlite, WASM) via Drizzle (SPEC §2.1).
+//
+// One PGlite instance per process, on `globalThis`: Next.js compiles server
+// code into several bundles (pages, route handlers, instrumentation), and two
+// module copies opening the same data directory would corrupt it. PGlite is a
+// single connection; its own mutex serializes queries and transactions.
+import { existsSync } from "node:fs";
+import path from "node:path";
+import { PGlite } from "@electric-sql/pglite";
+import { pg_trgm } from "@electric-sql/pglite/contrib/pg_trgm";
+import { drizzle, type PgliteDatabase } from "drizzle-orm/pglite";
+import { migrate } from "drizzle-orm/pglite/migrator";
 import * as schema from "./schema";
 
-let pool: Pool | undefined;
-let client: NodePgDatabase<typeof schema> | undefined;
+export type Db = PgliteDatabase<typeof schema>;
 
-/**
- * Lazily created Drizzle client. Callers must check `databaseUrl()` first: the
- * previous version opened a Pool against a hardcoded localhost URL at import
- * time, so any module graph that reached this file tried to connect even in
- * environments with no database at all.
- */
-export function databaseUrl(): string | null {
-  const url = process.env.DATABASE_URL;
-  return url && url.trim() ? url.trim() : null;
+type Instance = { dir: string; pg: PGlite; db: Db; migrated?: Promise<void> };
+type QueryListener = (sql: string) => void;
+const KEY = Symbol.for("deska.db");
+const LISTENERS = Symbol.for("deska.db.queryListeners");
+const g = globalThis as unknown as { [KEY]?: Instance; [LISTENERS]?: Set<QueryListener> };
+
+function listeners(): Set<QueryListener> {
+  return (g[LISTENERS] ??= new Set());
 }
 
 /**
- * Pool settings (S10). The pg defaults (10 connections, no idle timeout) times
- * many serverless instances exhausted Neon's connection limit. Each instance
- * now keeps at most DB_POOL_MAX (5) connections, drops idle ones after 10 s,
- * and fails a connect after 5 s instead of hanging the request.
+ * Calls `fn` with every SQL statement Drizzle sends (transactions included)
+ * until the returned function is called. Tests use it to assert what a sync
+ * writes.
  */
-export function poolConfig(env: Record<string, string | undefined> = process.env): { max: number; idleTimeoutMillis: number; connectionTimeoutMillis: number } {
-  const n = Number(env.DB_POOL_MAX);
-  return {
-    max: env.DB_POOL_MAX?.trim() && Number.isInteger(n) && n > 0 ? n : 5,
-    idleTimeoutMillis: 10_000,
-    connectionTimeoutMillis: 5_000,
-  };
+export function onQuery(fn: QueryListener): () => void {
+  listeners().add(fn);
+  return () => listeners().delete(fn);
 }
 
-export function getDb(): NodePgDatabase<typeof schema> {
-  getPool();
-  return client!;
+/**
+ * Where the database lives (`DESKA_DB_DIR`): a directory, or `memory://` for a
+ * throwaway in-memory database (tests). Null: no database, the app serves the
+ * demo fixtures from memory (dev preview, mocked e2e).
+ */
+export function dbDir(): string | null {
+  const dir = process.env.DESKA_DB_DIR;
+  return dir && dir.trim() ? dir.trim() : null;
 }
 
-/** The shared pool, for code that needs one dedicated client (the sync lock). */
-export function getPool(): Pool {
-  const url = databaseUrl();
-  if (!url) throw new Error("DATABASE_URL is not configured");
-  // Pool and client are created and torn down together, so checking one is
-  // enough: the old `!pool || !client` could build a second Pool over the
-  // first without ending it, leaking its connections.
-  if (!pool) {
-    const created = new Pool({ connectionString: url, ...poolConfig() });
-    // pg emits 'error' on the pool when an idle connection drops (a Postgres
-    // restart, or a managed host such as Neon closing idle sockets). With no
-    // listener Node treats it as an uncaught exception and the long-running
-    // worker exits; the pool replaces the connection on the next query.
-    created.on("error", (e) => console.error(`postgres pool: idle client error: ${e.message}`));
-    pool = created;
-    client = drizzle(created, { schema });
+function instance(): Instance {
+  const dir = dbDir();
+  if (!dir) throw new Error("DESKA_DB_DIR is not configured");
+  const cur = g[KEY];
+  if (cur && cur.dir === dir) return cur;
+  if (cur) throw new Error("the database directory changed while it was open; call closeDb() first");
+  const pg = new PGlite(dir, { extensions: { pg_trgm } });
+  const logger = { logQuery: (q: string) => listeners().forEach((l) => l(q)) };
+  const created: Instance = { dir, pg, db: drizzle(pg, { schema, logger }) };
+  g[KEY] = created;
+  return created;
+}
+
+export function getDb(): Db {
+  return instance().db;
+}
+
+/** The raw PGlite client, for code that needs plain SQL outside Drizzle. */
+export function getPglite(): PGlite {
+  return instance().pg;
+}
+
+/**
+ * The migrations folder: `DESKA_MIGRATIONS_DIR`, else `drizzle/` in the working
+ * directory (the repo in dev and tests, the server folder in the desktop app).
+ */
+export function migrationsDir(): string {
+  const dir = process.env.DESKA_MIGRATIONS_DIR?.trim() || path.join(process.cwd(), "drizzle");
+  if (!existsSync(path.join(dir, "meta", "_journal.json"))) throw new Error(`no migrations found in ${dir}`);
+  return dir;
+}
+
+/**
+ * Apply pending migrations, once per process (later calls share the first).
+ * The baseline creates `pg_trgm`, which PGlite ships as a bundled extension.
+ */
+export function ensureMigrated(): Promise<void> {
+  const inst = instance();
+  if (!inst.migrated) {
+    const p = migrate(inst.db, { migrationsFolder: migrationsDir() });
+    // A failed run is not remembered: the next call tries again.
+    p.catch(() => {
+      if (inst.migrated === p) inst.migrated = undefined;
+    });
+    inst.migrated = p;
   }
-  return pool;
+  return inst.migrated;
 }
 
 export async function closeDb(): Promise<void> {
-  await pool?.end();
-  pool = undefined;
-  client = undefined;
+  const cur = g[KEY];
+  g[KEY] = undefined;
+  if (cur && !cur.pg.closed) await cur.pg.close();
 }
