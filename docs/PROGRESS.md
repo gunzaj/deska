@@ -6,7 +6,7 @@
 | D1 | done | [#2](https://github.com/gunzaj/deska/pull/2) | Token probe + security doc |
 | D2 | done | [#3](https://github.com/gunzaj/deska/pull/3) | Electron shell, §2.2 hardening, PGlite, unsigned universal .dmg |
 | D3 | done | [#4](https://github.com/gunzaj/deska/pull/4) | Auth server removed; PAT owner is the local user; onboarding step 1, Settings, §3.3 token states |
-| D4 | todo | | |
+| D4 | done | [#5](https://github.com/gunzaj/deska/pull/5) | Onboarding step 2, Settings remap, mapping by field ID, dimensions (`dim:<fieldId>`) everywhere |
 | D5 | todo | | |
 | D6 | todo | | |
 | D7 | todo | | |
@@ -56,6 +56,17 @@
 - D3: The test-only identity (`E2E_AUTH_BYPASS` + `x-e2e-login`) stays for e2e and the `pnpm dev` preview, without an allowlist. Multi-user task tests keep working until D7. The tasks "blocked" access state is gone with the allowlist.
 - D3: `scripts/probe-pat.ts` and `sync:full --live` still read `GITHUB_TOKEN`: they are maintainer CLI tools, not the app. `docs/security.md` says so. The `users` table stays (without `token_enc`) until D7.
 - D3: `drainLeftovers` (cron/worker outbox drain) was removed with its callers. W0 builds the in-process outbox.
+- D4: Settings live in a new `app_settings` table (`github.target`, `project.mapping`), separate from `sync_state`, so a future "Reset GitHub cache" can't lose them. The token check, links, "Sync now", the outbox's re-read and the write client use the stored target; `GITHUB_REPO` / `GITHUB_ORG` / `GITHUB_PROJECT_NUMBER` remain a fallback for tests, dev and the CLI tools. The write client's pinned node ID is the stored one (env `GITHUB_PROJECT_ID` only as fallback).
+- D4: Sync stores every single-select **and iteration** value of a project item by field ID in `project_item_dims` (besides the Status/Priority/Sprint columns). A remap re-reads those columns from it in SQL: no new scan, no F0 change recorded. Changes to these values are recorded as `dim:<fieldId>` (Status/Priority changes thus appear twice in history; the watchlist shows only mapped dimensions).
+- D4: Without a stored mapping (tests, the dev preview, the mocked e2e server) the app runs on the suggestion: Status/Priority/Sprint by name words and type (Sprint falls back to the only iteration field), every other single-select as a dimension, Priority order guessed from option names (highest-first when unclear). `PROJECT_<ROLE>_FIELD` env vars still override for tests.
+- D4: The desktop app redirects to `/onboarding?step=2` until a target and a mapping are stored. Choosing a project re-reads it from GitHub (read-only client), pins its node ID and imports its full field list into the cache. "Reload fields" refuses if the project number now resolves to another node ID.
+- D4: A field missing from a complete field list gets `project_fields.missing_at` (never deleted) and comes back when listed again. The UI shows "Missing field — remap" in Settings, an app banner, the issue panel and the Sprint pages; a missing dimension drops out of filters/grouping/board options.
+- D4: The "first mapped dimension" plays the predecessor's Team role: "Needs triage" = no Priority or no value in it, triage key `T`, planning load, the sidebar section (route kept as `/teams/[id]`, now any dimension option), palette. `user_prefs.default_team` now holds the "My default" option of any mapped dimension (column name kept to avoid a migration; D11 adds the visible chip work).
+- D4: Without a Sprint field (or with it deleted) Backlog, Releases, planning, release filters/grouping/sort/columns, the two sprint triage queues, the release seed view and palette entries are hidden; `/backlog` and `/releases*` show "No Sprint field mapped". The role is called Sprint in the mapping; the UI elsewhere still says "Release" (D10 reworks the sprint view).
+- D4: The seed view "Core current Release board" (the hardcoded Team name lookup) is gone; "Current Release by <first dimension>" replaces "Current Release by Team". Migration 0002 rewrites saved views' `team`/`platform` keys to `dim:<fieldId>` using the old automatic map, then drops `sync_state.fields.map`.
+- D4: "Status options that also count as done" are stored in the mapping and sent as `meta.mapping.doneStatusIds`; nothing counts them yet (D10's sprint header will).
+- D4: Fixture project "Ops Board" (`lib/demo/fixtures-alt.ts`, IDs added to the node-ID allowlist) with differently named fields; `DESKA_DEMO_SEED` / `DEMO_DATASET` accept `alt` and `alt-no-sprint`, and Electron main passes those through. The Electron smoke test now goes through step 2 against a mock that lists projects and serves their fields.
+- D4: Locally, electron-builder must run with TMPDIR in a folder with no `pnpm-workspace.yaml` above it (a fresh dir under the system temp folder is not enough because the temp folder itself has stray pnpm files); the session scratchpad worked.
 
 ## Maintainer to-do
 - [ ] Create a **read-only** fine-grained PAT: resource owner = the org, repository access = only the one repo; Repository → Metadata: Read, Repository → Issues: Read, Organization → Projects: Read, Organization → Issue types: Read (optional); nothing else. Then run the probe (report lands in `private/findings/`):
@@ -63,7 +74,7 @@
   read -rs GITHUB_TOKEN && export GITHUB_TOKEN
   GITHUB_REPO=<owner>/<repo> GITHUB_ORG=<org> GITHUB_PROJECT_NUMBER=<n> pnpm probe:pat
   ```
-- [ ] Try the D2 build on your Mac: `pnpm desktop:build`, then open `release/Deska-0.0.0-universal.dmg`. The app is unsigned, so the first time, right-click Deska.app → Open (or allow it under System Settings → Privacy & Security). Since D3 it opens on "Connect GitHub": paste a read-only fine-grained PAT (see the first item). The issue list still shows the fictional sample data until D5.
+- [ ] Try the D2 build on your Mac: `pnpm desktop:build`, then open `release/Deska-0.0.0-universal.dmg`. The app is unsigned, so the first time, right-click Deska.app → Open (or allow it under System Settings → Privacy & Security). Since D3 it opens on "Connect GitHub": paste a read-only fine-grained PAT (see the first item). The issue list still shows the fictional sample data until D5. Since D4, after the token it asks for the repository and project (step 2) and lets you map the fields; try it against your real project with the read-only PAT (reads only), and check Settings → Project and fields.
 - [ ] Optional: add a `.env.example` if you want one (the agent could not write `.env.*` files). Use only fictional values.
 
 ## Blockers
