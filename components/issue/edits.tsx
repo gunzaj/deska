@@ -8,6 +8,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { EDITING_OFF, editRequest, wirePatch, type EditField } from "@/lib/client/edit";
 import { isUnauthorized } from "@/lib/client/session";
+import { dimFieldId, isDimKey } from "@/lib/sync/field-map";
 import { usePoll } from "@/lib/client/poll";
 import type { ClientIssue, ClientMeta } from "@/lib/client/types";
 import { useAppData } from "../app/provider";
@@ -50,11 +51,10 @@ const POLL_MS = 10_000;
 export function valueText(meta: ClientMeta, field: EditField, v: unknown): string {
   if (v == null || v === "") return "empty";
   const id = String(v);
+  if (isDimKey(field)) return meta.dimensions.find((d) => d.id === dimFieldId(field))?.options.find((o) => o.id === id)?.name ?? "missing option";
   switch (field) {
     case "status":
     case "priority":
-    case "team":
-    case "platform":
       return meta.fields[field].find((o) => o.id === id)?.name ?? "missing option";
     case "release":
       return meta.releases.find((r) => r.id === id)?.title ?? "missing release";

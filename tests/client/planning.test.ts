@@ -16,7 +16,7 @@ async function demo() {
 }
 
 describe("release planning (F1)", () => {
-  it("counts match the explorer filtered the same way: per Release, per Team, per assignee", async () => {
+  it("counts match the explorer filtered the same way: per Release, per first dimension, per assignee", async () => {
     const data = await demo();
     const { meta, issues } = data;
     const release = meta.releases.find((r) => r.id === meta.currentReleaseId)!;
@@ -26,8 +26,9 @@ describe("release planning (F1)", () => {
     expect(load.open).toBe(inRelease.filter((i) => i.state === "open").length);
     expect(load.closed).toBe(inRelease.filter((i) => i.state === "closed").length);
     expect(load.total).toBeGreaterThan(0);
-    for (const row of load.byTeam.filter((r) => r.key !== "__none")) {
-      const rows = runExplorer(issues, [{ field: "release", op: "in", values: [release.id] }, { field: "team", op: "in", values: [row.key] }], [], meta);
+    expect(load.byDim.length).toBeGreaterThan(0);
+    for (const row of load.byDim.filter((r) => r.key !== "__none")) {
+      const rows = runExplorer(issues, [{ field: "release", op: "in", values: [release.id] }, { field: meta.dimensions[0]!.key, op: "in", values: [row.key] }], [], meta);
       expect([row.open, row.closed]).toEqual([rows.filter((i) => i.state === "open").length, rows.filter((i) => i.state === "closed").length]);
     }
     for (const row of load.byAssignee) {

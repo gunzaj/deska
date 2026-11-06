@@ -2,7 +2,26 @@
 // org project (SPEC §0.2). Every ID here is made up; tests/repo/node-ids.test.ts
 // keeps real GitHub node IDs out of the repo. Used by the explicit demo store
 // (DEMO_DATASET=fixtures) and tests.
-import type { FullSnapshot, SnapshotPullRequest } from "@/lib/sync/types";
+import type { FullSnapshot, SnapshotProjectItem, SnapshotPullRequest } from "@/lib/sync/types";
+
+/**
+ * A project item as GitHub's scan reports it: the mapped Status, Priority and
+ * Sprint values, and every single-select value by field ID in `dims`.
+ */
+export function projectItem(
+  p: Pick<SnapshotProjectItem, "itemId" | "issueNodeId" | "statusOpt" | "priorityOpt" | "releaseIter">,
+  fields: { status: string; priority: string },
+  extra: Record<string, string | null> = {},
+): SnapshotProjectItem {
+  const dims: Record<string, string> = {};
+  if (p.statusOpt) dims[fields.status] = p.statusOpt;
+  if (p.priorityOpt) dims[fields.priority] = p.priorityOpt;
+  for (const [fieldId, opt] of Object.entries(extra)) if (opt) dims[fieldId] = opt;
+  return { ...p, ...(Object.keys(dims).length ? { dims } : {}) };
+}
+
+const FIELDS = { status: "PVTSSF_acme_status", priority: "PVTSSF_acme_priority" };
+const TEAM = "PVTSSF_acme_team";
 
 const DAY = 86_400_000;
 const isoDay = (ms: number) => new Date(ms).toISOString().slice(0, 10);
@@ -153,9 +172,9 @@ export function fixtureSnapshot(now = new Date()): FullSnapshot {
       },
     ],
     projectItems: [
-      { itemId: "PVTI_1", issueNodeId: "I_epic", statusOpt: "a0000001", priorityOpt: "b0000003", teamOpt: "c0000001", platformOpt: null, releaseIter: "e0000023" },
-      { itemId: "PVTI_2", issueNodeId: "I_sub", statusOpt: "a0000002", priorityOpt: "b0000002", teamOpt: "c0000001", platformOpt: null, releaseIter: null },
-      { itemId: "PVTI_3", issueNodeId: "I_bug", statusOpt: null, priorityOpt: null, teamOpt: null, platformOpt: null, releaseIter: null },
+      projectItem({ itemId: "PVTI_1", issueNodeId: "I_epic", statusOpt: "a0000001", priorityOpt: "b0000003", releaseIter: "e0000023" }, FIELDS, { [TEAM]: "c0000001" }),
+      projectItem({ itemId: "PVTI_2", issueNodeId: "I_sub", statusOpt: "a0000002", priorityOpt: "b0000002", releaseIter: null }, FIELDS, { [TEAM]: "c0000001" }),
+      projectItem({ itemId: "PVTI_3", issueNodeId: "I_bug", statusOpt: null, priorityOpt: null, releaseIter: null }, FIELDS),
     ],
     // PR lens (SPEC §13). #103 is also in `issues` as the REST change check
     // sees it (isPullRequest), and is excluded there.

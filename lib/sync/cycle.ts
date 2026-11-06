@@ -4,9 +4,10 @@
 // issue's updated_at, so without the scan they never reach the cache — which
 // is what happened on Vercel, where only the issue poll ran.
 import { randomUUID } from "node:crypto";
-import { refreshFieldMap, type ProjectFieldMap } from "./field-map";
+import type { ProjectFieldMap } from "./field-map";
 import { importFull, type ImportStore } from "./import";
 import { redactError } from "./health";
+import { currentFieldMap } from "./runtime";
 import { isRateLimited, pollOnce, type Kv, type PollResult, type SyncSource } from "./poll";
 import { isRateLimitError, retryAfterMs, type GitHubSource } from "./source-github";
 import { partialSnapshot } from "./types";
@@ -26,15 +27,13 @@ export type CycleSource = SyncSource &
   Pick<GitHubSource, "scanProjectItems" | "scanOpenPullRequests" | "teamMembers"> & { useFields?(map: ProjectFieldMap): void };
 
 /**
- * Discover the field map once per cycle: resolve it from the stored fields
- * (pinned IDs survive a rename), store it in sync_state when it changed, and
- * hand it to the source. A store that cannot list fields leaves the source's
- * map as it was.
+ * Hand the source the field mapping once per cycle (§4.1): the confirmed one
+ * from settings, by field ID (a rename is followed), or the suggestion before
+ * there is one. A store that cannot list fields leaves the source's map as it was.
  */
-export async function refreshSourceFields(source: { useFields?(map: ProjectFieldMap): void }, store: ImportStore, kv: Kv): Promise<ProjectFieldMap | null> {
-  const fields = await store.listFields?.();
-  if (!fields) return null;
-  const map = refreshFieldMap(kv, fields);
+export async function refreshSourceFields(source: { useFields?(map: ProjectFieldMap): void }, store: ImportStore, _kv?: Kv): Promise<ProjectFieldMap | null> {
+  if (!store.listFields) return null;
+  const map = await currentFieldMap(store);
   source.useFields?.(map);
   return map;
 }

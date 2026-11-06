@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
-import { encodeState } from "@/lib/client/explorer";
+import { encodeState, primaryDimension, sprintOn } from "@/lib/client/explorer";
 import { plainName } from "@/lib/client/format";
 import { PRESETS } from "@/lib/client/presets";
 import { newIssueUrl, searchPrs, searchTasks } from "@/lib/client/palette";
@@ -153,11 +153,12 @@ export function CommandPalette() {
       icon: ico(v.layout === "board" ? "board" : v.layout === "table" ? "table" : "list"),
       run: go(`/views/${v.id}`),
     }));
-    const teams: Item[] = meta.fields.team.map((t) => ({
-      id: `team:${t.id}`,
-      section: "Teams",
+    const dim = primaryDimension(meta);
+    const teams: Item[] = (dim?.options ?? []).map((t) => ({
+      id: `dim:${t.id}`,
+      section: dim!.name,
       label: plainName(t.name) || t.name,
-      keywords: "team",
+      keywords: dim!.name.toLowerCase(),
       icon: <OptionDot color={t.color} />,
       run: go(`/teams/${t.id}`),
     }));
@@ -202,7 +203,10 @@ export function CommandPalette() {
         run: () => window.open(`https://github.com/${meta.repo}/issues`, "_blank", "noopener"),
       },
     ];
-    return [...nav, ...viewItems, ...actions, ...teams, ...releases];
+    // Sprint features show only with a mapped Sprint field (§4.1).
+    const sprints = sprintOn(meta);
+    const sprintNav = new Set(["nav:backlog", "nav:cur", "nav:next", "nav:plan", "nav:releases"]);
+    return [...nav.filter((n) => sprints || !sprintNav.has(n.id)), ...viewItems, ...actions, ...teams, ...(sprints ? releases : [])];
   }, [data, views, theme, openCompose, go, setTheme, syncNow]);
 
   const targetActions = useMemo<Item[]>(() => {

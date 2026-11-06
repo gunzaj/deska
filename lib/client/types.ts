@@ -23,7 +23,36 @@ export type ClientIssue = ViewRow & {
   subClosed: number;
 };
 
-export type SingleSelectKey = "status" | "priority" | "team" | "platform";
+/** The single-select roles (§4.1). Dimensions are keyed `dim:<fieldId>`. */
+export type SingleSelectKey = "status" | "priority";
+export type DimKey = `dim:${string}`;
+
+/** A mapped dimension (§4.1): any other single-select, by field ID, with its current name. */
+export type ClientDimension = {
+  /** The project field's ID. */
+  id: string;
+  /** `dim:<fieldId>`: its key in filters, grouping, board columns and edits. */
+  key: DimKey;
+  name: string;
+  options: ClientOption[];
+  /** The field was deleted on GitHub: "Missing field — remap". */
+  missing: boolean;
+};
+
+/** A mapped field as the browser sees it. */
+export type ClientMappedField = { id: string; name: string; missing: boolean };
+
+/** The field mapping (§4.1) the payload was built with. */
+export type ClientMapping = {
+  status: ClientMappedField | null;
+  priority: ClientMappedField | null;
+  /** Null: no Sprint field mapped, so sprint features are hidden. */
+  sprint: ClientMappedField | null;
+  /** Mapped fields the project no longer has. */
+  missing: { role: string; id: string; name: string }[];
+  /** Status options that also count as done (§4.5). */
+  doneStatusIds: string[];
+};
 
 export type ClientMeta = {
   repo: string;
@@ -36,7 +65,11 @@ export type ClientMeta = {
   demo: boolean;
   generatedAt: string;
   today: string; // YYYY-MM-DD, server clock
+  /** Status in project order; Priority always lowest to highest (the mapping's setting is applied). */
   fields: Record<SingleSelectKey, ClientOption[]>;
+  /** Mapped dimensions, in the mapping's order. */
+  dimensions: ClientDimension[];
+  mapping: ClientMapping;
   releases: ClientRelease[]; // ascending by start date
   currentReleaseId: string | null;
   nextReleaseId: string | null;
@@ -61,8 +94,8 @@ export type WireIssue = {
   sr?: string; // state reason
   st?: string;
   pr?: string;
-  tm?: string;
-  pl?: string;
+  /** Dimension values: field ID -> option ID. */
+  dm?: Record<string, string>;
   rl?: string;
   ty?: string;
   ms?: string;

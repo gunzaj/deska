@@ -136,6 +136,8 @@ export const projectFields = pgTable("project_fields", {
   name: text("name").notNull(),
   dataType: text("data_type").notNull(),
   position: integer("position"),
+  /** Set when GitHub stops listing the field (deleted): a mapping to it shows "Missing field — remap" (§4.1). */
+  missingAt: timestamp("missing_at"),
 });
 
 // Options and iterations GitHub stops returning are never deleted (S6): they
@@ -171,10 +173,10 @@ export const projectItems = pgTable(
     issueId: uuid("issue_id")
       .notNull()
       .references(() => issues.id, { onDelete: "cascade" }),
+    // The values of the fields mapped to Status, Priority and Sprint (§4.1).
+    // Every single-select value, by field ID, is in project_item_dims.
     statusOpt: text("status_opt"),
     priorityOpt: text("priority_opt"),
-    teamOpt: text("team_opt"),
-    platformOpt: text("platform_opt"),
     releaseIter: text("release_iter"),
     updatedAt: timestamp("updated_at"),
     syncedAt: timestamp("synced_at"),
@@ -183,9 +185,25 @@ export const projectItems = pgTable(
     // One item per issue (S7): sync keeps the most recently updated one.
     uniqueIndex("project_items_issue_uniq").on(t.issueId),
     index("project_items_release_idx").on(t.releaseIter),
-    index("project_items_team_idx").on(t.teamOpt),
     index("project_items_priority_idx").on(t.priorityOpt),
   ],
+);
+
+/**
+ * Single-select values of a project item, keyed by field ID (§4.1): what
+ * dimensions (and a remapped Status or Priority) read, whatever the fields
+ * are called.
+ */
+export const projectItemDims = pgTable(
+  "project_item_dims",
+  {
+    itemId: uuid("item_id")
+      .notNull()
+      .references(() => projectItems.id, { onDelete: "cascade" }),
+    fieldId: text("field_id").notNull(),
+    optionId: text("option_id").notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.itemId, t.fieldId] }), index("project_item_dims_field_idx").on(t.fieldId, t.optionId)],
 );
 
 // Project items seen by the in-progress project scan (S4). A scan runs
@@ -256,6 +274,16 @@ export const outbox = pgTable(
     index("outbox_user_status_idx").on(t.userId, t.status),
   ],
 );
+
+/**
+ * Local, non-secret settings (SPEC §2.4): the GitHub target (repo, org,
+ * project number and pinned node ID) and the field mapping. Never the token.
+ */
+export const appSettings = pgTable("app_settings", {
+  key: text("key").primaryKey(),
+  value: jsonb("value").notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
 
 export const syncState = pgTable("sync_state", {
   key: text("key").primaryKey(),
@@ -468,7 +496,7 @@ export const userPrefs = pgTable("user_prefs", {
   browserNotifications: boolean("browser_notifications").notNull().default(false),
   /** Section order and hidden sections; null = default sidebar. */
   sidebar: jsonb("sidebar").$type<SidebarLayout>(),
-  /** The Team option ID every list and Insights filter by by default; null = no default. */
+  /** A dimension option ID every list and Insights filter by by default ("My default", §4.1); null = no default. */
   defaultTeam: text("default_team"),
 });
 

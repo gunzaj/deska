@@ -1,23 +1,27 @@
 // Insights (IMPROVEMENTS F4): the numbers behind the page, scoped to the whole
-// repo, a Team, a Release or any saved view. Pure, so a scope's counts can be
+// repo, a dimension value (e.g. one team), a Release or any saved view. Pure, so a scope's counts can be
 // tested against the explorer filtered the same way.
 import type { Filter, View } from "../views/view";
+import { dimKey } from "../sync/field-map";
 import { runExplorer } from "./explorer";
 import type { ClientIssue, ClientMeta, ClientPr } from "./types";
 
 const DAY = 86_400_000;
 
-export type Scope = { kind: "all" } | { kind: "team" | "release" | "view"; id: string };
+export type Scope = { kind: "all" } | { kind: "release" | "view"; id: string } | { kind: "dim"; field: string; id: string };
 export const ALL_SCOPE: Scope = { kind: "all" };
 
-/** `team:<option id>`, `release:<iteration id>`, `view:<view id>`; anything else is the whole repo. */
+/** `dim:<field id>:<option id>`, `release:<iteration id>`, `view:<view id>`; anything else is the whole repo. */
 export function parseScope(raw: string | null | undefined): Scope {
-  const m = /^(team|release|view):(.+)$/.exec(raw ?? "");
-  return m ? { kind: m[1] as "team" | "release" | "view", id: m[2]! } : ALL_SCOPE;
+  const d = /^dim:([^:]+):(.+)$/.exec(raw ?? "");
+  if (d) return { kind: "dim", field: d[1]!, id: d[2]! };
+  const m = /^(release|view):(.+)$/.exec(raw ?? "");
+  return m ? { kind: m[1] as "release" | "view", id: m[2]! } : ALL_SCOPE;
 }
 
 export function scopeParam(s: Scope): string | null {
-  return s.kind === "all" ? null : `${s.kind}:${s.id}`;
+  if (s.kind === "all") return null;
+  return s.kind === "dim" ? `dim:${s.field}:${s.id}` : `${s.kind}:${s.id}`;
 }
 
 /** The filters a scope means. A saved view runs its filters and ignores its layout and sort. Null: a view that doesn't exist (any more). */
@@ -25,8 +29,8 @@ export function scopeFilters(s: Scope, views: Pick<View, "id" | "filters" | "ent
   switch (s.kind) {
     case "all":
       return [];
-    case "team":
-      return [{ field: "team", op: "in", values: [s.id] }];
+    case "dim":
+      return [{ field: dimKey(s.field), op: "in", values: [s.id] }];
     case "release":
       return [{ field: "release", op: "in", values: [s.id] }];
     case "view": {
@@ -68,7 +72,8 @@ export function insightStats(issues: ClientIssue[], meta: ClientMeta, triageBase
     stale: open.filter((i) => age(i.updatedAt) > 90).length,
     created30: issues.filter((i) => age(i.createdAt) <= 30).length,
     closed30: issues.filter((i) => i.closedAt && age(i.closedAt) <= 30).length,
-    byTeam: count(open, (i) => [i.teamId ?? "∅"]),
+    /** Open issues per value, for each mapped dimension (by field ID). */
+    byDim: new Map(meta.dimensions.map((d) => [d.id, count(open, (i) => [i.dims[d.id]?.id ?? "∅"])])),
     byPriority: count(open, (i) => [i.priorityId ?? "∅"]),
     byType: count(open, (i) => [i.typeId ?? "∅"]),
     byAssignee: count(open, (i) => (i.assignees.length ? i.assignees : ["∅"])),

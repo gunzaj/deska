@@ -1,6 +1,7 @@
 import { importFull } from "@/lib/sync/import";
 import { MemoryStore } from "@/lib/sync/store-memory";
 import { fixtureSnapshot } from "./fixtures";
+import { altFixtureSnapshot } from "./fixtures-alt";
 import { demoSnapshot } from "./generate";
 
 let demo: Promise<MemoryStore> | null = null;
@@ -13,7 +14,8 @@ let demo: Promise<MemoryStore> | null = null;
 export function getDemoStore(): Promise<MemoryStore> {
   if (!demo) {
     const store = new MemoryStore();
-    const snapshot = process.env.DEMO_DATASET === "fixtures" ? fixtureSnapshot() : demoSnapshot();
+    const set = process.env.DEMO_DATASET;
+    const snapshot = set === "fixtures" ? fixtureSnapshot() : set === "alt" || set === "alt-no-sprint" ? altFixtureSnapshot({ sprint: set === "alt" }) : demoSnapshot();
     // Forget a failed import so the next request retries instead of
     // rethrowing the same rejection for the life of the process.
     demo = importFull(snapshot, store).then(

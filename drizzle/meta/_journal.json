@@ -15,6 +15,13 @@
       "when": 1793984757180,
       "tag": "0001_drop_token_enc",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1793986484728,
+      "tag": "0002_dimensions",
+      "breakpoints": true
     }
   ]
 }

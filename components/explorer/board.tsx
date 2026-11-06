@@ -81,11 +81,10 @@ function CardBody({ issue, field, props }: { issue: ClientIssue; field: BoardFie
         {field !== "priority" && has("priority") && c.priority(issue)}
         {has("subissues") && c.subissues(issue)}
         {field !== "release" && has("release") && c.release(issue)}
-        {field !== "team" && has("team") && c.team(issue)}
+        {c.dims(issue, props, field)}
         {has("parent") && c.parent(issue)}
         {has("labels") && c.labels(issue, 2)}
         {field !== "type" && has("type") && c.type(issue)}
-        {field !== "platform" && has("platform") && c.platform(issue)}
       </div>
     </>
   );

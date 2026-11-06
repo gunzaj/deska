@@ -6,7 +6,7 @@ const readSnapshot = vi.hoisted(() => vi.fn());
 vi.mock("@/lib/sync/store-postgres", () => ({ readSnapshot }));
 // The read cache keys on the sync generation (S5); a constant one here.
 vi.mock("@/lib/sync/generation", () => ({ readGeneration: async () => "1" }));
-vi.mock("@/lib/sync/runtime", () => ({ readStoredFieldMap: async () => null }));
+vi.mock("@/lib/settings", () => ({ readMapping: async () => null }));
 
 const { getStore, invalidateReadCache } = await import("@/lib/store");
 

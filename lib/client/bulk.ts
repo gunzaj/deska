@@ -1,20 +1,24 @@
 // Bulk edit (IMPROVEMENTS W4): one change applied to many issues, one outbox
 // row per issue. Pure, so the per-issue edits and wording are unit-tested.
 import { needsBulkConfirm } from "../outbox/queue";
+import { dimFieldId, isDimKey } from "../sync/field-map";
 import type { EditField } from "./edit";
-import type { ClientIssue } from "./types";
+import type { ClientIssue, DimKey } from "./types";
 
-export type BulkSetField = "status" | "priority" | "team" | "platform" | "release";
+export type BulkSetField = "status" | "priority" | "release" | DimKey;
 
 export type BulkChange =
-  | { kind: "set"; field: BulkSetField; value: string | null; valueLabel: string }
+  /** `fieldLabel`: a dimension's name (fixed fields have their own). */
+  | { kind: "set"; field: BulkSetField; value: string | null; valueLabel: string; fieldLabel?: string }
   | { kind: "label"; op: "add" | "remove"; id: string; name: string }
   | { kind: "assignee"; op: "add" | "remove"; login: string };
 
-const FIELD_LABEL: Record<BulkSetField, string> = { status: "Status", priority: "Priority", team: "Team", platform: "Platform", release: "Release" };
+const FIELD_LABEL: Record<Exclude<BulkSetField, DimKey>, string> = { status: "Status", priority: "Priority", release: "Release" };
+const labelOf = (c: { field: BulkSetField; fieldLabel?: string }) => c.fieldLabel ?? (isDimKey(c.field) ? "field" : FIELD_LABEL[c.field as Exclude<BulkSetField, DimKey>]);
 
 function current(issue: ClientIssue, field: BulkSetField): string | null {
-  return field === "status" ? issue.statusId : field === "priority" ? issue.priorityId : field === "team" ? issue.teamId : field === "platform" ? issue.platformId : issue.releaseId;
+  if (isDimKey(field)) return issue.dims[dimFieldId(field)]?.id ?? null;
+  return field === "status" ? issue.statusId : field === "priority" ? issue.priorityId : issue.releaseId;
 }
 
 /** The edit `change` means for one issue, or null when it already holds it. */
@@ -39,7 +43,7 @@ export function bulkEdit(issue: ClientIssue, change: BulkChange): { field: EditF
 export function describeChange(change: BulkChange): string {
   switch (change.kind) {
     case "set":
-      return change.value == null ? `Clear ${FIELD_LABEL[change.field]}` : `Set ${FIELD_LABEL[change.field]} to ${change.valueLabel}`;
+      return change.value == null ? `Clear ${labelOf(change)}` : `Set ${labelOf(change)} to ${change.valueLabel}`;
     case "label":
       return `${change.op === "add" ? "Add" : "Remove"} label “${change.name}”`;
     case "assignee":

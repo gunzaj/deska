@@ -11,7 +11,7 @@ import type { ClientData, ClientIssue, ClientMeta, WireData, WireIssue } from ".
 let cache: { meta: string; rows: WeakMap<WireIssue, ClientIssue> } | null = null;
 
 function metaKey(meta: ClientMeta): string {
-  return JSON.stringify([meta.repo, meta.fields, meta.releases, meta.issueTypes, meta.labels, meta.milestones]);
+  return JSON.stringify([meta.repo, meta.fields, meta.dimensions, meta.releases, meta.issueTypes, meta.labels, meta.milestones]);
 }
 
 /** Rebuild full rows (names, ranks, parent titles, sub-issue counts) from the wire format. */
@@ -24,6 +24,7 @@ export function hydrate(data: WireData): ClientData {
   for (const list of Object.values(meta.fields)) {
     for (const o of list) opt.set(o.id, { name: o.name, rank: o.position });
   }
+  const dimOpts = new Map(meta.dimensions.map((d) => [d.id, new Map(d.options.map((o) => [o.id, { name: o.name, rank: o.position }]))]));
   const rel = new Map(meta.releases.map((r, i) => [r.id, { name: r.title, rank: i }]));
   const types = new Map(meta.issueTypes.map((t) => [t.id, t.name]));
   const labels = new Map(meta.labels.map((l) => [l.id, l.name]));
@@ -64,12 +65,12 @@ export function hydrate(data: WireData): ClientData {
       priorityId: w.pr ?? null,
       priorityName: o(w.pr)?.name ?? null,
       priorityRank: o(w.pr)?.rank ?? null,
-      teamId: w.tm ?? null,
-      teamName: o(w.tm)?.name ?? null,
-      teamRank: o(w.tm)?.rank ?? null,
-      platformId: w.pl ?? null,
-      platformName: o(w.pl)?.name ?? null,
-      platformRank: o(w.pl)?.rank ?? null,
+      dims: Object.fromEntries(
+        Object.entries(w.dm ?? {}).map(([fieldId, id]) => {
+          const hit = dimOpts.get(fieldId)?.get(id);
+          return [fieldId, { id, name: hit?.name ?? null, rank: hit?.rank ?? null }];
+        }),
+      ),
       releaseId: w.rl ?? null,
       releaseName: w.rl ? (rel.get(w.rl)?.name ?? null) : null,
       releaseRank: w.rl ? (rel.get(w.rl)?.rank ?? null) : null,

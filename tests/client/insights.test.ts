@@ -21,18 +21,21 @@ describe("scoped Insights (F4)", () => {
   it("parses and prints the scope from the URL", () => {
     expect(parseScope(null)).toEqual({ kind: "all" });
     expect(parseScope("nonsense")).toEqual({ kind: "all" });
-    expect(parseScope("team:abc")).toEqual({ kind: "team", id: "abc" });
+    expect(parseScope("dim:F1:abc")).toEqual({ kind: "dim", field: "F1", id: "abc" });
+    expect(scopeParam(parseScope("dim:F1:abc"))).toBe("dim:F1:abc");
+    expect(parseScope("team:abc")).toEqual({ kind: "all" });
     expect(scopeParam(parseScope("release:r:1"))).toBe("release:r:1");
     expect(scopeParam({ kind: "all" })).toBeNull();
   });
 
-  it("scoped counts match the explorer filtered the same way (Team, Release, saved view)", async () => {
+  it("scoped counts match the explorer filtered the same way (dimension, Release, saved view)", async () => {
     const data = await demo();
     const { meta, issues } = data;
-    const triageBase: Filter[] = [{ field: "state", op: "in", values: ["open"] }, { field: "any", filters: [{ field: "priority", op: "empty" }, { field: "team", op: "empty" }] }];
+    const team = meta.dimensions[0]!;
+    const triageBase: Filter[] = [{ field: "state", op: "in", values: ["open"] }, { field: "any", filters: [{ field: "priority", op: "empty" }, { field: team.key, op: "empty" }] }];
     const view = { id: "v1", entity: "issue", filters: [{ field: "state", op: "in", values: ["open"] }, { field: "priority", op: "in", values: [meta.fields.priority.at(-1)!.id] }] } as Pick<View, "id" | "filters" | "entity">;
     const scopes = [
-      { scope: { kind: "team" as const, id: meta.fields.team[0]!.id }, filters: [{ field: "team", op: "in", values: [meta.fields.team[0]!.id] }] as Filter[] },
+      { scope: { kind: "dim" as const, field: team.id, id: team.options[0]!.id }, filters: [{ field: team.key, op: "in", values: [team.options[0]!.id] }] as Filter[] },
       { scope: { kind: "release" as const, id: meta.currentReleaseId! }, filters: [{ field: "release", op: "in", values: [meta.currentReleaseId!] }] as Filter[] },
       { scope: { kind: "view" as const, id: "v1" }, filters: view.filters },
     ];

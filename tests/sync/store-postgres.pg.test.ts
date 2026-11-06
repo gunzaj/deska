@@ -42,12 +42,13 @@ describe("PostgresStore round-trip", () => {
     expect(epic?.assigneeIds).toEqual(["U_1"]);
   });
 
-  it("keeps project field values (Status/Priority/Team/Release)", async () => {
+  it("keeps project field values (Status/Priority/Release and dimensions by field ID)", async () => {
     const snapshot = await readSnapshot();
     const epic = snapshot.projectItems.find((p) => p.issueNodeId === "I_epic");
     expect(epic?.statusOpt).toBe("a0000001");
     expect(epic?.priorityOpt).toBe("b0000003");
-    expect(epic?.teamOpt).toBe("c0000001");
+    expect(epic?.dims?.PVTSSF_acme_team).toBe("c0000001");
+    expect(epic?.dims?.PVTSSF_acme_status).toBe("a0000001");
     expect(epic?.releaseIter).toBe("e0000023");
   });
 
@@ -80,8 +81,8 @@ describe("PostgresStore round-trip", () => {
         ...fixtureSnapshot(),
         fields: [], issueTypes: [], labels: [], milestones: [], ghUsers: [], issues: [],
         projectItems: [
-          { itemId: "PVTI_foreign", issueNodeId: "I_other_repo", statusOpt: null, priorityOpt: null, teamOpt: null, platformOpt: null, releaseIter: null },
-          { itemId: "PVTI_3", issueNodeId: "I_bug", statusOpt: "a0000002", priorityOpt: null, teamOpt: null, platformOpt: null, releaseIter: null },
+          { itemId: "PVTI_foreign", issueNodeId: "I_other_repo", statusOpt: null, priorityOpt: null, releaseIter: null },
+          { itemId: "PVTI_3", issueNodeId: "I_bug", statusOpt: "a0000002", priorityOpt: null, releaseIter: null },
         ],
       },
       store,

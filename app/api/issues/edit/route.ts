@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { moveCard } from "@/lib/board/board";
-import { submitEdit } from "@/lib/outbox/edit";
+import { dimKeySchema, submitEdit } from "@/lib/outbox/edit";
 import { HttpError, route } from "@/lib/server/route";
 import { invalidateReadCache } from "@/lib/store";
 import { needsBulkConfirm } from "@/lib/outbox/queue";
@@ -14,7 +14,7 @@ const boardBody = z
     issueCount: z.number().int().positive().optional(),
     card: z.string().min(1).max(200),
     target: z.string().max(200).nullable().optional(),
-    boardField: z.enum(["status", "priority", "team", "platform"]).optional(),
+    boardField: z.union([z.enum(["status", "priority"]), dimKeySchema]).optional(),
     releaseId: z.string().max(200).nullable().optional(),
     idempotencyKey: z.string().min(8).max(100).optional(),
   })

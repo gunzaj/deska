@@ -9,6 +9,7 @@ import { useAppData } from "../app/provider";
 import { Explorer } from "../explorer/explorer";
 import { Icon } from "../icons";
 import { OptionDot } from "../props";
+import { SprintGate } from "./no-sprint";
 
 const ME: Filter[] = [{ field: "assignee", op: "in", values: ["me"] }];
 const NO_RELEASE: Filter[] = [{ field: "release", op: "empty" }];
@@ -33,21 +34,25 @@ export function AllIssuesPage() {
 
 export function BacklogPage() {
   return (
-    <Explorer
-      title="Backlog"
-      icon={<Icon name="list" size={15} />}
-      base={NO_RELEASE}
-      defaults={PRESETS.backlog}
-      emptyTitle="Backlog is empty"
-      emptyHint="Every open issue is planned into a Release."
-    />
+    <SprintGate title="Backlog">
+      <Explorer
+        title="Backlog"
+        icon={<Icon name="list" size={15} />}
+        base={NO_RELEASE}
+        defaults={PRESETS.backlog}
+        emptyTitle="Backlog is empty"
+        emptyHint="Every open issue is planned into a Release."
+      />
+    </SprintGate>
   );
 }
 
-export function TeamPage({ id }: { id: string }) {
+/** Issues with one value of a mapped dimension (the sidebar's first-dimension links). */
+export function DimensionValuePage({ id }: { id: string }) {
   const { data } = useAppData();
-  const team = data.meta.fields.team.find((t) => t.id === id);
-  const base = useMemo<Filter[]>(() => [{ field: "team", op: "in", values: [id] }], [id]);
-  if (!team) notFound();
-  return <Explorer key={id} title={plainName(team.name) || team.name} icon={<OptionDot color={team.color} size={10} />} base={base} defaults={PRESETS.team} />;
+  const dim = data.meta.dimensions.find((d) => !d.missing && d.options.some((o) => o.id === id));
+  const option = dim?.options.find((o) => o.id === id);
+  const base = useMemo<Filter[]>(() => (dim ? [{ field: dim.key, op: "in", values: [id] }] : []), [dim, id]);
+  if (!dim || !option) notFound();
+  return <Explorer key={id} title={plainName(option.name) || option.name} icon={<OptionDot color={option.color} size={10} />} base={base} defaults={PRESETS.team} />;
 }

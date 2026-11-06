@@ -7,7 +7,9 @@
 // first, stating the count and the change (SPEC §5).
 import { useRef, useState } from "react";
 import { bulkConfirmText, bulkEdit, describeChange, type BulkChange, type BulkSetField } from "@/lib/client/bulk";
-import type { ClientIssue } from "@/lib/client/types";
+import { dimensionOf, sprintOn } from "@/lib/client/explorer";
+import { isDimKey } from "@/lib/sync/field-map";
+import type { ClientIssue, ClientMeta, DimKey } from "@/lib/client/types";
 import { useAppData } from "../app/provider";
 import { Icon, type IconName } from "../icons";
 import { useIssueEdits } from "../issue/edits";
@@ -18,19 +20,21 @@ import { useToast } from "../ui/toast";
 
 const NONE = "__none";
 
-type Menu = "status" | "priority" | "team" | "platform" | "release" | "label+" | "label-" | "assign" | "unassign";
+type Menu = "status" | "priority" | "release" | "label+" | "label-" | "assign" | "unassign" | DimKey;
 
-const MENUS: { id: Menu; label: string; icon: IconName }[] = [
-  { id: "status", label: "Status", icon: "circleDot" },
-  { id: "priority", label: "Priority", icon: "flag" },
-  { id: "team", label: "Team", icon: "users" },
-  { id: "platform", label: "Platform", icon: "monitorSmartphone" },
-  { id: "release", label: "Release", icon: "calendar" },
-  { id: "label+", label: "Add label", icon: "tag" },
-  { id: "label-", label: "Remove label", icon: "tag" },
-  { id: "assign", label: "Assign", icon: "user" },
-  { id: "unassign", label: "Unassign", icon: "user" },
-];
+/** The bulk menus: fixed fields, then one per mapped dimension; Release only with a Sprint field (§4.1). */
+function menusFor(meta: ClientMeta): { id: Menu; label: string; icon: IconName }[] {
+  return [
+    { id: "status", label: "Status", icon: "circleDot" },
+    { id: "priority", label: "Priority", icon: "flag" },
+    ...meta.dimensions.filter((d) => !d.missing).map((d) => ({ id: d.key, label: d.name, icon: "users" as IconName })),
+    ...(sprintOn(meta) ? [{ id: "release" as Menu, label: "Release", icon: "calendar" as IconName }] : []),
+    { id: "label+", label: "Add label", icon: "tag" },
+    { id: "label-", label: "Remove label", icon: "tag" },
+    { id: "assign", label: "Assign", icon: "user" },
+    { id: "unassign", label: "Unassign", icon: "user" },
+  ];
+}
 
 export function BulkBar({
   selected,
@@ -55,12 +59,18 @@ export function BulkBar({
   const [confirm, setConfirm] = useState<{ change: BulkChange; issues: ClientIssue[]; text: string } | null>(null);
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
 
+  const MENUS = menusFor(meta);
   const items = (m: Menu): PickItem[] => {
+    if (isDimKey(m)) {
+      const d = dimensionOf(meta, m);
+      return [
+        ...(d?.options ?? []).map((o) => ({ id: o.id, label: o.name, icon: <OptionDot color={o.color} /> })),
+        { id: NONE, label: `No ${d?.name ?? "value"}`, icon: <Icon name="x" size={12} className="text-faint" /> },
+      ];
+    }
     switch (m) {
       case "status":
-      case "priority":
-      case "team":
-      case "platform": {
+      case "priority": {
         const opts = meta.fields[m];
         return [
           ...opts.map((o) => ({
@@ -90,7 +100,7 @@ export function BulkBar({
     if (m === "assign" || m === "unassign") return { kind: "assignee", op: m === "assign" ? "add" : "remove", login: id };
     const value = id === NONE ? null : id;
     const valueLabel = value == null ? "" : m === "release" ? (meta.releases.find((r) => r.id === value)?.title ?? value) : (option(m as Exclude<BulkSetField, "release">, value)?.name ?? value);
-    return { kind: "set", field: m as BulkSetField, value, valueLabel };
+    return { kind: "set", field: m as BulkSetField, value, valueLabel, ...(isDimKey(m) ? { fieldLabel: dimensionOf(meta, m)?.name } : {}) };
   };
 
   const run = async (change: BulkChange, issues: ClientIssue[]) => {

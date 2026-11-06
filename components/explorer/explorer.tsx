@@ -5,7 +5,7 @@ import { EDITING_OFF } from "@/lib/client/edit";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   DEFAULT_PROPS,
-  SORT_OPTIONS,
+  sortOptions,
   CARD_PAGE,
   applyState,
   boardColumns,
@@ -20,7 +20,7 @@ import {
 } from "@/lib/client/explorer";
 import dynamic from "next/dynamic";
 import { plainName, pluralize } from "@/lib/client/format";
-import { withTeamScope } from "@/lib/client/team-scope";
+import { withDefaultScope } from "@/lib/client/team-scope";
 import { ISSUE_LIST_KEYS } from "@/lib/client/shortcuts";
 import { toggleSortKey } from "@/lib/client/sort";
 import type { ClientIssue } from "@/lib/client/types";
@@ -46,7 +46,7 @@ const BoardLayout = dynamic(() => import("./board").then((m) => m.BoardLayout), 
 import { BulkBar } from "./bulk";
 import { ListLayout, TableLayout, type RowSelection } from "./layouts";
 import { rangeIds } from "@/lib/client/bulk";
-import { useTeamScope } from "../app/team-scope";
+import { useDefaultScope } from "../app/team-scope";
 import { useNarrow } from "../app/use-narrow";
 import { openPicker } from "../issue/field-picker";
 import { useToast } from "../ui/toast";
@@ -124,13 +124,13 @@ export function Explorer({
   }, [data, base, hideIds]);
   // "Show failed" after a bulk edit narrows the list to those issues (W4).
   const [onlyIds, setOnlyIds] = useState<Set<string> | null>(null);
-  // The viewer's default Team (user menu), unless the page already says something about Team.
-  const teamScope = useTeamScope();
+  // The viewer's default dimension value (user menu), unless the page already says something about that dimension.
+  const teamScope = useDefaultScope();
   const rows = useMemo(() => {
-    const filters = withTeamScope(state.filters, base, teamScope.teamId);
+    const filters = withDefaultScope(state.filters, base, teamScope.scope);
     const r = runExplorer(pool, filters, state.sort.length ? state.sort : [{ field: "updated", dir: "desc" }], data.meta);
     return onlyIds ? r.filter((i) => onlyIds.has(i.nodeId)) : r;
-  }, [pool, state.filters, state.sort, data.meta, onlyIds, base, teamScope.teamId]);
+  }, [pool, state.filters, state.sort, data.meta, onlyIds, base, teamScope.scope]);
   // Below md a table falls back to the list: a display fallback, the URL state keeps "table" (U4).
   const narrow = useNarrow();
   const layout = state.layout === "table" && narrow ? "list" : state.layout;
@@ -278,7 +278,7 @@ export function Explorer({
   };
 
   const toggleSort = (field: string, additive = false) => {
-    const def = SORT_OPTIONS.find((s) => s.key === field)?.defaultDir ?? "asc";
+    const def = sortOptions(data.meta).find((s) => s.key === field)?.defaultDir ?? "asc";
     setState({ ...state, sort: toggleSortKey(state.sort, field, def, additive) });
   };
 
@@ -327,16 +327,16 @@ export function Explorer({
           <Icon name="x" size={12} />
         </button>
       )}
-      {teamScope.defaultTeamId && withTeamScope([], base, teamScope.defaultTeamId).length > 0 && !state.filters.some((f) => f.field === "team") && (
+      {teamScope.defaultScope && withDefaultScope([], base, teamScope.defaultScope).length > 0 && !state.filters.some((f) => f.field === teamScope.defaultScope!.dimension.key) && (
         <button
           type="button"
           data-team-scope-chip
           aria-pressed={!teamScope.off}
           onClick={() => teamScope.setOff(!teamScope.off)}
-          title={teamScope.off ? "Filter by your team again" : "Showing your team only. Click to show all teams."}
+          title={teamScope.off ? `Filter by your default ${teamScope.defaultScope.dimension.name} again` : `Showing your default ${teamScope.defaultScope.dimension.name} only. Click to show all.`}
           className={`flex h-7 items-center gap-1.5 rounded-md border px-2 text-[12px] font-medium ${teamScope.off ? "border-line text-faint hover:text-fg" : "border-brand-border bg-brand-soft text-brand-text"}`}
         >
-          {teamScope.off ? "All teams" : `Team: ${plainName(teamScope.teamName ?? "") || teamScope.teamName}`}
+          {teamScope.off ? `All: ${teamScope.defaultScope.dimension.name}` : `${teamScope.defaultScope.dimension.name}: ${plainName(teamScope.defaultScope.name) || teamScope.defaultScope.name}`}
           <Icon name={teamScope.off ? "plus" : "x"} size={12} />
         </button>
       )}

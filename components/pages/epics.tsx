@@ -25,7 +25,7 @@ function EpicRow({ e, onOpen }: { e: ClientIssue; onOpen: () => void }) {
         </span>
         <span className="mt-0.5 flex items-center gap-1.5 text-[11.5px] text-faint">
           {c.priority(e)}
-          {e.teamName && <span className="hidden sm:inline">{c.team(e)}</span>}
+          <span className="hidden sm:inline">{c.dimDot(e)}</span>
           <span className="tabular-nums md:hidden" data-epic-progress>
             {pct}% of {e.subTotal} sub-issues
           </span>

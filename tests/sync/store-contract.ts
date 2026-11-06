@@ -16,8 +16,7 @@ const item = (itemId: string, issueNodeId: string, updatedAt?: string): Snapshot
   issueNodeId,
   statusOpt: "a0000002",
   priorityOpt: null,
-  teamOpt: null,
-  platformOpt: null,
+
   releaseIter: null,
   ...(updatedAt ? { updatedAt } : {}),
 });

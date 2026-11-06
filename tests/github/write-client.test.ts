@@ -5,7 +5,7 @@ import { http, HttpResponse } from "msw";
 import { setupServer } from "msw/node";
 import { GitHubWriteClient } from "@/lib/github/write-client";
 import { isRetryable, NonRetryableError } from "@/lib/outbox/worker";
-import { resolveFieldMap } from "@/lib/sync/field-map";
+import { suggestFieldMap } from "@/lib/sync/field-map";
 
 const PROJECT = "PVT_acme_widgets_roadmap";
 const FIELDS = [
@@ -94,7 +94,7 @@ const server = setupServer(
 
 let n = 0;
 /** A fresh client (and token) per test: clients are cached per token. */
-const client = () => new GitHubWriteClient(`ghp_write_client_test_token_${++n}_000000000000`, resolveFieldMap(FIELDS));
+const client = () => new GitHubWriteClient(`ghp_write_client_test_token_${++n}_000000000000`, suggestFieldMap(FIELDS, {}));
 
 beforeAll(() => server.listen({ onUnhandledRequest: "error" }));
 afterAll(() => server.close());
@@ -136,8 +136,9 @@ describe("GitHubWriteClient", () => {
   it.each([
     ["status", "F_status", "opt_todo", "singleSelectOptionId"],
     ["priority", "F_priority", "opt_high", "singleSelectOptionId"],
-    ["team", "F_team", "opt_core", "singleSelectOptionId"],
-    ["platform", "F_platform", "opt_desktop", "singleSelectOptionId"],
+    // Dimensions by field ID (§4.1).
+    ["dim:F_team", "F_team", "opt_core", "singleSelectOptionId"],
+    ["dim:F_platform", "F_platform", "opt_desktop", "singleSelectOptionId"],
     ["release", "F_release", "it_2", "iterationId"],
   ])("sets %s on the existing project item", async (field, fieldId, value, key) => {
     await client().applyField("I_1", field, value);
@@ -145,6 +146,12 @@ describe("GitHubWriteClient", () => {
     expect(mutations[0]!.query).toContain("updateProjectV2ItemFieldValue");
     expect(mutations[0]!.query).toContain(`${key}:$value`);
     expect(mutations[0]!.variables).toEqual({ project: PROJECT, item: "PVTI_existing", field: fieldId, value });
+  });
+
+  it("refuses a dimension that isn't mapped", async () => {
+    await expect(client().applyField("I_1", "dim:F_unmapped", "opt_x")).rejects.toThrow(/not a mapped dimension/);
+    await expect(client().applyField("I_1", "team", "opt_core")).rejects.toThrow(/unsupported field/);
+    expect(mutations).toHaveLength(0);
   });
 
   it("reads a value past the first page of the item's field values (v5 2.7)", async () => {

@@ -104,8 +104,7 @@ describe("schema integrity (Postgres)", () => {
         issueNodeId: "I_bug",
         statusOpt,
         priorityOpt: null,
-        teamOpt: null,
-        platformOpt: null,
+
         releaseIter: null,
         updatedAt,
       });

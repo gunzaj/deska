@@ -2,10 +2,10 @@
 // token so GitHub history shows the real person. Only reachable when
 // WRITE_MODE=on (off in production until IT/security sign-off).
 import { gqlClient, restClient } from "./client";
-import { githubTarget, pinnedProjectId } from "../config";
+import { githubTarget, pinnedProjectId, type GithubTarget } from "../config";
 import { writeEnabled } from "../outbox/queue";
 import { NonRetryableError, type WriteClient } from "../outbox/worker";
-import { LOGICAL_FIELDS, type FieldRef, type LogicalField, type ProjectFieldMap } from "../sync/field-map";
+import { dimFieldId, isDimKey, type FieldRef, type ProjectFieldMap } from "../sync/field-map";
 
 type FieldMeta = {
   id: string;
@@ -15,7 +15,8 @@ type FieldMeta = {
 };
 type Meta = { projectId: string; fields: Map<string, FieldMeta> }; // by field ID
 
-const isLogical = (field: string | null): field is LogicalField => (LOGICAL_FIELDS as readonly string[]).includes(field ?? "");
+/** Edit field keys of the mapped roles ("release" is the Sprint role's key in edits and views). */
+const ROLE_OF = { status: "status", priority: "priority", release: "sprint" } as const;
 
 function sortedNames(rows: { login?: string | null; name?: string | null }[]): string[] {
   return rows.map((r) => (r.login ?? r.name) as string).sort();
@@ -32,7 +33,7 @@ export class GitHubWriteClient implements WriteClient {
   private items = new Map<string, string>();
 
   /** `fields` is the discovered logical-key -> field-ID map; fields resolve by ID, never by name (v5 1.3). */
-  constructor(token: string, private fieldMap: ProjectFieldMap) {
+  constructor(token: string, private fieldMap: ProjectFieldMap, target: GithubTarget = githubTarget()) {
     // Defence in depth (AGENTS.md): the routes check WRITE_MODE too, but no
     // code path may hold a write client while writes are off.
     if (!writeEnabled()) throw new Error("GitHub writes are disabled (WRITE_MODE is not on)");
@@ -40,7 +41,6 @@ export class GitHubWriteClient implements WriteClient {
     this.gql = gqlClient(token);
     // No production defaults: a sandbox deployment with one variable missing
     // must not write to a real repo or project (v5 1.2).
-    const target = githubTarget();
     this.owner = target.owner;
     this.repo = target.repo;
     this.org = target.org;
@@ -107,8 +107,14 @@ export class GitHubWriteClient implements WriteClient {
 
   /** The project field a logical key points at. Throws, without retries, when there is none. */
   private refFor(field: string | null): FieldRef {
-    if (!isLogical(field)) throw new NonRetryableError(`unsupported field: ${field}`);
-    const ref = this.fieldMap[field];
+    if (isDimKey(field)) {
+      const ref = this.fieldMap.dimensions.find((d) => d.id === dimFieldId(field));
+      if (!ref) throw new NonRetryableError(`the field ${dimFieldId(field)} is not a mapped dimension`);
+      return ref;
+    }
+    const role = field && field in ROLE_OF ? ROLE_OF[field as keyof typeof ROLE_OF] : null;
+    if (!role) throw new NonRetryableError(`unsupported field: ${field}`);
+    const ref = this.fieldMap[role];
     if (!ref) throw new NonRetryableError(`the project has no ${field} field`);
     return ref;
   }

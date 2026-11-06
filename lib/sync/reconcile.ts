@@ -9,7 +9,6 @@ import { and, eq, inArray, isNotNull, lt, notInArray, or, sql } from "drizzle-or
 import { getDb } from "@/db";
 import { issues, pullRequests, taskLinks } from "@/db/schema";
 import { rateLimitAware } from "./cycle";
-import { refreshFieldMap } from "./field-map";
 import { importFull, type ImportStore, type StoreStats } from "./import";
 import { writeTx } from "./pg-batch";
 import { isRateLimited, type Kv } from "./poll";
@@ -66,7 +65,6 @@ export async function reconcile(source: ReconcileSource, store: ImportStore, kv:
   const meta = await rateLimitAware(kv, () => source.fetchMetadata());
   if (!meta) return { ...result, rateLimited: true };
   result.metadata = await importFull(partialSnapshot(meta), store);
-  refreshFieldMap(kv, meta.fields);
 
   const open = await rateLimitAware(kv, () => source.listOpenNodeIds());
   if (!open) return { ...result, rateLimited: true };

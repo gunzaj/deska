@@ -7,7 +7,7 @@ import { invalidateReadCache } from "@/lib/store";
 export const dynamic = "force-dynamic";
 
 /**
- * Edit one field of an issue (W1): Status, Priority, Team, Platform, Release,
+ * Edit one field of an issue (W1): Status, Priority, a dimension, Release,
  * Type, milestone, labels/assignees (as { added, removed } deltas) or state.
  * The edit goes through the durable outbox and is processed right away:
  * 200 done, 202 pending (retry scheduled), 409 conflict (with GitHub's value),

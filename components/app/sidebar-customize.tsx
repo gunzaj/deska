@@ -16,7 +16,7 @@ export const SECTION_LABELS: Record<SidebarSection, string> = {
   labels: "Labels",
   workspace: "Workspace",
   views: "Views",
-  teams: "Teams",
+  teams: "First dimension",
 };
 
 /** The viewer's sidebar sections in their order, with a save that persists to prefs. */

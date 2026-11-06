@@ -21,12 +21,13 @@ import {
   prReviewRequests,
   prReviews,
   projectFields,
+  projectItemDims,
   projectItems,
   projectScanSeen,
   pullRequests,
 } from "@/db/schema";
 import type { ImportStore, StoreStats } from "./import";
-import type { ImportOptions } from "./changes";
+import { normDims, type ImportOptions } from "./changes";
 import { importSnapshot, pgWrite, single, writeTx, type Tx } from "./pg-batch";
 import type { IdResolver } from "./poll";
 import type {
@@ -61,7 +62,7 @@ export class PostgresStore implements ImportStore, IdResolver {
   // transaction.
 
   async listFields() {
-    return getDb().select({ id: projectFields.id, name: projectFields.name, dataType: projectFields.dataType }).from(projectFields);
+    return getDb().select({ id: projectFields.id, name: projectFields.name, dataType: projectFields.dataType }).from(projectFields).where(isNull(projectFields.missingAt));
   }
 
   async importSnapshot(snapshot: FullSnapshot, opts: ImportOptions = {}): Promise<StoreStats> {
@@ -290,7 +291,8 @@ const { body: _prBody, ...prColumns } = getTableColumns(pullRequests);
 export async function readSnapshot(): Promise<FullSnapshot> {
   const db = getDb();
   const [fields, types, labelRows, milestoneRows, userRows, issueRows, itemRows, prRows, teamRows] = await Promise.all([
-    db.select().from(projectFields),
+    // A field GitHub no longer lists (deleted) stays out: a mapping to it is "missing" (§4.1).
+    db.select().from(projectFields).where(isNull(projectFields.missingAt)),
     db.select().from(issueTypes),
     db.select().from(labels),
     db.select().from(milestones),
@@ -341,6 +343,9 @@ export async function readSnapshot(): Promise<FullSnapshot> {
   // issue ID would hit Postgres' 65,535 bind-parameter limit as the cache grows.
   const labelRowsByIssue = issueRows.length ? await db.select().from(issueLabels) : [];
   const assigneeRows = issueRows.length ? await db.select().from(issueAssignees) : [];
+  const dimRows = itemRows.length ? await db.select().from(projectItemDims) : [];
+  const dimsBy = new Map<string, Record<string, string>>();
+  for (const d of dimRows) dimsBy.set(d.itemId, { ...(dimsBy.get(d.itemId) ?? {}), [d.fieldId]: d.optionId });
 
   const labelsBy = new Map<string, string[]>();
   for (const l of labelRowsByIssue) {
@@ -456,9 +461,8 @@ export async function readSnapshot(): Promise<FullSnapshot> {
         issueNodeId: p.issueNodeId!,
         statusOpt: p.statusOpt,
         priorityOpt: p.priorityOpt,
-        teamOpt: p.teamOpt,
-        platformOpt: p.platformOpt,
         releaseIter: p.releaseIter,
+        ...(dimsBy.has(p.id) ? { dims: normDims(dimsBy.get(p.id)) } : {}),
       })),
   };
 }

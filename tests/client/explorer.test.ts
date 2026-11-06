@@ -22,7 +22,7 @@ describe("client data", () => {
     const { store, data } = await client();
     const server = buildViewRows(store).sort((a, b) => a.number - b.number);
     const browser = [...data.issues].sort((a, b) => a.number - b.number);
-    const pick = (r: (typeof server)[number]) => [r.number, r.statusName, r.priorityRank, r.teamName, r.releaseName, r.typeName, r.labelNames, r.assignees, r.parentNumber, r.hasSubIssues];
+    const pick = (r: (typeof server)[number]) => [r.number, r.statusName, r.priorityRank, r.dims, r.releaseName, r.typeName, r.labelNames, r.assignees, r.parentNumber, r.hasSubIssues];
     expect(browser.map(pick)).toEqual(server.map(pick));
   });
 

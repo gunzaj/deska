@@ -11,7 +11,7 @@ import { PrPeek } from "../prs/panel";
 import { PrsProvider } from "../prs/store";
 import { SnoozeProvider } from "../triage/snoozes";
 import { WatchProvider } from "../watch/store";
-import { TeamScopeProvider } from "./team-scope";
+import { DefaultScopeProvider } from "./team-scope";
 import { NotificationsProvider } from "../tasks/notifications";
 import { TasksProvider } from "../tasks/store";
 import { useAppData } from "./provider";
@@ -38,7 +38,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         <TasksProvider>
           <NotificationsProvider>
             <SnoozeProvider>
-            <TeamScopeProvider>
+            <DefaultScopeProvider>
             <WatchProvider>
             <div className="flex h-dvh overflow-hidden">
               <aside className="hidden w-[232px] shrink-0 md:block">
@@ -77,7 +77,7 @@ export function AppShell({ children }: { children: ReactNode }) {
               <GlobalShortcuts />
             </div>
             </WatchProvider>
-            </TeamScopeProvider>
+            </DefaultScopeProvider>
             </SnoozeProvider>
           </NotificationsProvider>
         </TasksProvider>

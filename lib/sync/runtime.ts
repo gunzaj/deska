@@ -5,7 +5,8 @@
 import { dbDir, getDb } from "@/db";
 import { syncState } from "@/db/schema";
 import { bumpGenerationOnce } from "./generation";
-import { FIELD_MAP_KEY, parseFieldMap, resolveFieldMap, type ProjectFieldMap } from "./field-map";
+import { readMapping } from "../settings";
+import { effectiveMapping, type FieldMapping } from "./field-map";
 import { consecutiveFailures } from "./health";
 import { withSyncLock, type LockOptions, type LockResult } from "./lock";
 import { MapKv, type Kv } from "./poll";
@@ -85,7 +86,6 @@ class DbKv implements Kv {
  * open PRs on every cron tick.
  */
 const SHARED_KEYS = [
-  FIELD_MAP_KEY,
   "issues.since",
   "issues.etag",
   "sync.lastSync",
@@ -172,17 +172,12 @@ export async function readSyncState(): Promise<{
   };
 }
 /**
- * The current logical-key -> field map, for building a GitHubSource or a write
- * client: the stored `fields.map` (pinned by field ID, so a renamed field is
- * followed) resolved against the discovered fields. Read-only; the sync cycle
- * is what stores a changed map (v5 1.3).
+ * The field mapping sync and writes run on (§4.1): the one the user confirmed
+ * (lib/settings.ts), with names followed through renames, or before there is
+ * one (tests, dev) the suggestion from the discovered fields.
  */
-export async function readStoredFieldMap(): Promise<ProjectFieldMap | null> {
-  return parseFieldMap((await readShared([FIELD_MAP_KEY])).get(FIELD_MAP_KEY));
-}
-
-export async function currentFieldMap(store: { listFields?(): Promise<{ id: string; name: string; dataType: string }[]> | { id: string; name: string; dataType: string }[] }): Promise<ProjectFieldMap> {
-  return resolveFieldMap((await store.listFields?.()) ?? [], await readStoredFieldMap());
+export async function currentFieldMap(store: { listFields?(): Promise<{ id: string; name: string; dataType: string }[]> | { id: string; name: string; dataType: string }[] }): Promise<FieldMapping> {
+  return effectiveMapping(await readMapping(), (await store.listFields?.()) ?? []);
 }
 
 /**

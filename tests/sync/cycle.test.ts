@@ -17,8 +17,7 @@ const item = (itemId: string, issueNodeId: string, statusOpt: string | null): Sn
   issueNodeId,
   statusOpt,
   priorityOpt: null,
-  teamOpt: null,
-  platformOpt: null,
+
   releaseIter: null,
 });
 
@@ -226,7 +225,7 @@ describe("project scan schedule and effects", () => {
     const res = await scanProject(
       {
         scanProjectItems: async () => ({
-          items: [{ itemId: "PVTI_3", issueNodeId: "I_bug", statusOpt: "a0000002", priorityOpt: null, teamOpt: null, platformOpt: null, releaseIter: null }],
+          items: [{ itemId: "PVTI_3", issueNodeId: "I_bug", statusOpt: "a0000002", priorityOpt: null, releaseIter: null }],
           nextCursor: null,
           total: 1,
         }),

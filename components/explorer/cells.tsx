@@ -1,8 +1,9 @@
 "use client";
 
 import { shortAgo, formatDate, plainName } from "@/lib/client/format";
-import type { DisplayProp } from "@/lib/client/explorer";
-import type { ClientIssue } from "@/lib/client/types";
+import { dimensionLabel, primaryDimension, type DisplayProp } from "@/lib/client/explorer";
+import { dimFieldId, isDimKey } from "@/lib/sync/field-map";
+import type { ClientIssue, DimKey } from "@/lib/client/types";
 import { Icon } from "../icons";
 import { AvatarStack, Chip, OptionDot, PriorityIcon, ProgressRing, StatusIcon, TypeBadge } from "../props";
 import { useAppData } from "../app/provider";
@@ -14,7 +15,7 @@ export function useCells() {
   const nStatus = meta.fields.status.length;
   const nPriority = meta.fields.priority.length;
 
-  return {
+  const cells = {
     status: (i: ClientIssue) => (
       <span title={i.state === "closed" ? `Closed${i.stateReason ? ` (${i.stateReason.replace("_", " ")})` : ""}` : (i.statusName ?? "No status")}>
         <StatusIcon option={option("status", i.statusId)} total={nStatus} state={i.state} stateReason={i.stateReason} />
@@ -26,13 +27,19 @@ export function useCells() {
       </span>
     ),
     id: (i: ClientIssue) => <span className="font-mono text-[11.5px] tabular-nums text-faint">#{i.number}</span>,
-    team: (i: ClientIssue) =>
-      i.teamName ? (
-        <Chip color={option("team", i.teamId)?.color} title={`Team: ${i.teamName}`}>
-          {plainName(i.teamName) || i.teamName}
+    /** A mapped dimension's value (`dim:<fieldId>`), as a chip titled with the field's name. */
+    dim: (key: DimKey, i: ClientIssue) => {
+      const v = i.dims[dimFieldId(key)];
+      if (!v) return null;
+      const name = v.name ?? "Missing option";
+      return (
+        <Chip key={key} color={option(key, v.id)?.color} title={`${dimensionLabel(meta, key)}: ${name}`}>
+          {plainName(name) || name}
         </Chip>
-      ) : null,
-    platform: (i: ClientIssue) => (i.platformName ? <Chip title={`Platform: ${i.platformName}`}>{i.platformName}</Chip> : null),
+      );
+    },
+    /** Every dimension among `props`, except the one a board is laid out by. */
+    dims: (i: ClientIssue, props: DisplayProp[], except?: string) => props.filter((p): p is DimKey => isDimKey(p) && p !== except).map((p) => cells.dim(p, i)),
     release: (i: ClientIssue) =>
       i.releaseName ? (
         <span
@@ -102,6 +109,12 @@ export function useCells() {
         {shortAgo(i.updatedAt)}
       </span>
     ),
-    teamDot: (i: ClientIssue) => (i.teamId ? <OptionDot color={option("team", i.teamId)?.color} /> : null),
-  } satisfies Record<DisplayProp | "teamDot", unknown>;
+    /** A dot in the color of the first dimension's value. */
+    dimDot: (i: ClientIssue) => {
+      const d = primaryDimension(meta);
+      const v = d ? i.dims[d.id] : undefined;
+      return d && v ? <OptionDot color={option(d.key, v.id)?.color} /> : null;
+    },
+  } satisfies Record<Exclude<DisplayProp, DimKey> | "dim" | "dims" | "dimDot", unknown>;
+  return cells;
 }

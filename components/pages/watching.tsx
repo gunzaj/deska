@@ -4,7 +4,7 @@
 // each with what changed since you last looked. Opening an item clears it.
 import Link from "next/link";
 import { useMemo } from "react";
-import { describeFieldChange } from "@/lib/client/watch";
+import { describeFieldChange, isShownChange } from "@/lib/client/watch";
 import { longAgo } from "@/lib/client/format";
 import type { FieldChange } from "@/lib/sync/changes";
 import { useOpenIssue } from "../app/open-issue";
@@ -21,7 +21,7 @@ function ChangeList({ changes }: { changes: FieldChange[] }) {
   const { markSeen } = useWatchlist();
   return (
     <ul className="divide-y divide-line-soft border-t border-line-soft">
-      {changes.map((c, n) => {
+      {changes.filter((c) => isShownChange(data.meta, c)).map((c, n) => {
         const issue = byNodeId.get(c.issueNodeId);
         const line = describeFieldChange(data.meta, c);
         return (
@@ -110,7 +110,7 @@ export function WatchingPage() {
         {!loaded ? (
           <p className="text-muted">Loading…</p>
         ) : sorted.length === 0 ? (
-          <EmptyHint icon="star" title="Nothing watched yet" hint="Star an issue or a saved view to see here what changes on it: Status, Priority, Team, Platform, Release, state, labels and assignees." />
+          <EmptyHint icon="star" title="Nothing watched yet" hint="Star an issue or a saved view to see here what changes on it: Status, Priority, the mapped fields, Release, state, labels and assignees." />
         ) : (
           <>
             <p className="text-[12px] text-faint">What changed since you last opened each one. Opening it clears its changes.</p>

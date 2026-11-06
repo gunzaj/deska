@@ -67,11 +67,15 @@ export type SnapshotIssue = {
 export type SnapshotProjectItem = {
   itemId: string;
   issueNodeId: string;
+  /** The values of the fields mapped to Status, Priority and Sprint (§4.1). */
   statusOpt: string | null;
   priorityOpt: string | null;
-  teamOpt: string | null;
-  platformOpt: string | null;
   releaseIter: string | null;
+  /**
+   * Every single-select value on the item, by field ID: what dimensions read,
+   * and what a remapped Status or Priority is taken from. Absent means none.
+   */
+  dims?: Record<string, string>;
   /** The item's last change on GitHub; picks the item to keep when one issue has two (S7). */
   updatedAt?: string | null;
 };

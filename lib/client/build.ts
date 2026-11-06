@@ -1,10 +1,9 @@
 import { displayRepo } from "../config";
 import { canonicalIssueUrl, fallbackIssueUrl } from "../github/url";
+import { dimKey, priorityLowToHigh, type FieldRef } from "../sync/field-map";
 import type { ReadModel } from "../sync/read-model";
 import { resolveRelease } from "../views/rows";
-import type { ClientMeta, ClientOption, ClientRelease, SingleSelectKey, WireData, WireIssue } from "./types";
-
-const SINGLE_SELECT_KEYS: SingleSelectKey[] = ["status", "priority", "team", "platform"];
+import type { ClientDimension, ClientMappedField, ClientMeta, ClientOption, ClientRelease, WireData, WireIssue } from "./types";
 
 function addDays(isoDate: string, days: number): string {
   const d = new Date(`${isoDate}T00:00:00Z`);
@@ -19,21 +18,28 @@ function addDays(isoDate: string, days: number): string {
  */
 export function buildClientData(
   store: ReadModel,
-  opts: { viewer: string; writeMode: boolean; demo: boolean; now?: Date },
+  opts: { viewer: string; writeMode: boolean; demo: boolean; now?: Date; repo?: string },
 ): WireData {
   const now = opts.now ?? new Date();
   const today = now.toISOString().slice(0, 10);
-  const repo = displayRepo();
+  const repo = opts.repo ?? displayRepo();
 
-  // Resolved by field ID through the discovered map (v5 1.3).
+  // Resolved by field ID through the mapping (§4.1), never by name.
   const map = store.projectFieldMap();
-  const fieldOf = (key: SingleSelectKey | "release") => (map[key] ? store.fields.get(map[key]!.id) : undefined);
-  const fields = {} as Record<SingleSelectKey, ClientOption[]>;
-  for (const key of SINGLE_SELECT_KEYS) {
-    fields[key] = (fieldOf(key)?.options ?? []).map((o, i) => ({ id: o.id, name: o.name, color: o.color, position: i }));
-  }
+  const fieldOf = (ref: FieldRef | null) => (ref ? store.fields.get(ref.id) : undefined);
+  const options = (list: readonly { id: string; name: string; color: string }[]): ClientOption[] => list.map((o, i) => ({ id: o.id, name: o.name, color: o.color, position: i }));
+  const fields = {
+    status: options(fieldOf(map.status)?.options ?? []),
+    // Lowest to highest whatever the project's order: the browser reads the last as the top priority.
+    priority: options(priorityLowToHigh(fieldOf(map.priority)?.options ?? [], map.priorityOrder)),
+  };
+  const missing = store.missingFields();
+  const missingIds = new Set(missing.map((m) => m.id));
+  const mapped = (ref: FieldRef | null): ClientMappedField | null => (ref ? { id: ref.id, name: ref.name, missing: missingIds.has(ref.id) } : null);
+  const dimensions: ClientDimension[] = map.dimensions.map((d) => ({ id: d.id, key: dimKey(d.id), name: d.name, options: options(fieldOf(d)?.options ?? []), missing: missingIds.has(d.id) }));
+  const dimIds = new Set(map.dimensions.map((d) => d.id));
 
-  const releaseField = fieldOf("release");
+  const releaseField = fieldOf(map.sprint);
   const releases: ClientRelease[] = (releaseField?.iterations ?? [])
     .map((it) => ({
       id: it.id,
@@ -44,13 +50,11 @@ export function buildClientData(
     }))
     .sort((a, b) => a.startDate.localeCompare(b.startDate));
 
-  const itemByIssue = new Map<string, (typeof store.projectItems extends Map<string, infer V> ? V : never)>();
-  for (const p of store.projectItems.values()) itemByIssue.set(p.issueNodeId, p);
 
   const issues: WireIssue[] = [];
   const usedLogins = new Set<string>();
   for (const i of store.issues.values()) {
-    const p = itemByIssue.get(i.nodeId);
+    const p = store.itemForIssue(i.nodeId);
     const assignees = i.assigneeIds.map((id) => store.ghUsers.get(id)?.login ?? id);
     for (const a of assignees) usedLogins.add(a.toLowerCase());
     const w: WireIssue = {
@@ -65,8 +69,11 @@ export function buildClientData(
     if (i.stateReason) w.sr = i.stateReason;
     if (p?.statusOpt) w.st = p.statusOpt;
     if (p?.priorityOpt) w.pr = p.priorityOpt;
-    if (p?.teamOpt) w.tm = p.teamOpt;
-    if (p?.platformOpt) w.pl = p.platformOpt;
+    if (p?.dims) {
+      const dm: Record<string, string> = {};
+      for (const [fieldId, opt] of Object.entries(p.dims)) if (dimIds.has(fieldId)) dm[fieldId] = opt;
+      if (Object.keys(dm).length) w.dm = dm;
+    }
     if (p?.releaseIter) w.rl = p.releaseIter;
     if (i.typeId) w.ty = i.typeId;
     if (i.milestoneId) w.ms = i.milestoneId;
@@ -102,6 +109,14 @@ export function buildClientData(
     generatedAt: now.toISOString(),
     today,
     fields,
+    dimensions,
+    mapping: {
+      status: mapped(map.status),
+      priority: mapped(map.priority),
+      sprint: mapped(map.sprint),
+      missing: missing.map((m) => ({ role: m.role, id: m.id, name: m.name })),
+      doneStatusIds: [...map.doneStatusIds],
+    },
     releases,
     currentReleaseId: resolveRelease(store, "current", today),
     nextReleaseId: resolveRelease(store, "next", today),

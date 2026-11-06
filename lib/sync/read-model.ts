@@ -3,7 +3,7 @@
 // lives in MemoryStore (the sync test double and the demo store) and in
 // PostgresStore (production writes).
 import type { FieldChange } from "./changes";
-import { resolveFieldMap, type ProjectFieldMap } from "./field-map";
+import { effectiveMapping, missingFields, type FieldMapping, type MissingField } from "./field-map";
 import { normalizePullRequest } from "./prs";
 import type { FullSnapshot, SnapshotField, SnapshotProjectItem, SnapshotPullRequest } from "./types";
 
@@ -68,10 +68,10 @@ export class ReadModel {
   fieldChanges: FieldChange[] = [];
 
   /** A model built in bulk from a snapshot that is already consistent (what `readSnapshot` returns). */
-  static fromSnapshot(s: FullSnapshot, pinnedFieldMap: ProjectFieldMap | null = null): ReadModel {
+  static fromSnapshot(s: FullSnapshot, mapping: FieldMapping | null = null): ReadModel {
     const model = new ReadModel();
     model.loadSnapshot(s);
-    model.pinnedFieldMap = pinnedFieldMap;
+    model.mapping = mapping;
     return model;
   }
 
@@ -126,17 +126,22 @@ export class ReadModel {
   }
 
   listFields() {
-    return [...this.fields].map(([id, f]) => ({ id, name: f.name, dataType: f.dataType }));
+    return [...this.fields].map(([id, f]) => ({ id, name: f.name, dataType: f.dataType, options: f.options }));
   }
 
   /**
-   * The logical-key -> field map the read model resolves by. Set from the
-   * stored `fields.map` when the model is hydrated; before that (demo, tests)
-   * it is resolved from the fields themselves.
+   * The field mapping the user confirmed (§4.1, lib/settings.ts), set when
+   * the model is served. Null before there is one (tests, the dev preview):
+   * the model then runs on the suggestion from its own fields.
    */
-  pinnedFieldMap: ProjectFieldMap | null = null;
-  projectFieldMap(): ProjectFieldMap {
-    return resolveFieldMap(this.listFields(), this.pinnedFieldMap);
+  mapping: FieldMapping | null = null;
+  projectFieldMap(): FieldMapping {
+    return effectiveMapping(this.mapping, this.listFields());
+  }
+
+  /** Mapped fields the project no longer has: "Missing field — remap" (§4.1). */
+  missingFields(): MissingField[] {
+    return missingFields(this.projectFieldMap(), this.listFields());
   }
 
   /** Issues by number, kept in step with `issues` (edits looked an issue up by scanning all of them). */
