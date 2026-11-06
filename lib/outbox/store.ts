@@ -353,7 +353,7 @@ async function drain(
       const row = await db.transaction(async (tx) => {
         const [saved] = await tx
           .update(outbox)
-          .set({ status: "failed", error: "no stored GitHub token for this user; sign in again and retry", leaseToken: null, updatedAt: new Date() })
+          .set({ status: "failed", error: "no GitHub token; connect GitHub again and retry", leaseToken: null, updatedAt: new Date() })
           .where(and(eq(outbox.id, claimed.id), claimed.leaseToken ? eq(outbox.leaseToken, claimed.leaseToken) : sql`false`))
           .returning();
         if (!saved) return null;

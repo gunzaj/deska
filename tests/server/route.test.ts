@@ -13,8 +13,6 @@ const post = (body: unknown, headers: Record<string, string> = {}, url = "http:/
 
 beforeEach(() => {
   viewer = "alice";
-  delete process.env.CRON_SECRET;
-  delete process.env.AUTH_URL;
   vi.spyOn(console, "error").mockImplementation(() => {});
 });
 
@@ -89,24 +87,19 @@ describe("route()", () => {
     expect(res.status).toBe(200);
   });
 
-  it("cron routes need the bearer secret and ignore the session", async () => {
+  it("public routes run without a local user, but still refuse a cross-origin mutation", async () => {
     viewer = null;
-    const GET = route({ auth: "cron" }, () => ({ ran: true }));
-    const req = (auth?: string) => new NextRequest("http://app.test/api/x", { headers: auth ? { authorization: auth } : {} });
-    expect((await GET(req())).status).toBe(401);
-    process.env.CRON_SECRET = "s3cret";
-    expect((await GET(req("Bearer wrong"))).status).toBe(401);
-    expect((await GET(req("Bearer s3cret"))).status).toBe(200);
+    const handler = route({ auth: "public" }, () => ({ ran: true }));
+    expect((await handler(new NextRequest("http://app.test/api/x"))).status).toBe(200);
+    expect((await handler(post({}, { origin: "https://evil.example" }))).status).toBe(403);
   });
 });
 
 describe("originAllowed()", () => {
-  it("accepts the Host, X-Forwarded-Host and AUTH_URL hosts", () => {
+  it("accepts the Host and X-Forwarded-Host hosts only", () => {
     const req = (origin: string, headers: Record<string, string> = {}) => new NextRequest("http://internal:3000/api/x", { method: "POST", headers: { origin, ...headers } });
     expect(originAllowed(req("https://deska.example", { "x-forwarded-host": "deska.example" }))).toBe(true);
     expect(originAllowed(req("https://deska.example"))).toBe(false);
-    process.env.AUTH_URL = "https://deska.example";
-    expect(originAllowed(req("https://deska.example"))).toBe(true);
     expect(originAllowed(req("https://other.example"))).toBe(false);
   });
 });

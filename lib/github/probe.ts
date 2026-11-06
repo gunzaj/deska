@@ -67,16 +67,20 @@ export type ReadOnlyClient = {
   graphql(query: string, variables?: Record<string, unknown>): Promise<ProbeResponse>;
 };
 
-export function createReadOnlyClient(token: string, fetchImpl: typeof fetch = fetch): ReadOnlyClient {
+export function createReadOnlyClient(
+  token: string,
+  fetchImpl: typeof fetch = fetch,
+  { apiBase = API, userAgent = "deska-probe", timeoutMs = 30_000 }: { apiBase?: string; userAgent?: string; timeoutMs?: number } = {},
+): ReadOnlyClient {
   const headersFor = (accept = "application/vnd.github+json"): Record<string, string> => ({
     authorization: `Bearer ${token}`,
     accept,
     "x-github-api-version": "2022-11-28",
-    "user-agent": "deska-probe",
+    "user-agent": userAgent,
   });
 
   async function send(url: string, init: RequestInit): Promise<ProbeResponse> {
-    const res = await fetchImpl(url, { ...init, signal: AbortSignal.timeout(30_000) });
+    const res = await fetchImpl(url, { ...init, signal: AbortSignal.timeout(timeoutMs) });
     const headers: Record<string, string> = {};
     for (const h of KEPT_HEADERS) {
       const v = res.headers.get(h);
@@ -100,11 +104,11 @@ export function createReadOnlyClient(token: string, fetchImpl: typeof fetch = fe
       if (!path.startsWith("/") || path.startsWith("//")) {
         throw new ProbeWriteRefused("REST paths must be relative to the GitHub API root");
       }
-      return send(`${API}${path}`, { method: "GET", headers: headersFor(opts?.accept) });
+      return send(`${apiBase}${path}`, { method: "GET", headers: headersFor(opts?.accept) });
     },
     async graphql(query, variables = {}) {
       assertQueryOnly(query);
-      return send(`${API}/graphql`, {
+      return send(`${apiBase}/graphql`, {
         method: "POST",
         headers: { ...headersFor(), "content-type": "application/json" },
         body: JSON.stringify({ query, variables }),

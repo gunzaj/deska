@@ -58,3 +58,14 @@ describe("write client target (v5 1.2)", () => {
     expect(() => new GitHubWriteClient("tok", EMPTY_FIELD_MAP)).toThrow(new RegExp(`${key} is not set`));
   });
 });
+
+describe("GitHub API base (D3)", () => {
+  it("is api.github.com unless a loopback mock is named; anything else is ignored", async () => {
+    const { githubApiBase } = await import("@/lib/config");
+    expect(githubApiBase({})).toBe("https://api.github.com");
+    expect(githubApiBase({ DESKA_GITHUB_API_URL: "http://127.0.0.1:43210" })).toBe("http://127.0.0.1:43210");
+    for (const v of ["https://evil.example", "http://localhost:43210", "http://127.0.0.1:43210/path", "http://127.0.0.1.evil.example:80", "http://10.0.0.1:80"]) {
+      expect(githubApiBase({ DESKA_GITHUB_API_URL: v }), v).toBe("https://api.github.com");
+    }
+  });
+});

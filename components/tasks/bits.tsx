@@ -96,7 +96,6 @@ export function PriorityFlag({ priority, size = 13 }: { priority: Priority; size
 
 export function accessHint(a: Access | undefined): string | null {
   if (a === "pending") return "not on Deska yet";
-  if (a === "blocked") return "can't sign in to Deska";
   return null;
 }
 

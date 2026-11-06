@@ -28,7 +28,6 @@ beforeEach(() => {
   __resetTasks();
   __resetViews();
   viewer = "alice";
-  process.env.ALLOWED_GITHUB_LOGINS = "alice,bob";
 });
 
 describe("task delete → restore", () => {

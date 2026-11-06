@@ -1,10 +1,11 @@
 /**
- * True only when the test-only mocked-OAuth bypass is active.
+ * True only when the test-only identity is active (e2e and the dev preview on
+ * sample data, outside the desktop app).
  *
- * This flag grants unauthenticated access as whoever the `x-e2e-login` header
- * names, so it must never be honoured in production. Requiring an explicit
- * opt-in flag in addition to the env var means a stray E2E_AUTH_BYPASS=1 in a
- * production environment still cannot open the app.
+ * This flag lets whoever the `x-e2e-login` header names use the app without a
+ * GitHub token, so it must never be honoured in production. Requiring an
+ * explicit opt-in flag in addition to the env var means a stray
+ * E2E_AUTH_BYPASS=1 in a production build still cannot open the app.
  */
 export function e2eBypassActive(): boolean {
   if (process.env.NODE_ENV === "production") return false;

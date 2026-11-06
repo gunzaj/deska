@@ -6,8 +6,9 @@ import { useAppData, useAppSync } from "./provider";
 const time = (ms: number) => new Date(ms).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 
 /**
- * Data freshness banners (IMPROVEMENTS S3). A 401 from any store blocks the
- * app until the user signs in again (polling has stopped); any other failed
+ * Data freshness banners (IMPROVEMENTS S3). A 401 from any store means the
+ * app lost its local user (the GitHub token was disconnected): it blocks the
+ * app until GitHub is connected again (polling has stopped). Any other failed
  * refresh keeps the data and says how old it is.
  */
 export function StatusBanners() {
@@ -20,13 +21,13 @@ export function StatusBanners() {
       <div className="fixed inset-0 z-[60] grid place-items-center bg-underlay p-6">
         <div role="alertdialog" aria-modal="true" aria-labelledby="session-expired-title" aria-describedby="session-expired-desc" className="max-w-sm rounded-xl border border-line bg-surface p-5 text-center shadow-modal">
           <p id="session-expired-title" className="text-[14px] font-semibold">
-            Session expired, sign in again
+            GitHub is disconnected
           </p>
           <p id="session-expired-desc" className="mt-1 text-muted">
             Deska stopped refreshing. Anything shown may be out of date.
           </p>
-          <a href="/signin" className="mt-4 inline-flex h-8 items-center rounded-md bg-brand px-3 font-semibold text-brand-on hover:bg-brand-hover">
-            Sign in
+          <a href="/onboarding" className="mt-4 inline-flex h-8 items-center rounded-md bg-brand px-3 font-semibold text-brand-on hover:bg-brand-hover">
+            Connect GitHub
           </a>
         </div>
       </div>

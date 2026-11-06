@@ -1,4 +1,7 @@
 import { buildClientData } from "@/lib/client/build";
+import { EDITING_OFF } from "@/lib/client/edit";
+import { MESSAGES } from "@/lib/github/token-states";
+import { localToken } from "@/lib/github/local-token";
 import type { WireData } from "@/lib/client/types";
 import { writeEnabled } from "@/lib/outbox/queue";
 import { doneStatusOption } from "@/lib/outbox/runtime";
@@ -34,12 +37,16 @@ export async function loadClientData(now = new Date()): Promise<ClientDataResult
     const d = doneStatusOption(store);
     return d.ok ? null : d.reason;
   })() : null;
-  const variant = `${demo ? "d" : "n"}${closeBlocked ? "c" : "o"}`;
+  // With a connected token, edit controls say why they are off: the token is
+  // read-only (SPEC §3.3; every token counts as read-only until Phase C).
+  const tokenReadOnly = localToken() !== null;
+  const variant = `${demo ? "d" : "n"}${closeBlocked ? "c" : "o"}${tokenReadOnly ? "t" : "x"}`;
   const key = `${generation}|${today}|${writeMode ? 1 : 0}|${variant}`;
   const build = () => {
     if (memo?.key !== key) {
       const data = buildClientData(store, { viewer: "", writeMode, demo, now });
       data.meta.closeBlocked = closeBlocked;
+      data.meta.editOffReason = tokenReadOnly ? MESSAGES.readOnly : EDITING_OFF;
       memo = { key, data, json: JSON.stringify(data) };
     }
     return memo;

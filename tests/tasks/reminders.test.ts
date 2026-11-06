@@ -31,7 +31,6 @@ const notes = (login: string) => as<N>(login, () => notesRoute.GET(req("GET")));
 
 beforeEach(() => {
   __resetTasks();
-  process.env.ALLOWED_GITHUB_LOGINS = "alice,bob";
 });
 afterEach(() => vi.useRealTimers());
 

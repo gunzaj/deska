@@ -26,7 +26,6 @@ export const users = pgTable("users", {
   login: text("login").notNull(),
   name: text("name"),
   avatarUrl: text("avatar_url"),
-  tokenEnc: text("token_enc"),
 });
 
 export const ghUsers = pgTable(

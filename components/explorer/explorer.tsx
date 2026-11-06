@@ -1,6 +1,7 @@
 "use client";
 
 import { useRouter, useSearchParams } from "next/navigation";
+import { EDITING_OFF } from "@/lib/client/edit";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   DEFAULT_PROPS,
@@ -25,7 +26,9 @@ import { toggleSortKey } from "@/lib/client/sort";
 import type { ClientIssue } from "@/lib/client/types";
 import { canEditView, newViewId } from "@/lib/views/ids";
 import { viewSchema, type Filter, type View } from "@/lib/views/view";
+import Link from "next/link";
 import { Page } from "../app/shell";
+import { connectionProblem, problemHint, useConnection } from "../app/connection";
 import { useAppData, useAppViews } from "../app/provider";
 import { peekedIssue, useOpenIssue } from "../app/open-issue";
 import { Icon } from "../icons";
@@ -92,6 +95,7 @@ export function Explorer({
   dropRelease?: string;
 }) {
   const { data } = useAppData();
+  const { status: connection } = useConnection();
   const { upsertView } = useAppViews();
   const { toast } = useToast();
   const { openCompose } = useTasks();
@@ -225,7 +229,7 @@ export function Explorer({
         e.preventDefault();
         const i = order[idx]!;
         if (!data.meta.writeMode) {
-          toast({ message: "Editing is off for this deployment" });
+          toast({ message: data.meta.editOffReason ?? EDITING_OFF });
           return;
         }
         // The pickers live in the issue panel: open it, then ask for the picker.
@@ -371,7 +375,19 @@ export function Explorer({
       summary={summary}
     >
       <div ref={scrollRef} className="absolute inset-0 overflow-auto">
-        {rows.length === 0 ? (
+        {rows.length === 0 && connectionProblem(connection) ? (
+          // An error is never an empty list (SPEC §3.3).
+          <EmptyHint
+            icon="alert"
+            title={connection!.message ?? "Can't load issues from GitHub"}
+            hint={problemHint(connection!) ?? undefined}
+            action={
+              <Link href="/settings" className="inline-flex h-8 items-center rounded-md border border-line px-3 font-medium hover:bg-hover">
+                Open Settings
+              </Link>
+            }
+          />
+        ) : rows.length === 0 ? (
           <EmptyHint
             icon="search"
             title={state.filters.length ? "No issues match these filters" : emptyTitle}

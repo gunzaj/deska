@@ -31,7 +31,6 @@ const list = (login = "alice") =>
 
 beforeEach(() => {
   __resetTasks();
-  process.env.ALLOWED_GITHUB_LOGINS = "alice,bob";
 });
 
 describe("projects and placement (§12.3, Q2)", () => {

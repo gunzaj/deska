@@ -83,9 +83,11 @@ test("edit API is gated when writes are off", async ({ request }) => {
   expect(res.status()).toBe(403);
 });
 
-test("cron sync endpoint rejects requests without the secret", async ({ request }) => {
-  const res = await request.get("/api/sync-now");
-  expect(res.status()).toBe(401);
+test("the removed server endpoints are gone (SPEC §2.5): no cron sync, reconcile, health or sign-in", async ({ request }) => {
+  expect((await request.get("/api/sync-now", { headers: { "x-e2e-login": "alice" } })).status()).toBe(405);
+  for (const path of ["/api/reconcile", "/api/health", "/api/auth/signin", "/api/access/recheck", "/signin", "/forbidden"]) {
+    expect((await request.get(path, { headers: { "x-e2e-login": "alice" } })).status(), path).toBe(404);
+  }
 });
 
 test("command palette finds an issue by number and opens it", async ({ browser }) => {

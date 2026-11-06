@@ -72,7 +72,19 @@ export function displayRepo(): string {
   return process.env.GITHUB_REPO?.trim() || "acme/widgets";
 }
 
-/** The org named on the sign-in denial page. Rendering only. */
-export function displayOrg(): string {
-  return process.env.GITHUB_ORG?.trim() || "acme";
+const GITHUB_API = "https://api.github.com";
+
+/**
+ * Where GitHub API calls go: always https://api.github.com, except that
+ * `DESKA_GITHUB_API_URL` may point at a loopback mock server
+ * (`http://127.0.0.1:<port>`) for automated tests of the desktop app. Any other
+ * value is ignored, so the token can never be sent off this machine to
+ * anything but GitHub.
+ */
+export function githubApiBase(env: Record<string, string | undefined> = process.env): string {
+  const v = env.DESKA_GITHUB_API_URL?.trim();
+  return v && LOOPBACK_API.test(v) ? v : GITHUB_API;
 }
+
+/** The only accepted override: plain http on 127.0.0.1 with a port, nothing else. */
+export const LOOPBACK_API = /^http:\/\/127\.0\.0\.1:\d{2,5}$/;

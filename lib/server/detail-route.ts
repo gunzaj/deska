@@ -1,6 +1,6 @@
-import { NextResponse, type NextRequest } from "next/server";
+import { NextResponse } from "next/server";
 import { dbDir } from "@/db";
-import { viewerToken } from "@/lib/github/viewer-token";
+import { localToken } from "@/lib/github/local-token";
 import { getStore } from "@/lib/store";
 import type { IssueDetail } from "@/lib/client/types";
 import type { ReadModel } from "@/lib/sync/read-model";
@@ -26,15 +26,15 @@ const found = (d: IssueDetail | null) => (d ? NextResponse.json(d) : NextRespons
  * synthetic thread; if GitHub is unreachable the cached body is returned with
  * a reason, so the panel still shows something useful.
  */
-export async function detailResponse(req: NextRequest, rawNumber: string, kind: keyof typeof KINDS): Promise<NextResponse> {
+export async function detailResponse(rawNumber: string, kind: keyof typeof KINDS): Promise<NextResponse> {
   const k = KINDS[kind];
   const number = Number(rawNumber);
   if (!Number.isInteger(number) || number <= 0) return NextResponse.json({ error: `bad ${k.label} number` }, { status: 400 });
 
   const store = await getStore();
   if (!dbDir()) return found(await k.demo(store, number));
-  const token = await viewerToken(req);
-  if (!token) return found(await k.cached(store, number, "No GitHub token for this session — showing the cached description."));
+  const token = localToken();
+  if (!token) return found(await k.cached(store, number, "GitHub is not connected — showing the cached description."));
   try {
     // Ask GitHub for the item the cache actually stored. Rebuilding the URL
     // from GITHUB_REPO + the route number opens a different repository's item

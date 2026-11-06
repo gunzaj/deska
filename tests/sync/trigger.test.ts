@@ -1,9 +1,7 @@
-// S1: the "Sync now" throttle and lock, and cron auth on GET /api/sync-now.
+// S1: the "Sync now" throttle and lock; no cron entry on /api/sync-now.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-// The route imports the session module; stub it so next-auth isn't loaded here.
 vi.mock("@/lib/session", () => ({ getViewerLogin: async () => "alice" }));
-const { GET } = await import("@/app/api/sync-now/route");
 import type { CycleSource } from "@/lib/sync/cycle";
 import { getSyncKv } from "@/lib/sync/runtime";
 import { MemoryStore } from "@/lib/sync/store-memory";
@@ -97,20 +95,9 @@ describe("triggerSync", () => {
   });
 });
 
-describe("GET /api/sync-now cron auth", () => {
-  afterEach(() => {
-    vi.unstubAllEnvs();
-  });
-
-  it("is 401 without CRON_SECRET configured", async () => {
-    vi.stubEnv("CRON_SECRET", "");
-    const res = await GET(new Request("http://x/api/sync-now", { headers: { authorization: "Bearer " } }));
-    expect(res.status).toBe(401);
-  });
-
-  it("is 401 with a wrong or missing bearer", async () => {
-    vi.stubEnv("CRON_SECRET", "s3cret");
-    expect((await GET(new Request("http://x/api/sync-now"))).status).toBe(401);
-    expect((await GET(new Request("http://x/api/sync-now", { headers: { authorization: "Bearer nope" } }))).status).toBe(401);
+describe("/api/sync-now has no cron entry (SPEC §2.5)", () => {
+  it("exports only the POST handler", async () => {
+    const mod = await import("@/app/api/sync-now/route");
+    expect(Object.keys(mod)).toEqual(["POST"]);
   });
 });

@@ -73,7 +73,7 @@ export type TaskLabel = { id: string; name: string; color: string };
 export const TASK_COLORS = ["grey", "red", "orange", "yellow", "green", "teal", "blue", "violet", "pink"] as const;
 
 /** Whether an assignee can see their tasks yet (§12.1 "not on Deska yet"). */
-export type Access = "active" | "pending" | "blocked";
+export type Access = "active" | "pending";
 
 export const TITLE_MAX = 500;
 export const LINKS_MAX = 20;

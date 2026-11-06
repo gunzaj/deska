@@ -13,7 +13,11 @@ export interface DeskaBridge {
   /** A native notification. */
   notify(notification: { title: string; body?: string }): Promise<void>;
   token: {
-    /** Encrypts the GitHub token with the OS keychain and hands it to the local server. Never over HTTP. */
+    /**
+     * Encrypts the GitHub token with the OS keychain and hands it to the local
+     * server. Never over HTTP. Resolves once the server holds it; rejects for
+     * anything but a fine-grained token (`github_pat_…`).
+     */
     set(token: string): Promise<TokenStatus>;
     /** "Disconnect GitHub": deletes the stored token. */
     clear(): Promise<TokenStatus>;
@@ -43,8 +47,15 @@ export type ServerMessage =
       dbDir: string;
       env: Record<string, string>;
     }
-  | { type: "token"; token: string | null }
+  /** `id` is echoed in a `token-ack` once the server holds the token. */
+  | { type: "token"; token: string | null; source: "launch" | "user"; id: number }
   | { type: "stop" };
+
+/** Messages from the server process to main. */
+export type ServerReply = { type: "token-ack"; id: number };
+
+/** What main accepts as a token: a fine-grained PAT only (SPEC §3.1). */
+export const FINE_GRAINED_TOKEN = /^github_pat_[A-Za-z0-9_]{20,250}$/;
 
 declare global {
   interface Window {

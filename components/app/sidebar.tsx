@@ -108,7 +108,7 @@ function Section({ title, children, action }: { title: string; children: React.R
 }
 
 
-export function Sidebar({ signOutAction, onNavigate }: { signOutAction: () => Promise<void>; onNavigate?: () => void }) {
+export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
   const { data, viewer } = useAppData();
   const { views } = useAppViews();
   const { sync, syncNow } = useAppSync();
@@ -396,7 +396,7 @@ export function Sidebar({ signOutAction, onNavigate }: { signOutAction: () => Pr
             <span className="truncate">Customize</span>
           </button>
         </div>
-        <UserMenu signOutAction={signOutAction} />
+        <UserMenu />
       </div>
     </div>
   );

@@ -125,7 +125,7 @@ export function EditsProvider({ children }: { children: ReactNode }) {
   const edit = useCallback(
     async (issue: ClientIssue, field: EditField, next: unknown, opts: { base?: unknown; quiet?: boolean } = {}): Promise<EditOutcome> => {
       if (!meta.writeMode) {
-        if (!opts.quiet) toast({ message: EDITING_OFF });
+        if (!opts.quiet) toast({ message: meta.editOffReason ?? EDITING_OFF });
         return "refused";
       }
       if (field === "state" && next === "closed" && meta.closeBlocked) {
@@ -170,16 +170,16 @@ export function EditsProvider({ children }: { children: ReactNode }) {
       if (!opts.quiet) toast({ message: `Couldn't save: ${out?.error ?? out?.entry?.error ?? (res ? `HTTP ${res.status}` : "network error")}`, kind: "error" });
       return "failed";
     },
-    [meta.writeMode, meta.closeBlocked, wireIssue, overlayIssue, clearOverlay, commitIssue, bump, toast],
+    [meta.writeMode, meta.editOffReason, meta.closeBlocked, wireIssue, overlayIssue, clearOverlay, commitIssue, bump, toast],
   );
 
   const value = useMemo<EditsCtx>(
     () => ({
       isPending: (nodeId, field) => pending.has(fieldKey(nodeId, field)) || queued.has(fieldKey(nodeId, field)),
       edit,
-      disabledReason: meta.writeMode ? null : EDITING_OFF,
+      disabledReason: meta.writeMode ? null : (meta.editOffReason ?? EDITING_OFF),
     }),
-    [pending, queued, edit, meta.writeMode],
+    [pending, queued, edit, meta.writeMode, meta.editOffReason],
   );
 
   return (

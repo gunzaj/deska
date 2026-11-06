@@ -5,6 +5,7 @@
 // have ended. With writes on, leftovers move to the next Release one by one or
 // in bulk through the W1 outbox; with writes off the page gives a GitHub search.
 import Link from "next/link";
+import { EDITING_OFF } from "@/lib/client/edit";
 import { useMemo, useState } from "react";
 import { bulkEdit, describeChange, type BulkChange } from "@/lib/client/bulk";
 import { encodeState } from "@/lib/client/explorer";
@@ -186,7 +187,7 @@ export function ReleasePlanPage() {
               ))}
             </ul>
           )}
-          {left.length > 0 && !meta.writeMode && <p className="mt-2 text-[12px] text-faint">Editing is off for this deployment. Move these on GitHub, or paste the search above to find them there.</p>}
+          {left.length > 0 && !meta.writeMode && <p className="mt-2 text-[12px] text-faint">{meta.editOffReason ?? EDITING_OFF}. Move these on GitHub, or paste the search above to find them there.</p>}
         </section>
       </div>
       <Dialog open={confirm !== null} onClose={() => setConfirm(null)} label="Confirm move" width={420}>

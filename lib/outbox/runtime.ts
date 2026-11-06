@@ -1,8 +1,4 @@
 // Glue between the durable outbox (store.ts), GitHub and the cache (W1).
-import { eq, sql } from "drizzle-orm";
-import { getDb } from "@/db";
-import { users } from "@/db/schema";
-import { decryptToken } from "@/lib/crypto";
 import { GitHubWriteClient } from "@/lib/github/write-client";
 import { importFull } from "@/lib/sync/import";
 import type { ProjectFieldMap } from "@/lib/sync/field-map";
@@ -11,8 +7,7 @@ import { GitHubSource } from "@/lib/sync/source-github";
 import type { ReadModel } from "@/lib/sync/read-model";
 import { PostgresStore } from "@/lib/sync/store-postgres";
 import { partialSnapshot } from "@/lib/sync/types";
-import { writeEnabled } from "./queue";
-import { drainOutbox, type DrainOptions, type ProcessDeps } from "./store";
+import type { ProcessDeps } from "./store";
 
 /**
  * STATUS_DONE_OPTION_ID must name one of the discovered Status options: a
@@ -45,33 +40,4 @@ export async function refreshIssue(token: string, issueNodeId: string): Promise<
 /** What the outbox needs to write as this user. */
 export function depsFor(token: string, doneStatusOptionId: string, fields: ProjectFieldMap): ProcessDeps {
   return { client: new GitHubWriteClient(token, fields), doneStatusOptionId, refresh: (id) => refreshIssue(token, id) };
-}
-
-/** The user's GitHub token stored at sign-in, for writes nobody is waiting on. */
-export async function storedToken(login: string): Promise<string | null> {
-  const [row] = await getDb()
-    .select({ enc: users.tokenEnc })
-    .from(users)
-    .where(eq(sql`lower(${users.login})`, login.toLowerCase()))
-    .limit(1);
-  if (!row?.enc) return null;
-  try {
-    return decryptToken(row.enc);
-  } catch {
-    return null;
-  }
-}
-
-/**
- * Drain leftover edits (worker loop, cron). No-op while writes are off: a
- * row can only exist if they were on, and nothing may be written now.
- */
-export async function drainLeftovers(doneStatusOptionId: string, opts: DrainOptions = {}): Promise<number> {
-  if (!writeEnabled()) return 0;
-  const fields = await currentFieldMap(new PostgresStore());
-  const { processed } = await drainOutbox(async (login) => {
-    const token = await storedToken(login);
-    return token ? depsFor(token, doneStatusOptionId, fields) : null;
-  }, opts);
-  return processed.length;
 }

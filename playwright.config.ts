@@ -7,9 +7,6 @@ const e2eEnv = {
   GITHUB_PROJECT_NUMBER: "7",
   E2E_AUTH_BYPASS: "1",
   E2E_BYPASS_ACK: "i-understand",
-  ALLOWED_GITHUB_LOGINS: "alice,bob",
-  AUTH_SECRET: "e2e-test-secret-please-change",
-  TOKEN_ENC_KEY: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
 };
 
 // A second project runs the smoke and task specs against the database path:
@@ -39,7 +36,7 @@ export default defineConfig({
   webServer: [
     {
       command: "pnpm dev --port 3100",
-      url: "http://localhost:3100/signin",
+      url: "http://localhost:3100/onboarding",
       timeout: 180_000,
       reuseExistingServer: !process.env.CI,
       env: {
@@ -53,7 +50,7 @@ export default defineConfig({
     },
     {
       command: `pnpm dev --port ${DB_PORT}`,
-      url: `http://localhost:${DB_PORT}/signin`,
+      url: `http://localhost:${DB_PORT}/onboarding`,
       timeout: 180_000,
       reuseExistingServer: !process.env.CI,
       env: { ...e2eEnv, PORT: String(DB_PORT), DESKA_DB_DIR: "memory://", DESKA_DEMO_SEED: "fixtures", NEXT_DIST_DIR: ".next-e2e" },

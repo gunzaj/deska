@@ -1,7 +1,8 @@
 "use client";
 
 // The user menu at the bottom of the sidebar: theme, the default Team that
-// every list and Insights filter by, and sign out.
+// every list and Insights filter by, and Settings (the GitHub connection).
+import Link from "next/link";
 import { useRef, useState } from "react";
 import { plainName } from "@/lib/client/format";
 import { Icon, type IconName } from "../icons";
@@ -17,7 +18,7 @@ const THEMES: { id: Theme; icon: IconName; label: string }[] = [
   { id: "dark", icon: "moon", label: "Dark" },
 ];
 
-export function UserMenu({ signOutAction }: { signOutAction: () => Promise<void> }) {
+export function UserMenu() {
   const { data, viewer, avatarOf } = useAppData();
   const { theme, setTheme } = useAppTheme();
   const { setPrefs } = usePrefs();
@@ -85,12 +86,12 @@ export function UserMenu({ signOutAction }: { signOutAction: () => Promise<void>
             <p className="mt-1 text-[11.5px] text-faint">Lists, triage, the backlog and Insights start filtered to this team. Switch it off on a page with the team chip in its filter bar.</p>
           </div>
 
-          <form action={signOutAction} className="border-t border-line pt-2.5">
-            <button type="submit" className="flex h-7 w-full items-center gap-2 rounded-md px-1.5 text-muted hover:bg-hover hover:text-fg">
-              <Icon name="logout" size={14} />
-              Sign out
-            </button>
-          </form>
+          <div className="border-t border-line pt-2.5">
+            <Link href="/settings" onClick={() => setOpen(false)} className="flex h-7 w-full items-center gap-2 rounded-md px-1.5 text-muted hover:bg-hover hover:text-fg">
+              <Icon name="sliders" size={14} />
+              Settings
+            </Link>
+          </div>
         </div>
       </Popover>
     </>

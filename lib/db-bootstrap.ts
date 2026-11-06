@@ -1,7 +1,7 @@
 // Opens the local database when the server starts (instrumentation-node.ts):
-// applies pending migrations and, until onboarding lands (D3), seeds the
-// fictional demo dataset into an empty database so the app has something to
-// show (SPEC D2 "Demo data until D3").
+// applies pending migrations and, until in-process sync lands (D5), seeds the
+// fictional demo dataset into an empty database when DESKA_DEMO_SEED asks for
+// it, so the app has something to show.
 import { sql } from "drizzle-orm";
 import { dbDir, ensureMigrated, getDb } from "@/db";
 import { demoSnapshot } from "./demo/generate";

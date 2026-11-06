@@ -1,7 +1,7 @@
 import { expect, test, type Browser } from "@playwright/test";
 
-// S3: failed refreshes are visible, and a 401 stops the app behind a
-// "Session expired" banner instead of showing old data forever.
+// S3: failed refreshes are visible, and a 401 (GitHub disconnected) stops the
+// app behind a banner instead of showing old data forever.
 
 async function as(browser: Browser, login = "alice") {
   const context = await browser.newContext({ extraHTTPHeaders: { "x-e2e-login": login } });
@@ -26,12 +26,12 @@ test("a failed PR load shows the error and Retry; Retry loads the list", async (
   await context.close();
 });
 
-test("a 401 from /api/data shows the session-expired banner", async ({ browser }) => {
+test("a 401 from /api/data shows the disconnected banner", async ({ browser }) => {
   const { context, page } = await as(browser);
   await page.route("**/api/data", (route) => route.fulfill({ status: 401, contentType: "application/json", body: JSON.stringify({ error: "unauthenticated" }) }));
   await page.goto("/backlog");
-  await expect(page.getByText("Session expired")).toBeVisible({ timeout: 20_000 });
-  await expect(page.getByRole("link", { name: "Sign in" })).toHaveAttribute("href", "/signin");
+  await expect(page.getByText("GitHub is disconnected")).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByRole("link", { name: "Connect GitHub" })).toHaveAttribute("href", "/onboarding");
   await context.close();
 });
 
@@ -41,15 +41,8 @@ test("a 401 from /api/tasks blocks the loaded app with the banner", async ({ bro
   await page.goto("/backlog");
   // Issue data loads fine; the task store's 401 still blocks the app.
   await expect(page.getByText("Bug: crash on start")).toBeVisible({ timeout: 20_000 });
-  await expect(page.getByRole("alertdialog", { name: "Session expired, sign in again" })).toBeVisible();
+  await expect(page.getByRole("alertdialog", { name: "GitHub is disconnected" })).toBeVisible();
   await context.close();
-});
-
-test("/api/health needs no session and carries only the status", async ({ request }) => {
-  const res = await request.get("/api/health");
-  // The e2e server runs on fixtures with no sync: unhealthy, but reachable.
-  expect([200, 503]).toContain(res.status());
-  expect(Object.keys(await res.json()).sort()).toEqual(["lastSyncAgeSec", "ok"]);
 });
 
 test("/api/sync-status and POST /api/sync-now refuse an anonymous caller", async ({ request }) => {

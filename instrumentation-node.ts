@@ -1,14 +1,14 @@
-import { clearStoredTokensWhenReadOnly } from "./lib/auth-tokens";
 import { prepareDatabase } from "./lib/db-bootstrap";
+import { installLogRedaction } from "./lib/redact";
 
-// The embedded database must be migrated (and, until D3, seeded with demo
-// data) before the first request reads it.
+// No log line from this server ever carries the GitHub token (SPEC §2.3).
+installLogRedaction();
+
+// The embedded database must be migrated (and, until in-process sync lands in
+// D5, seeded with demo data when asked to) before the first request reads it.
 try {
   const { seeded } = await prepareDatabase();
   if (seeded) console.log("deska: seeded the demo dataset into an empty database");
 } catch (e) {
   console.error(`deska: could not prepare the database: ${e instanceof Error ? e.message : String(e)}`);
 }
-
-// With WRITE_MODE off, no user's GitHub token stays in the database (v5 2.8).
-await clearStoredTokensWhenReadOnly();

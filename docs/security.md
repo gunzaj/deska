@@ -2,7 +2,7 @@
 
 For security reviewers and org admins deciding whether to approve a Deska token. Deska is a macOS desktop app that reads one GitHub repository and one organization Project (v2) with the user's own fine-grained personal access token (PAT). It has no backend, no hosting and no OAuth app.
 
-This page describes the design in [`SPEC.md`](SPEC.md). The desktop shell and the local server hardening below landed in D2; token entry through the app, onboarding and in-process sync land in D3–D5, and until D3 the app shows a fictional demo dataset. Check [`PROGRESS.md`](PROGRESS.md) for what is built.
+This page describes the design in [`SPEC.md`](SPEC.md). The desktop shell and the local server hardening below landed in D2, token entry, onboarding and the token checks in D3. In-process sync lands in D5; until then the app shows a fictional demo dataset. Check [`PROGRESS.md`](PROGRESS.md) for what is built.
 
 ## Architecture
 
@@ -50,11 +50,19 @@ Facts worth knowing:
 
 ### Storage
 
-- The user enters the token in onboarding or Settings. It goes through a minimal preload bridge to the Electron **main** process, never over HTTP.
-- Main encrypts it with Electron `safeStorage` (the key is held in the macOS Keychain) and stores only the ciphertext in the app data folder.
+- The user pastes the token in onboarding or Settings. It goes through a minimal preload bridge to the Electron **main** process, never over HTTP. The input field is emptied as soon as the token is handed over, and the page never gets it back.
+- Main accepts only fine-grained tokens (`github_pat_…`), encrypts the token with Electron `safeStorage` (the key is held in the macOS Keychain) and stores only the ciphertext (`github-token.bin`) in the app data folder.
 - Main hands the plaintext to the local server over IPC. The server keeps it **in memory only**.
-- The token is never in the renderer, environment variables, logs, error messages, the database, exports or backups. Log and error redaction removes `github_pat_…` strings and any value equal to the token.
-- "Disconnect GitHub" deletes the stored token. The local GitHub cache and personal tasks stay.
+- The token is never in the renderer, environment variables, logs, error messages, API answers, the database, exports or backups. Every console line of the server process goes through redaction, which replaces `github_pat_…` strings (and the classic `gh?_…` shapes) and any value equal to the token; API errors are generic and their detail goes to the log only.
+- "Disconnect GitHub" in Settings deletes the stored token. The local GitHub cache and personal tasks stay.
+
+### Checking a token in the app
+
+When a token is entered, and again every few minutes while the app runs, the server asks GitHub who the token belongs to (`GET /user`) and makes one read per permission above against the chosen repository and project. These calls use the same read-only client as the probe below: REST `GET`s and GraphQL queries only. From the answers Deska tells apart: no token, invalid or expired (401), expiring within 14 days (from GitHub's `github-authentication-token-expiration` header), awaiting the org's approval, a missing permission (named, for example "Organization → Projects: Read"), GitHub unreachable, and rate limited. The token's owner becomes the app's one local user; their login, name and avatar URL are kept in the local database so the app works offline. The token is not.
+
+A fine-grained token's write permissions can't be read without attempting a write, and Deska never attempts one to find out. Until writes exist (Phase C), every token counts as read-only and edit controls say "Read-only token".
+
+Automated tests of the desktop app point it at a mock GitHub API with `DESKA_GITHUB_API_URL`. Only `http://127.0.0.1:<port>` is accepted; any other value is ignored, so the token can't be sent anywhere but GitHub or the same Mac.
 
 ## Local server hardening
 
@@ -75,8 +83,8 @@ All under `~/Library/Application Support/Deska/`, readable only by the user's ma
 
 | What | Where | Contains |
 |---|---|---|
-| Encrypted token | app data folder | `safeStorage` ciphertext only |
-| Local database | `db/` | A cache of the repository's issues and project values, plus personal tasks, saved views, snoozes, watches and settings |
+| Encrypted token | app data folder (`github-token.bin`) | `safeStorage` ciphertext only |
+| Local database | `db/` | A cache of the repository's issues and project values, the token owner's login, name and avatar URL, plus personal tasks, saved views, snoozes, watches and settings. **No token** |
 | Backups | `backups/` | JSON of local-only data (tasks, projects, labels, sections, views, snoozes, watches, settings). Daily and before each migration; the last 14 are kept. **No token** |
 | Settings | in the database | Repo, org, project number and pinned node ID, field mapping, toggles. **No token** |
 
@@ -112,9 +120,9 @@ When writes are on, each one follows an intentional user action, checks that the
 | Close / reopen | REST `PATCH` state and state reason, plus the Status field |
 | Create issue | REST `POST /issues`, then add to the project and set fields |
 
-## Checking a token
+## Probing a token from the command line
 
-`pnpm probe:pat` checks what a token can read, without changing anything. Its client can only send REST `GET`s and GraphQL queries; a test fails if it would send any other REST method or a GraphQL `mutation`. The report is written to `private/findings/`, which git ignores.
+`pnpm probe:pat` checks what a token can read, without changing anything. It is a command-line tool for the maintainer, separate from the app, and reads the token from the `GITHUB_TOKEN` variable of the shell that runs it; the app itself never reads a token from the environment. Its client can only send REST `GET`s and GraphQL queries; a test fails if it would send any other REST method or a GraphQL `mutation`. The report is written to `private/findings/`, which git ignores.
 
 ```bash
 read -rs GITHUB_TOKEN && export GITHUB_TOKEN

@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { EDITING_OFF } from "@/lib/client/edit";
 import { useEffect, useState, type ReactNode } from "react";
 import { formatDate, longAgo, plainName } from "@/lib/client/format";
 import type { ClientIssue, IssueDetail } from "@/lib/client/types";
@@ -318,7 +319,7 @@ export function IssueDetailView({ number, mode, onClose }: { number: number; mod
               </p>
             ) : !data.meta.writeMode ? (
               <p className="flex items-center gap-1.5 pb-0.5 pt-1 text-[11.5px] text-faint">
-                <Icon name="lock" size={11} /> Editing is off for this deployment. Change fields on{" "}
+                <Icon name="lock" size={11} /> {data.meta.editOffReason ?? EDITING_OFF}. Change fields on{" "}
                 <a href={issue.url} target="_blank" rel="noreferrer" className="underline hover:text-muted">
                   GitHub
                 </a>

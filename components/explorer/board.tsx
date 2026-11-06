@@ -28,7 +28,6 @@ import {
 } from "@dnd-kit/core";
 import { memo, useCallback, useMemo, useRef, useState, type ReactNode } from "react";
 import { boardMove, draggable, NO_VALUE } from "@/lib/client/board-move";
-import { EDITING_OFF } from "@/lib/client/edit";
 import { boardColumns, CARD_PAGE, type BoardField, type DisplayProp } from "@/lib/client/explorer";
 import type { ClientIssue } from "@/lib/client/types";
 import { useAppData } from "../app/provider";
@@ -264,7 +263,7 @@ export function BoardLayout({
                   <span className="truncate">{col.label}</span>
                   <span className="font-normal tabular-nums text-faint">{col.rows.length}</span>
                 </h2>
-                <div className="flex min-h-12 flex-1 flex-col gap-1.5 overflow-y-auto px-1.5 pb-2" title={!canDrag && disabledReason ? EDITING_OFF : undefined}>
+                <div className="flex min-h-12 flex-1 flex-col gap-1.5 overflow-y-auto px-1.5 pb-2" title={!canDrag && disabledReason ? disabledReason : undefined}>
                   {col.rows.slice(0, limit).map((i) => (
                     <BoardCard
                       key={i.nodeId}

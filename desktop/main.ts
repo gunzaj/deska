@@ -10,10 +10,11 @@ import http from "node:http";
 import net from "node:net";
 import path from "node:path";
 import { app, BrowserWindow, dialog, ipcMain, Notification, safeStorage, session, shell, utilityProcess, type IpcMainInvokeEvent, type UtilityProcess, type WebContents } from "electron";
-import { CHANNELS, type ServerMessage, type TokenStatus } from "./bridge";
+import { CHANNELS, FINE_GRAINED_TOKEN, type ServerMessage, type ServerReply, type TokenStatus } from "./bridge";
 import { classifyUrl, requestAllowed } from "./navigation";
 
 const LAUNCH_COOKIE = "deska_launch"; // lib/desktop/guard.ts
+const LOOPBACK_API = /^http:\/\/127\.0\.0\.1:\d{2,5}$/; // lib/config.ts
 const DEV = process.env.DESKA_DESKTOP_DEV === "1";
 
 app.setName("Deska");
@@ -23,7 +24,13 @@ if (process.env.DESKA_USER_DATA_DIR) app.setPath("userData", path.resolve(proces
 // One app per profile: two servers on one database directory would corrupt it.
 if (!app.requestSingleInstanceLock()) app.quit();
 
-type Server = { origin: string; send(msg: ServerMessage): void; kill(): void; onExit(fn: (code: number | null) => void): void };
+type Server = {
+  origin: string;
+  send(msg: ServerMessage): void;
+  onReply(fn: (msg: ServerReply) => void): void;
+  kill(): void;
+  onExit(fn: (code: number | null) => void): void;
+};
 
 let server: Server | null = null;
 let mainWindow: BrowserWindow | null = null;
@@ -70,9 +77,12 @@ function startServerProcess(port: number, secret: string): Server {
     secret,
     dbDir,
     env: {
-      // Until onboarding (D3): the fictional demo dataset and its user.
+      // Until in-process sync (D5): the fictional demo dataset fills an empty
+      // database, under a "Sample data" banner.
       DESKA_DEMO_SEED: process.env.DESKA_DEMO_SEED === "fixtures" ? "fixtures" : "demo",
-      DESKA_LOCAL_LOGIN: "alice",
+      // Automated tests point GitHub at a mock on 127.0.0.1; nothing else is
+      // passed on (the server ignores any other value too, lib/config.ts).
+      ...(LOOPBACK_API.test(process.env.DESKA_GITHUB_API_URL ?? "") ? { DESKA_GITHUB_API_URL: process.env.DESKA_GITHUB_API_URL! } : {}),
     },
   };
   const entry = path.join(__dirname, "server-entry.js");
@@ -88,6 +98,7 @@ function startServerProcess(port: number, secret: string): Server {
     return {
       origin,
       send: (m) => child.connected && child.send(m),
+      onReply: (fn) => child.on("message", (m) => fn(m as ServerReply)),
       kill: () => child.kill(),
       onExit: (fn) => child.on("exit", fn),
     };
@@ -97,6 +108,7 @@ function startServerProcess(port: number, secret: string): Server {
   return {
     origin,
     send: (m) => child.postMessage(m),
+    onReply: (fn) => child.on("message", (m) => fn(m as ServerReply)),
     kill: () => child.kill(),
     onExit: (fn) => child.on("exit", fn),
   };
@@ -127,6 +139,25 @@ const tokenFile = () => path.join(app.getPath("userData"), "github-token.bin");
 
 function tokenStatus(): TokenStatus {
   return { stored: existsSync(tokenFile()), encryptionAvailable: safeStorage.isEncryptionAvailable() };
+}
+
+let tokenMessageId = 0;
+const tokenAcks = new Map<number, () => void>();
+
+/** Hands the token (or its removal) to the server and waits until it holds it. */
+function sendToken(s: Server, token: string | null, source: "launch" | "user"): Promise<void> {
+  const id = ++tokenMessageId;
+  return new Promise<void>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      tokenAcks.delete(id);
+      reject(new Error("The local server did not take the token."));
+    }, 10_000);
+    tokenAcks.set(id, () => {
+      clearTimeout(timer);
+      resolve();
+    });
+    s.send({ type: "token", token, source, id });
+  });
 }
 
 function readStoredToken(): string | null {
@@ -210,18 +241,21 @@ function registerIpc() {
     const body = typeof n?.body === "string" ? n.body.slice(0, 1000) : undefined;
     if (title) new Notification({ title, body }).show();
   });
-  ipcMain.handle(CHANNELS.tokenSet, (e, token: unknown) => {
-    if (!fromApp(e)) return tokenStatus();
-    if (typeof token !== "string" || !/^[A-Za-z0-9_]{20,255}$/.test(token.trim())) throw new Error("That does not look like a GitHub token.");
+  // Errors thrown here reach the page as the rejection message: they never
+  // include the token.
+  ipcMain.handle(CHANNELS.tokenSet, async (e, token: unknown) => {
+    if (!fromApp(e) || !server) return tokenStatus();
+    const value = typeof token === "string" ? token.trim() : "";
+    if (!FINE_GRAINED_TOKEN.test(value)) throw new Error("Deska needs a fine-grained personal access token. It starts with github_pat_.");
     if (!safeStorage.isEncryptionAvailable()) throw new Error("The system keychain is not available.");
-    writeFileSync(tokenFile(), safeStorage.encryptString(token.trim()), { mode: 0o600 });
-    server?.send({ type: "token", token: token.trim() });
+    writeFileSync(tokenFile(), safeStorage.encryptString(value), { mode: 0o600 });
+    await sendToken(server, value, "user");
     return tokenStatus();
   });
-  ipcMain.handle(CHANNELS.tokenClear, (e) => {
-    if (!fromApp(e)) return tokenStatus();
+  ipcMain.handle(CHANNELS.tokenClear, async (e) => {
+    if (!fromApp(e) || !server) return tokenStatus();
     rmSync(tokenFile(), { force: true });
-    server?.send({ type: "token", token: null });
+    await sendToken(server, null, "user");
     return tokenStatus();
   });
   ipcMain.handle(CHANNELS.tokenStatus, (e) => (fromApp(e) ? tokenStatus() : null));
@@ -238,8 +272,13 @@ async function boot() {
     dialog.showErrorBox("Deska", `The local server stopped unexpectedly (exit code ${code ?? "unknown"}).`);
     app.exit(1);
   });
+  s.onReply((m) => {
+    if (m?.type === "token-ack") tokenAcks.get(m.id)?.();
+    tokenAcks.delete(m?.id);
+  });
+  // The stored token, before the window opens: the first page knows its user.
   const stored = readStoredToken();
-  if (stored) s.send({ type: "token", token: stored });
+  if (stored) void sendToken(s, stored, "launch").catch((err) => log(err instanceof Error ? err.message : String(err)));
 
   const ses = session.defaultSession;
   // Nothing reaches the network from the window but the app and GitHub images.

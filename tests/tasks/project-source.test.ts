@@ -97,7 +97,6 @@ describe("sourceRows", () => {
 describe("project source API", () => {
   beforeEach(() => {
     __resetTasks();
-    process.env.ALLOWED_GITHUB_LOGINS = "alice,bob";
     viewer = "alice";
   });
 

@@ -7,6 +7,7 @@
 // The walk is fixed when it starts, so editing or snoozing never reorders it.
 // With writes off the editing keys say so; snoozing still works (Deska only).
 import Link from "next/link";
+import { EDITING_OFF } from "@/lib/client/edit";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { addDaysIso, isSnoozed, priorityByKey, snoozePresets } from "@/lib/client/triage";
@@ -114,7 +115,7 @@ export function TriageRunPage() {
         setSnoozing(true);
       } else if (e.key === "t" || e.key === "r" || e.key === "a") {
         e.preventDefault();
-        if (!data.meta.writeMode) toast({ message: "Editing is off for this deployment" });
+        if (!data.meta.writeMode) toast({ message: data.meta.editOffReason ?? EDITING_OFF });
         else openPicker(cur.nodeId, e.key === "t" ? "team" : e.key === "r" ? "release" : "assignees");
       } else if (/^[1-4]$/.test(e.key)) {
         e.preventDefault();
@@ -124,7 +125,7 @@ export function TriageRunPage() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [router, edit, toast, data.meta.writeMode]);
+  }, [router, edit, toast, data.meta.writeMode, data.meta.editOffReason]);
 
   const done = index >= ids.length;
   const snoozedNow = issue && isSnoozed(snoozes.get(issue.nodeId), today);
@@ -179,7 +180,7 @@ export function TriageRunPage() {
             <span><Kbd>←</Kbd> back</span>
             <span><Kbd>Z</Kbd> snooze</span>
             <span><Kbd>Esc</Kbd> exit</span>
-            {!data.meta.writeMode && <span className="text-warning">Editing is off: read-only walk-through, snoozing still works.</span>}
+            {!data.meta.writeMode && <span className="text-warning">{data.meta.editOffReason ?? EDITING_OFF}: read-only walk-through, snoozing still works.</span>}
           </div>
         </div>
       )}
