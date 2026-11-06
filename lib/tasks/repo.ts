@@ -813,7 +813,7 @@ export class PostgresTaskRepo implements TaskRepo {
     return new Set(rows.map((r) => r.login));
   }
   noteSignedIn() {
-    /* sign-in writes the users row (lib/auth.ts) */
+    /* the users table is read-only here */
   }
 }
 

@@ -1,67 +1,25 @@
-// The middleware's answers for denied and stale sessions (v5 2.8, 2.9).
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+// The middleware outside the desktop guard (tests/desktop/guard.test.ts covers
+// that): no sign-in, no allowlist (SPEC §2.5), pages get the CSP.
+import { describe, expect, it } from "vitest";
 import { NextRequest } from "next/server";
-
-const session = vi.hoisted(() => ({ token: null as Record<string, unknown> | null }));
-vi.mock("@/lib/session-token", () => ({ getSessionToken: async () => session.token, sameOriginUrl: () => new URL("http://localhost/") }));
 
 const { middleware } = await import("@/middleware");
 
 const req = (path: string) => new NextRequest(new URL(path, "http://localhost:3000"));
 
 describe("middleware", () => {
-  beforeEach(() => {
-    process.env.ALLOWED_GITHUB_LOGINS = "alice";
-    delete process.env.ACCESS_MODE;
-    delete process.env.WRITE_MODE;
-    delete process.env.E2E_AUTH_BYPASS;
-  });
-  afterEach(() => {
-    session.token = null;
-    delete process.env.ALLOWED_GITHUB_LOGINS;
-    delete process.env.WRITE_MODE;
-  });
-
-  it("answers a denied API call with JSON 403, and a denied page with the forbidden page (v5 2.9)", async () => {
-    session.token = { login: "intruder" };
+  it("has no sign-in or allowlist: API calls and pages pass to the routes, which check for the local user", async () => {
     const api = await middleware(req("/api/data"));
-    expect(api.status).toBe(403);
-    expect(api.headers.get("content-type")).toMatch(/application\/json/);
-    expect(await api.json()).toEqual({ error: "forbidden" });
-
+    expect(api.status).toBe(200);
+    expect(api.headers.get("x-middleware-next")).toBe("1");
     const page = await middleware(req("/my"));
-    expect(page.status).toBe(403);
-    expect(page.headers.get("x-middleware-rewrite")).toContain("/forbidden");
-  });
-
-  it("lets an allowed session through", async () => {
-    session.token = { login: "alice" };
-    const res = await middleware(req("/api/data"));
-    expect(res.status).toBe(200);
-    expect(res.headers.get("x-middleware-next")).toBe("1");
-  });
-
-  it("sends a session issued under the other WRITE_MODE back to sign in (v5 2.8)", async () => {
-    session.token = { login: "alice", scopeMode: "on" }; // signed in while writes were on
-    process.env.WRITE_MODE = "off";
-    const api = await middleware(req("/api/data"));
-    expect(api.status).toBe(401);
-    const page = await middleware(req("/my"));
-    expect(page.status).toBe(307);
-    expect(page.headers.get("location")).toContain("/signin");
-
-    session.token = { login: "alice" }; // no record: read-only
-    process.env.WRITE_MODE = "on";
-    expect((await middleware(req("/api/data"))).status).toBe(401);
-    process.env.WRITE_MODE = "off";
-    expect((await middleware(req("/api/data"))).status).toBe(200);
+    expect(page.status).toBe(200);
+    expect(page.headers.get("location")).toBeNull();
   });
 });
 
 describe("middleware CSP (v5 4.10)", () => {
   it("gives every page a fresh nonce in the CSP header and the request headers, and leaves API answers alone", async () => {
-    process.env.ALLOWED_GITHUB_LOGINS = "alice";
-    session.token = { login: "alice" };
     const a = await middleware(req("/my"));
     const b = await middleware(req("/my"));
     const nonceOf = (csp: string | null) => /'nonce-([^']+)'/.exec(csp ?? "")?.[1];
@@ -73,7 +31,5 @@ describe("middleware CSP (v5 4.10)", () => {
 
     const api = await middleware(req("/api/data"));
     expect(api.headers.get("content-security-policy")).toBeNull();
-    delete process.env.ALLOWED_GITHUB_LOGINS;
-    session.token = null;
   });
 });

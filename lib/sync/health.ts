@@ -1,28 +1,23 @@
 // Sync health you can see (IMPROVEMENTS S3). sync_state used to hold only
 // lastSync and rateLimitedUntil, so a failing cycle left no trace but a 502 in
-// the Vercel logs, and the chip could not tell "nothing changed" from "failing
+// the server logs, and the chip could not tell "nothing changed" from "failing
 // for six hours".
+import { redactSecrets } from "../redact";
 import type { Kv } from "./poll";
 
 export const MAX_ERROR_LENGTH = 500;
 
-/** Env vars whose values must never reach sync_state, the chip or a log. */
-const SECRET_ENV = ["GITHUB_TOKEN", "GITHUB_CLIENT_SECRET", "CRON_SECRET", "AUTH_SECRET", "TOKEN_ENC_KEY"];
+/** Env vars whose values must never reach sync_state, the chip or a log (the CLI scripts read the token from it). */
+const SECRET_ENV = ["GITHUB_TOKEN"];
 
 /**
- * An error message safe to store and show: configured secrets, GitHub token
- * shapes, bearer/token values and URL credentials are replaced, and the result
- * is cut to 500 characters.
+ * An error message safe to store and show: the app's token, configured
+ * secrets, GitHub token shapes, bearer/token values and URL credentials are
+ * replaced, and the result is cut to 500 characters.
  */
 export function redactError(e: unknown, env: Record<string, string | undefined> = process.env): string {
-  let msg = e instanceof Error ? e.message : String(e);
-  for (const name of SECRET_ENV) {
-    const v = env[name]?.trim();
-    // Short values (a placeholder like "off") would mangle ordinary words.
-    if (v && v.length >= 8) msg = msg.split(v).join("[redacted]");
-  }
+  let msg = redactSecrets(e instanceof Error ? e.message : String(e), SECRET_ENV.map((name) => env[name]?.trim()));
   msg = msg
-    .replace(/\b(?:gh[pousr]_[A-Za-z0-9]{16,}|github_pat_[A-Za-z0-9_]{20,})\b/g, "[redacted]")
     .replace(/\b(bearer|token)(\s+)(?!\[redacted\])[A-Za-z0-9._~+/=-]{16,}/gi, "$1$2[redacted]")
     .replace(/\b(authorization|access_token|token|password)(\s*[:=]\s*["']?)(?!\[redacted\])[^\s"',;&]+/gi, "$1$2[redacted]")
     .replace(/(\b[a-z][a-z0-9+.-]*:\/\/)[^\s/@]+@/gi, "$1[redacted]@");
@@ -76,17 +71,4 @@ export async function recordCycle<T extends object>(
   else markSuccess(kv);
   log(JSON.stringify({ kind: "sync", ok: !failed, durationMs: Date.now() - started, ...result, error: failed ? redactError(failed) : null }));
   return result;
-}
-
-export function healthMaxSyncAgeSec(raw = process.env.HEALTH_MAX_SYNC_AGE_SEC): number {
-  const n = Number(raw);
-  return raw?.trim() && Number.isFinite(n) && n > 0 ? n : 1800;
-}
-
-/** `/api/health`: healthy while the last successful sync is recent enough. */
-export function healthOf(kv: Kv, nowMs: number, maxAgeSec: number): { ok: boolean; lastSyncAgeSec: number | null } {
-  const last = Date.parse(kv.get("sync.lastSync") ?? "");
-  if (!Number.isFinite(last)) return { ok: false, lastSyncAgeSec: null };
-  const age = Math.max(0, Math.round((nowMs - last) / 1000));
-  return { ok: age <= maxAgeSec, lastSyncAgeSec: age };
 }

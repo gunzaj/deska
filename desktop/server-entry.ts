@@ -1,13 +1,15 @@
 // The local server process (SPEC §2.1). In the app it runs in Electron's
 // utilityProcess; `pnpm desktop:dev` forks it with plain Node instead, because
-// `next dev` forks its own workers and needs a real Node binary.
+// `next dev` needs a real Node binary.
 //
 // Main sends one "start" message over IPC with the port, the per-launch secret
 // and the database directory. They go into this process's environment only
 // (never into a spawn environment, a file or a log), then the Next.js server
-// starts on 127.0.0.1:<port>.
+// starts on 127.0.0.1:<port>, in this process, so the GitHub token main sends
+// next is visible to every request handler (SPEC §2.3: memory only).
+import http from "node:http";
 import path from "node:path";
-import type { ServerMessage } from "./bridge";
+import type { ServerMessage, ServerReply } from "./bridge";
 
 type Port = { on(event: "message", fn: (e: { data: ServerMessage }) => void): void; postMessage(msg: unknown): void };
 
@@ -18,9 +20,23 @@ function onMessage(fn: (msg: ServerMessage) => void) {
   else process.on("message", (msg) => fn(msg as ServerMessage));
 }
 
+function reply(msg: ServerReply) {
+  if (parentPort) parentPort.postMessage(msg);
+  else process.send?.(msg);
+}
+
+// The same globalThis slots lib/github/local-token.ts reads.
 const TOKEN = Symbol.for("deska.githubToken");
+const TOKEN_STATE = Symbol.for("deska.githubTokenState");
 const DB = Symbol.for("deska.db");
 let started = false;
+
+function setToken(token: string | null, source: "launch" | "user") {
+  const g = globalThis as Record<symbol, unknown>;
+  const prev = (g[TOKEN_STATE] as { generation?: number; changedByUser?: boolean } | undefined) ?? {};
+  g[TOKEN] = token ?? undefined;
+  g[TOKEN_STATE] = { generation: (prev.generation ?? 0) + 1, changedByUser: !!prev.changedByUser || source === "user" };
+}
 
 async function stop() {
   // PGlite flushes and releases its data directory on close.
@@ -30,6 +46,26 @@ async function stop() {
   } finally {
     process.exit(0);
   }
+}
+
+type NextApp = {
+  prepare(): Promise<void>;
+  getRequestHandler(): (req: http.IncomingMessage, res: http.ServerResponse) => Promise<void>;
+  getUpgradeHandler?(): (req: http.IncomingMessage, socket: unknown, head: Buffer) => Promise<void>;
+};
+
+/** `next dev` in this process (the CLI would fork a child the token never reaches). */
+async function startDev(serverDir: string, port: number) {
+  process.chdir(serverDir);
+  // eslint-disable-next-line @typescript-eslint/no-require-imports -- a runtime path, loaded after the env is set
+  const next = require(path.join(serverDir, "node_modules", "next")) as (opts: Record<string, unknown>) => NextApp;
+  const app = next({ dev: true, dir: serverDir, hostname: "127.0.0.1", port });
+  await app.prepare();
+  const handle = app.getRequestHandler();
+  const server = http.createServer((req, res) => void handle(req, res));
+  const upgrade = app.getUpgradeHandler?.();
+  if (upgrade) server.on("upgrade", (req, socket, head) => void upgrade(req, socket, head));
+  server.listen(port, "127.0.0.1", () => console.log(`deska: dev server on http://127.0.0.1:${port}`));
 }
 
 function start(msg: Extract<ServerMessage, { type: "start" }>) {
@@ -50,14 +86,16 @@ function start(msg: Extract<ServerMessage, { type: "start" }>) {
     require(path.join(msg.serverDir, "server.js"));
     return;
   }
-  process.chdir(msg.serverDir);
-  process.argv = [process.argv[0]!, "next", "dev", "--hostname", "127.0.0.1", "--port", String(msg.port)];
-  // eslint-disable-next-line @typescript-eslint/no-require-imports -- a runtime path, loaded after the env is set
-  require(path.join(msg.serverDir, "node_modules", "next", "dist", "bin", "next"));
+  startDev(msg.serverDir, msg.port).catch((e) => {
+    console.error(`deska: the dev server failed to start: ${e instanceof Error ? e.message : String(e)}`);
+    process.exit(1);
+  });
 }
 
 onMessage((msg) => {
   if (msg.type === "start") start(msg);
-  else if (msg.type === "token") (globalThis as Record<symbol, unknown>)[TOKEN] = msg.token ?? undefined;
-  else if (msg.type === "stop") void stop();
+  else if (msg.type === "token") {
+    setToken(msg.token, msg.source);
+    reply({ type: "token-ack", id: msg.id });
+  } else if (msg.type === "stop") void stop();
 });

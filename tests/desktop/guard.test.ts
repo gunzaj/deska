@@ -56,14 +56,14 @@ describe("middleware in the desktop app", async () => {
   };
 
   beforeEach(() => {
-    Object.assign(process.env, { DESKA_DESKTOP: "1", DESKA_LAUNCH_SECRET: SECRET, DESKA_HOST: HOST, DESKA_LOCAL_LOGIN: "alice" });
+    Object.assign(process.env, { DESKA_DESKTOP: "1", DESKA_LAUNCH_SECRET: SECRET, DESKA_HOST: HOST });
   });
   afterEach(() => {
-    for (const k of ["DESKA_DESKTOP", "DESKA_LAUNCH_SECRET", "DESKA_HOST", "DESKA_LOCAL_LOGIN"]) delete process.env[k];
+    for (const k of ["DESKA_DESKTOP", "DESKA_LAUNCH_SECRET", "DESKA_HOST"]) delete process.env[k];
   });
 
   it("403s pages, API calls and static files without the secret cookie", async () => {
-    for (const path of ["/", "/issues", "/api/data", "/api/views", "/_next/static/chunks/main.js", "/favicon.ico", "/signin", "/api/health"]) {
+    for (const path of ["/", "/issues", "/api/data", "/api/views", "/_next/static/chunks/main.js", "/favicon.ico", "/onboarding", "/api/connection"]) {
       const res = await middleware(req(path));
       expect(res.status, path).toBe(403);
       expect(await res.text()).toBe("Forbidden");
@@ -75,7 +75,7 @@ describe("middleware in the desktop app", async () => {
     expect(res.status).toBe(403);
   });
 
-  it("lets the window through without a sign-in, pages with the CSP", async () => {
+  it("lets the window through, pages with the CSP", async () => {
     const api = await middleware(req("/api/data", { cookie: SECRET }));
     expect(api.status).toBe(200);
     expect(api.headers.get("x-middleware-next")).toBe("1");

@@ -29,6 +29,8 @@ export type ClientMeta = {
   repo: string;
   viewer: string;
   writeMode: boolean;
+  /** Why edit controls are off while `writeMode` is false: "Read-only token" with a connected token, else "Editing is off for this deployment". */
+  editOffReason?: string;
   /** With writes on: why Close is unavailable (STATUS_DONE_OPTION_ID missing or unknown), else null (W1). */
   closeBlocked?: string | null;
   demo: boolean;

@@ -20,17 +20,19 @@ import { PanelDismiss } from "./panel-dismiss";
 import { GlobalShortcuts } from "./shortcuts";
 import { Sidebar } from "./sidebar";
 import { StatusBanners } from "./status-banner";
+import { ConnectionBanner, ConnectionProvider } from "./connection";
 
 /**
  * Linear-style frame: a quiet sidebar on the page colour and the content in an
  * inset raised panel. On narrow screens the sidebar becomes a drawer.
  */
-export function AppShell({ children, signOutAction }: { children: ReactNode; signOutAction: () => Promise<void> }) {
+export function AppShell({ children }: { children: ReactNode }) {
   const [drawer, setDrawer] = useState(false);
   const path = usePathname();
   useEffect(() => setDrawer(false), [path]);
 
   return (
+    <ConnectionProvider>
     <PrsProvider>
       <EditsProvider>
         <TasksProvider>
@@ -40,12 +42,12 @@ export function AppShell({ children, signOutAction }: { children: ReactNode; sig
             <WatchProvider>
             <div className="flex h-dvh overflow-hidden">
               <aside className="hidden w-[232px] shrink-0 md:block">
-                <Sidebar signOutAction={signOutAction} />
+                <Sidebar />
               </aside>
 
               {drawer && (
                 <MobileDrawer onClose={() => setDrawer(false)}>
-                  <Sidebar signOutAction={signOutAction} onNavigate={() => setDrawer(false)} />
+                  <Sidebar onNavigate={() => setDrawer(false)} />
                 </MobileDrawer>
               )}
 
@@ -59,6 +61,7 @@ export function AppShell({ children, signOutAction }: { children: ReactNode; sig
                 </div>
                 <main className="flex min-h-0 flex-1 flex-col overflow-hidden bg-surface md:rounded-xl md:border md:border-line md:shadow-raised">
                   <StatusBanners />
+                  <ConnectionBanner />
                   <SampleBanner />
                   {children}
                 </main>
@@ -80,6 +83,7 @@ export function AppShell({ children, signOutAction }: { children: ReactNode; sig
         </TasksProvider>
       </EditsProvider>
     </PrsProvider>
+    </ConnectionProvider>
   );
 }
 

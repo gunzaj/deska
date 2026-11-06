@@ -50,13 +50,8 @@ jobs:
           test -z "$(git status --porcelain drizzle/)"
       # Database tests run on in-memory PGlite: no Postgres service needed.
       - run: pnpm test
+      # The production build needs no credentials.
       - run: pnpm build
-        env:
-          # The production build must not need real credentials.
-          GITHUB_CLIENT_ID: ci-placeholder
-          GITHUB_CLIENT_SECRET: ci-placeholder
-          AUTH_SECRET: ci-placeholder-secret
-          TOKEN_ENC_KEY: 0000000000000000000000000000000000000000000000000000000000000000
       # Only Chromium runs (playwright.config.ts), so only Chromium is installed.
       - uses: actions/cache@v4
         id: playwright-cache
@@ -70,9 +65,9 @@ jobs:
           else
             pnpm exec playwright install --with-deps chromium
           fi
-      # The e2e servers run `next dev`: the test-only auth bypass is compiled out
+      # The e2e servers run `next dev`: the test-only identity is compiled out
       # of production builds on purpose (lib/e2e-bypass.ts), so `next start`
-      # cannot sign the specs in.
+      # has no user for the specs.
       - run: pnpm test:e2e
       - name: Upload the Playwright report and traces
         if: failure()
@@ -103,11 +98,6 @@ jobs:
           path: ~/Library/Caches/electron
           key: electron-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
       - run: pnpm desktop:build
-        env:
-          GITHUB_CLIENT_ID: ci-placeholder
-          GITHUB_CLIENT_SECRET: ci-placeholder
-          AUTH_SECRET: ci-placeholder-secret
-          TOKEN_ENC_KEY: 0000000000000000000000000000000000000000000000000000000000000000
       - run: pnpm test:desktop
       - name: Upload the Playwright traces
         if: failure()

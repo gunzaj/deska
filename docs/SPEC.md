@@ -194,7 +194,7 @@ This reuses the Next.js app, API routes and Postgres SQL almost as-is. **[Defaul
 - Origin check on mutating requests and a strict CSP (both exist in the predecessor).
 - Renderer: `contextIsolation: true`, `sandbox: true`, `nodeIntegration: false`, a minimal typed preload bridge (token entry, notifications, open-external, app info) and nothing else.
 - Navigation locked to the app origin. `https://github.com/*` opens in the default browser via `shell.openExternal`. Every other external URL is blocked.
-- Nothing is loaded from the network at runtime except the GitHub API.
+- Nothing is loaded from the network at runtime except the GitHub API. (Automated tests may point the API at a mock on `http://127.0.0.1:<port>` with `DESKA_GITHUB_API_URL`; any other value is ignored.)
 
 ## 2.3 Token
 
@@ -246,7 +246,7 @@ Implement from GitHub's documented behavior and test with mocked responses.
 | Expiring soon | `github-authentication-token-expiration` header < 14 days | Warning with the date |
 | Awaiting org approval | org resources refused while `GET /user` works | "Your org may still need to approve this token" |
 | Missing a permission | 403 "Resource not accessible by personal access token" | Names the permission, e.g. "Organization → Projects: Read" |
-| Read-only | write permissions absent | App works; edit controls disabled with "Read-only token" |
+| Read-only | write permissions absent (**[D3]** they can't be read off a fine-grained token without trying a write, so every token counts as read-only until W0 adds detection) | App works; edit controls disabled with "Read-only token" |
 | Offline / GitHub down | network error / 5xx | "Can't reach GitHub"; cached data stays, marked stale |
 | Rate limited | 403/429 with remaining = 0 | "Rate limited until HH:MM" |
 
@@ -385,12 +385,13 @@ Steps:
 - Electron main, preload and a utilityProcess running the Next standalone build. §2.2 complete.
 - `db/` uses PGlite via Drizzle (remove the `pg` pool). Migrations run on PGlite, including `pg_trgm`; if it won't load, Possible duplicates uses the existing in-memory similarity fallback.
 - Advisory sync lock → in-process mutex. Postgres-backed tests run on PGlite (no Docker).
-- `pnpm desktop:dev`; `pnpm desktop:build` (unsigned universal `.dmg`). Demo data until D3.
+- `pnpm desktop:dev`; `pnpm desktop:build` (unsigned universal `.dmg`). Demo data until D5 (in-process sync).
 - **Acceptance:** the built app opens with demo data and no server started by hand; a saved view survives relaunch; a request without the secret cookie or with a wrong `Host` gets 403; GitHub links open the default browser, other external URLs are blocked; a Playwright `_electron` smoke test launches the app and loads the issue list.
 
 ### D3 — Local identity and token
 - Remove everything in §2.5 not already gone.
 - Onboarding step 1: paste PAT (with a "How to create it" guide listing §3.2) → `GET /user` → capability check (§3.3). Settings: replace token, disconnect, detected permissions, expiry. `me` in filters = the PAT owner. Drop token storage from the DB.
+- **[D3]** Until D4 stores the repository and project, the capability check reads the ones in `GITHUB_REPO` / `GITHUB_ORG` / `GITHUB_PROJECT_NUMBER`; without them it checks `GET /user` only and lists the permissions as not checked yet.
 - **Acceptance:** each §3.3 state has a mocked test and its own message; a test token never appears in logs, error payloads, exports or the renderer bundle; a read-only token reaches the issue list; a token missing Projects read names the permission, never an empty list.
 
 ### D4 — Project and field mapping

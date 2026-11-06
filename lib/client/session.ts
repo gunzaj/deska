@@ -2,7 +2,7 @@
 
 // Session expiry, shared by every client store (IMPROVEMENTS S3). The issue
 // data, PR, task and notification stores poll on their own timers; the first
-// one to get a 401 flips this flag, the app shows a blocking "Session expired"
+// one to get a 401 flips this flag, the app shows a blocking "GitHub is disconnected"
 // banner, and every poller stops instead of showing old data forever.
 import { useSyncExternalStore } from "react";
 

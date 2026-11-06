@@ -1,5 +1,4 @@
 import { randomUUID } from "node:crypto";
-import { canSignIn } from "../allowlist";
 import { daysBetween, localToday, shiftInstant } from "./dates";
 import {
   canDelete,
@@ -525,8 +524,8 @@ export async function deleteLabel(viewer: string, id: string): Promise<Result<tr
 }
 
 /**
- * Can each login see their tasks yet? `blocked` when the current access rule
- * refuses them, `pending` when allowed but never signed in, else `active`.
+ * Has each login used Deska yet? `pending` when never seen, else `active`.
+ * (There is no access rule to refuse anyone any more: SPEC §2.5.)
  */
 export async function accessFor(logins: Iterable<string>, viewer: string): Promise<Record<string, Access>> {
   const signedIn = await taskRepo().signedInLogins();
@@ -534,7 +533,7 @@ export async function accessFor(logins: Iterable<string>, viewer: string): Promi
   const out: Record<string, Access> = {};
   for (const raw of logins) {
     const l = normLogin(raw);
-    out[l] = !canSignIn(l) ? "blocked" : signedIn.has(l) ? "active" : "pending";
+    out[l] = signedIn.has(l) ? "active" : "pending";
   }
   return out;
 }

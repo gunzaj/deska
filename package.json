@@ -16,7 +16,6 @@
     "test:e2e": "playwright test",
     "db:generate": "drizzle-kit generate",
     "sync:full": "tsx scripts/sync-full.ts",
-    "worker": "tsx scripts/worker.ts",
     "probe:pat": "tsx scripts/probe-pat.ts",
     "desktop:dev": "node scripts/desktop.mjs dev",
     "desktop:stage": "node scripts/desktop.mjs stage",
@@ -31,7 +30,6 @@
     "@octokit/rest": "^21.0.2",
     "drizzle-orm": "^0.44.4",
     "next": "^15.5.3",
-    "next-auth": "5.0.0-beta.32",
     "react": "^19.1.1",
     "react-dom": "^19.1.1",
     "zod": "^3.25.76"

@@ -15,6 +15,8 @@ const SCREENS: { name: string; go: (page: Page) => Promise<void> }[] = [
   { name: "Board", go: async (page) => { await page.goto("/releases/e0000023"); await expect(page.getByText("Epic: dashboard overhaul")).toBeVisible(); } },
   { name: "Backlog", go: async (page) => { await page.goto("/backlog"); await expect(page.getByText("Bug: crash on start")).toBeVisible(); } },
   { name: "Tasks Inbox", go: async (page) => { await page.goto("/tasks"); await expect(page.getByRole("heading", { name: "Inbox" })).toBeVisible(); } },
+  { name: "Onboarding", go: async (page) => { await page.goto("/onboarding"); await expect(page.getByRole("heading", { name: "How to create it" })).toBeVisible(); } },
+  { name: "Settings", go: async (page) => { await page.goto("/settings"); await expect(page.getByRole("heading", { name: "GitHub", exact: true })).toBeVisible(); } },
   {
     name: "Issue panel",
     go: async (page) => {

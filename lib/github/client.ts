@@ -4,6 +4,7 @@ import { createHash } from "node:crypto";
 import { Octokit } from "@octokit/rest";
 import { throttling } from "@octokit/plugin-throttling";
 import { graphql } from "@octokit/graphql";
+import { githubApiBase } from "../config";
 
 const Throttled = Octokit.plugin(throttling);
 
@@ -46,6 +47,7 @@ type RestClient = ReturnType<typeof buildRestClient>;
 function buildRestClient(token: string) {
   return new Throttled({
     auth: token,
+    baseUrl: githubApiBase(),
     request: { fetch: timedFetch },
     throttle: {
       onRateLimit: retryOnLimit("rate limited"),
@@ -56,7 +58,7 @@ function buildRestClient(token: string) {
 
 type GqlClient = ReturnType<typeof buildGqlClient>;
 function buildGqlClient(token: string) {
-  return graphql.defaults({ headers: { authorization: `bearer ${token}` }, request: { fetch: timedFetch } }) as (
+  return graphql.defaults({ baseUrl: githubApiBase(), headers: { authorization: `bearer ${token}` }, request: { fetch: timedFetch } }) as (
     q: string,
     p?: Record<string, unknown>,
   ) => Promise<any>;

@@ -25,7 +25,6 @@ async function newTask(body: Record<string, unknown>, login = "alice") {
 
 beforeEach(() => {
   __resetTasks();
-  process.env.ALLOWED_GITHUB_LOGINS = "alice,bob";
 });
 
 describe("/api/tasks", () => {
@@ -58,16 +57,14 @@ describe("/api/tasks", () => {
     expect((await (await as("intruder", () => list(new NextRequest("http://x/api/tasks")))).json()).tasks).toEqual([]);
   });
 
-  it("assigning to a login that never signed in works and is marked pending; non-allowlisted is blocked", async () => {
+  it("assigning to a login that never used Deska works and is marked pending; nobody is blocked (no allowlist)", async () => {
     const { res, body } = await newTask({ title: "Ask Bob", assignee: "bob" });
     expect(res.status).toBe(201);
     expect(body.task.assignee).toBe("bob");
     const l = await (await as("alice", () => list(new NextRequest("http://x/api/tasks")))).json();
     expect(l.access.bob).toBe("pending");
     expect(l.access.alice).toBe("active");
-    process.env.ALLOWED_GITHUB_LOGINS = "alice";
-    const l2 = await (await as("alice", () => list(new NextRequest("http://x/api/tasks")))).json();
-    expect(l2.access.bob).toBe("blocked");
+    expect(Object.values(l.access)).not.toContain("blocked");
   });
 
   it("refuses unknown assignees and treats self-assignment as unassigned", async () => {

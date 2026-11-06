@@ -1,8 +1,7 @@
-// S3: sync health — error/counter bookkeeping, redaction, /api/health.
+// S3: sync health — error/counter bookkeeping and redaction.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { GET as health } from "@/app/api/health/route";
 import { syncWarning } from "@/lib/client/sync-health";
-import { healthOf, MAX_ERROR_LENGTH, recordCycle, redactError } from "@/lib/sync/health";
+import { MAX_ERROR_LENGTH, recordCycle, redactError } from "@/lib/sync/health";
 import { MapKv } from "@/lib/sync/poll";
 import { getSyncKv } from "@/lib/sync/runtime";
 import { MemoryStore } from "@/lib/sync/store-memory";
@@ -98,36 +97,6 @@ describe("redactError", () => {
   it("keeps ordinary messages and caps the length", () => {
     expect(redactError(new Error("token expired"), {})).toBe("token expired");
     expect(redactError("x".repeat(2000), {})).toHaveLength(MAX_ERROR_LENGTH);
-  });
-});
-
-describe("/api/health", () => {
-  afterEach(async () => {
-    (await getSyncKv()).set("sync.lastSync", "");
-  });
-
-  it("is 503 when the last sync is 2 h old", async () => {
-    (await getSyncKv()).set("sync.lastSync", new Date(Date.now() - 2 * 3600_000).toISOString());
-    const res = await health();
-    expect(res.status).toBe(503);
-    expect(await res.json()).toEqual({ ok: false, lastSyncAgeSec: expect.any(Number) });
-  });
-
-  it("is 200 with a recent sync and 503 with none", async () => {
-    (await getSyncKv()).set("sync.lastSync", new Date(Date.now() - 60_000).toISOString());
-    const res = await health();
-    expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ ok: true, lastSyncAgeSec: 60 });
-    (await getSyncKv()).set("sync.lastSync", "");
-    expect((await health()).status).toBe(503);
-  });
-
-  it("healthOf honours the max age", () => {
-    const kv = new MapKv();
-    kv.set("sync.lastSync", "2026-10-13T10:00:00Z");
-    const now = Date.parse("2026-10-13T10:30:00Z");
-    expect(healthOf(kv, now, 1800)).toEqual({ ok: true, lastSyncAgeSec: 1800 });
-    expect(healthOf(kv, now + 1000, 1800)).toEqual({ ok: false, lastSyncAgeSec: 1801 });
   });
 });
 

@@ -11,9 +11,10 @@ import { redactError } from "@/lib/sync/health";
  * - `viewer`: a signed-in user; the handler gets `viewer`.
  * - `write`: a signed-in user who may write to GitHub; the handler gets
  *   `viewer`, `token` and `store` (see `writeContext`).
- * - `cron`: the Vercel Cron bearer secret, no session.
+ * - `public`: no local user needed (onboarding asks before there is one). In
+ *   the desktop app the middleware has still checked the launch secret.
  */
-export type RouteAuth = "viewer" | "write" | "cron";
+export type RouteAuth = "viewer" | "write" | "public";
 
 /** Throw from a handler to answer with this status and `{ error }`. */
 export class HttpError extends Error {
@@ -61,23 +62,15 @@ function issuesOf(error: z.ZodError) {
   return error.issues.slice(0, 5).map((i) => ({ path: i.path.map(String), message: i.message }));
 }
 
-/** Hosts that may originate a browser request to this deployment. */
+/** Hosts that may originate a browser request to this server. */
 function allowedHosts(req: NextRequest): Set<string> {
   const hosts = new Set<string>();
   for (const h of [req.headers.get("host"), req.headers.get("x-forwarded-host"), req.nextUrl.host]) if (h) hosts.add(h);
-  const authUrl = process.env.AUTH_URL ?? process.env.NEXTAUTH_URL;
-  if (authUrl) {
-    try {
-      hosts.add(new URL(authUrl).host);
-    } catch {
-      // A malformed AUTH_URL is reported by the auth setup, not here.
-    }
-  }
   return hosts;
 }
 
 /**
- * CSRF backstop on top of SameSite=Lax: a mutation from another origin is
+ * CSRF backstop on top of SameSite=Strict: a mutation from another origin is
  * refused. A request without an Origin header (curl, server-side callers) is
  * let through: browsers always send one on cross-origin mutations, and these
  * callers have no ambient cookies to ride.
@@ -91,11 +84,6 @@ export function originAllowed(req: NextRequest): boolean {
     // "null" (a sandboxed frame, a cross-origin redirect) or garbage.
     return false;
   }
-}
-
-function cronAuthorized(req: NextRequest): boolean {
-  const secret = process.env.CRON_SECRET;
-  return Boolean(secret) && req.headers.get("authorization") === `Bearer ${secret}`;
 }
 
 /**
@@ -125,14 +113,13 @@ export function route<
   async function run(req: NextRequest, context: RouteContext | undefined): Promise<Response> {
     try {
       let auth: object;
-      if (options.auth === "cron") {
-        if (!cronAuthorized(req)) return json("unauthorized", 401);
+      // Cheap checks before the viewer lookup is spent on a forged request.
+      if (MUTATING.has(req.method) && !originAllowed(req)) return json("cross-origin request refused", 403);
+      if (options.auth === "public") {
         auth = {};
       } else {
-        // Cheap checks before the session lookup is spent on a forged request.
-        if (MUTATING.has(req.method) && !originAllowed(req)) return json("cross-origin request refused", 403);
         if (options.auth === "write") {
-          const ctx = await writeContext(req);
+          const ctx = await writeContext();
           if (ctx instanceof NextResponse) return ctx;
           auth = ctx;
         } else {

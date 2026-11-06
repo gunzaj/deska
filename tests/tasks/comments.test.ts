@@ -28,7 +28,6 @@ const notes = (login: string) => as<{ list: { kind: string; actor: string }[] }>
 let taskId = "";
 beforeEach(async () => {
   __resetTasks();
-  process.env.ALLOWED_GITHUB_LOGINS = "alice,bob";
   const r = await as<{ task: { id: string } }>("alice", () => tasksRoute.POST(req("POST", { title: "Spec review", assignee: "bob" })));
   taskId = r.body.task.id;
 });

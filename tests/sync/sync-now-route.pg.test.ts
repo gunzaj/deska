@@ -54,11 +54,13 @@ vi.mock("@/lib/sync/source-github", async (orig) => {
 
 describe("/api/sync-now (Postgres, fake GitHub)", async () => {
   const { getDb } = await import("@/db");
-  const { GET, POST } = await import("@/app/api/sync-now/route");
+  const { POST } = await import("@/app/api/sync-now/route");
+  const { setLocalToken } = await import("@/lib/github/local-token");
+  const post = () => POST(new NextRequest("http://x/api/sync-now", { method: "POST" }));
 
   beforeAll(() => {
-    process.env.GITHUB_TOKEN = "ghp_fake_token_for_route_tests_0000000000";
-    process.env.CRON_SECRET = "cron-secret";
+    // The token the desktop main process would hand over (in memory only).
+    setLocalToken("fake-token-for-route-tests", "launch");
   });
   beforeEach(async () => {
     calls.checkChanges = 0;
@@ -67,41 +69,38 @@ describe("/api/sync-now (Postgres, fake GitHub)", async () => {
     await getDb().execute(sql`INSERT INTO sync_state (key, value) VALUES ('issues.since', '2026-10-01T00:00:00Z')`);
   });
   afterAll(() => {
-    delete process.env.GITHUB_TOKEN;
-    delete process.env.CRON_SECRET;
+    setLocalToken(null, "launch");
   });
 
   const issueRows = async () => (await getDb().execute(sql`SELECT number FROM issues`)).rows.map((r) => r.number);
 
   it("POST (Sync now) runs a cycle into Postgres, then throttles", async () => {
-    const res = await POST(new NextRequest("http://x/api/sync-now", { method: "POST" }));
+    const res = await post();
     expect(res.status).toBe(200);
     expect(await res.json()).toMatchObject({ issues: { applied: true, inserted: 1 }, source: "postgres" });
     expect(await issueRows()).toEqual([777]);
     expect(calls.scan).toBe(1);
 
-    const again = await POST(new NextRequest("http://x/api/sync-now", { method: "POST" }));
+    const again = await post();
     expect(await again.json()).toMatchObject({ skipped: "too-soon" });
     expect(calls.checkChanges).toBe(1);
   });
 
-  it("GET with the cron secret runs; without it, 401 and no GitHub call", async () => {
-    expect((await GET(new Request("http://x/api/sync-now"))).status).toBe(401);
-    expect((await GET(new Request("http://x/api/sync-now", { headers: { authorization: "Bearer wrong" } }))).status).toBe(401);
-    expect(calls.checkChanges).toBe(0);
-
-    const ok = await GET(new Request("http://x/api/sync-now", { headers: { authorization: "Bearer cron-secret" } }));
-    expect(ok.status).toBe(200);
-    expect(await ok.json()).toMatchObject({ issues: { applied: true } });
-    expect(await issueRows()).toEqual([777]);
-    // The cron is not throttled like the button.
-    const again = await GET(new Request("http://x/api/sync-now", { headers: { authorization: "Bearer cron-secret" } }));
-    expect((await again.json()).issues).toBeDefined();
+  it("without a connected token: 503 and no GitHub call", async () => {
+    setLocalToken(null, "user");
+    try {
+      const res = await post();
+      expect(res.status).toBe(503);
+      expect(await res.json()).toEqual({ error: "GitHub is not connected" });
+      expect(calls.checkChanges).toBe(0);
+    } finally {
+      setLocalToken("fake-token-for-route-tests", "launch");
+    }
   });
 
   it("no cursor: 503 asking for the initial import, GitHub untouched", async () => {
     await getDb().execute(sql`TRUNCATE sync_state`);
-    const res = await GET(new Request("http://x/api/sync-now", { headers: { authorization: "Bearer cron-secret" } }));
+    const res = await post();
     expect(res.status).toBe(503);
     expect(await res.json()).toMatchObject({ error: "needs initial import" });
     expect(calls.checkChanges).toBe(0);

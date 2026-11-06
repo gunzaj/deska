@@ -13,10 +13,10 @@ export function Loading({ viewer, error, retry }: { viewer: string; error: strin
         </svg>
         {expired ? (
           <>
-            <p className="mt-4 text-[14px] font-semibold">Session expired</p>
-            <p className="mt-1 max-w-sm text-muted">Sign in again to keep using Deska.</p>
-            <a href="/signin" className="mt-4 inline-flex h-8 items-center rounded-md bg-brand px-3 font-semibold text-brand-on hover:bg-brand-hover">
-              Sign in
+            <p className="mt-4 text-[14px] font-semibold">GitHub is disconnected</p>
+            <p className="mt-1 max-w-sm text-muted">Connect GitHub again to keep using Deska.</p>
+            <a href="/onboarding" className="mt-4 inline-flex h-8 items-center rounded-md bg-brand px-3 font-semibold text-brand-on hover:bg-brand-hover">
+              Connect GitHub
             </a>
           </>
         ) : error ? (

@@ -1,4 +1,4 @@
-// One sync cycle shared by `pnpm worker`, "Sync now" and the Vercel Cron:
+// One sync cycle, run by "Sync now" (and, from D5, the in-process loop):
 // the cheap issue change check every time, plus the project scan when it
 // is due. Project field edits (Status, Priority, Release…) may not bump the
 // issue's updated_at, so without the scan they never reach the cache — which
@@ -146,12 +146,12 @@ export async function scanProject(
 
 /**
  * One cycle: field map, issue poll, project scan (when due), PR scan (when
- * due). The only orchestrator: the worker, the cron and "Sync now" all run it.
+ * due). The only orchestrator: "Sync now" runs it (D5 adds the in-process loop).
  * Callers hold the sync lock (withLockedSyncKv); two cycles at once race on
  * inserts and on project-item pruning.
  *
- * By default a failing step throws. With `continueOnError` (the worker, which
- * must outlive a GitHub 5xx) a failing step is logged, collected in `errors`
+ * By default a failing step throws. With `continueOnError` (a long-running
+ * loop, which must outlive a GitHub 5xx) a failing step is logged, collected in `errors`
  * (redacted) and the remaining steps still run.
  */
 export async function runSyncCycle(
