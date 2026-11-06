@@ -14,7 +14,7 @@ import { fetchConnection } from "../app/connection";
 type Status = {
   needsInitialImport: boolean;
   running: boolean;
-  import: { phase: ImportPhase | null; issues: number; items: number; itemsTotal: number | null };
+  import: { phase: ImportPhase | null; resumed: boolean; issues: number; items: number; itemsTotal: number | null };
   failure: "invalid" | "offline" | "rate-limited" | "forbidden" | "other" | null;
   lastError: string | null;
   rateLimitedUntil: string | null;
@@ -89,6 +89,7 @@ export function ImportProgress() {
         needsInitialImport: status.needsInitialImport,
         running: status.running,
         phase: p!.phase,
+        resumed: p!.resumed,
         issues: p!.issues,
         items: p!.items,
         itemsTotal: p!.itemsTotal,
@@ -98,7 +99,7 @@ export function ImportProgress() {
 
   return (
     <main className="min-h-dvh overflow-auto p-6">
-      <div className="mx-auto w-full max-w-xl rounded-2xl border border-line bg-surface p-8 shadow-modal">
+      <div className="mx-auto w-full max-w-xl rounded-xl border border-line bg-surface p-8 shadow-modal">
         <Logo size={36} />
         <p className="mt-5 text-[12px] font-medium uppercase tracking-wide text-faint">First import</p>
         <h1 className="mt-1 text-[22px] font-medium tracking-tight">Importing from GitHub</h1>
@@ -144,7 +145,11 @@ export function ImportProgress() {
             </>
           )}
         </p>
-        {p?.phase === "items" && p.itemsTotal ? (
+        {/* Gated on the derived progress, not on `phase`: the phase survives a failure
+            (the checkpoint is cleared only on success), so a bar would sit at its last
+            percentage under the alert, looking like it is still moving. The alert
+            carries the words instead. */}
+        {view?.progress === "items" && view.state !== "failed" && p?.itemsTotal ? (
           <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-hover">
             <div className="h-full bg-brand" style={{ width: `${Math.min(100, Math.round((p.items / p.itemsTotal) * 100))}%` }} />
           </div>

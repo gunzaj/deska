@@ -1,7 +1,18 @@
 // Desktop smoke test (SPEC D2 and D3 acceptance, §2.2, §2.3). Launches the
-// built app (the packaged .app when release/ has one, else `electron .` on the
-// staged build) against a throwaway profile seeded with the fixture dataset,
-// and a mock GitHub API on 127.0.0.1: nothing here talks to real GitHub.
+// built app against a throwaway profile and a mock GitHub API on 127.0.0.1:
+// nothing here talks to real GitHub.
+//
+// Three launch options decide what a test actually sees, and each one is a trap
+// when it is left at its default:
+//
+// - `seed: ""` — the default seeds the fixture dataset, and seeding also writes
+//   the poll cursor (`lib/sync/initial.ts`), so a seeded launch is never asked to
+//   import and `/importing` is unreachable. Only the empty-seed test reaches it.
+// - `envTarget: false` — otherwise GITHUB_REPO/_ORG/_PROJECT_NUMBER are set and
+//   the app has a target before onboarding step 2 stores one, which hides a save
+//   that did not persist.
+// - `DESKA_SMOKE_TARGET=staged` — otherwise `packagedApp()` prefers any build
+//   under `release/`, so a stale packaged app runs instead of the code under test.
 //
 // `--use-mock-keychain` keeps safeStorage off the real macOS keychain (no
 // prompts, nothing left behind); it still encrypts.

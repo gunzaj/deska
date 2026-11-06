@@ -86,6 +86,10 @@ export async function runFirstImport(
 
   let phase = importProgress(kv).phase;
   const resumed = phase !== null;
+  // Recorded, not inferred: `import.issues` counts across the pages of one run, so a
+  // fresh import past its first page has issues > 0 without anything to resume. The
+  // screen reads this key, and it is cleared with the rest on success.
+  kv.set(IMPORT_KEYS.resumed, resumed ? "1" : "0");
   if (!phase) {
     const start = now();
     kv.set(IMPORT_KEYS.startedAt, start.toISOString());

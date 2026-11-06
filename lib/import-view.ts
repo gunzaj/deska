@@ -33,7 +33,12 @@ export const IMPORT_COPY = {
 /** `active` animates; `active-idle` is the same step, drawn still (a resume never pulses). */
 export type ImportStepState = "todo" | "active" | "active-idle" | "done";
 
-export type ImportViewState = "starting" | "resumed" | "failed";
+/**
+ * `starting` — nothing copied yet; `importing` — this run copied some, a count line;
+ * `resumed` — this run continued a checkpoint, so the copy says so; `failed` — the last
+ * completed run stopped and nothing is running.
+ */
+export type ImportViewState = "starting" | "importing" | "resumed" | "failed";
 
 /** Which count line to draw: nothing yet, issues only, or issues plus project items. */
 export type ImportProgressKind = "none" | "count" | "items";
@@ -42,6 +47,8 @@ export type ImportViewInput = {
   needsInitialImport: boolean;
   running: boolean;
   phase: ImportPhase | null;
+  /** Whether this run continued a checkpoint. Written by the import, never inferred. */
+  resumed: boolean;
   issues: number;
   items: number;
   itemsTotal: number | null;
@@ -54,14 +61,19 @@ export function importView(s: ImportViewInput): ImportView {
   // `failure` is the last *completed* run's failure and is cleared only when a run
   // succeeds, so a retry still reports it while it runs: a live Retry button on a
   // run that is already going is the bug that rule prevents.
-  const state: ImportViewState = s.failure && !s.running ? "failed" : s.issues > 0 ? "resumed" : "starting";
+  // `resumed` is the import's own record of whether it continued a checkpoint
+  // (lib/sync/first-import.ts writes it at entry). Counting issues is not the same
+  // question: one run counts across its pages, so page 2 of a first import has
+  // issues > 0 and nothing to resume.
+  const state: ImportViewState =
+    s.failure && !s.running ? "failed" : s.resumed && s.issues > 0 ? "resumed" : s.issues > 0 ? "importing" : "starting";
   const at = s.phase ? IMPORT_STEPS.indexOf(s.phase) : -1;
   const steps: ImportStepState[] = IMPORT_STEPS.map((_, i) => {
     if (at < 0) return s.issues > 0 ? "done" : "todo";
     if (i < at) return "done";
-    // Only a fresh start animates: a resume draws the same step still, so work
-    // already copied never looks like it is happening again.
-    if (i === at) return state === "starting" ? "active" : "active-idle";
+    // Only a fresh run animates: a resume draws the same step still, so work already
+    // copied never looks like it is happening again.
+    if (i === at) return state === "resumed" || state === "failed" ? "active-idle" : "active";
     return "todo";
   });
   const progress: ImportProgressKind = state === "starting" ? "none" : s.items > 0 || s.phase === "items" ? "items" : "count";
