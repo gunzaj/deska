@@ -11,12 +11,14 @@ import { OPEN } from "@/lib/client/presets";
 import type { ClientIssue } from "@/lib/client/types";
 import type { Filter } from "@/lib/views/view";
 import { useAppData, useAppViews } from "../app/provider";
-import { useTeamScope } from "../app/team-scope";
+import { useDefaultScope } from "../app/team-scope";
 import { Page } from "../app/shell";
 import { Icon } from "../icons";
 import { Avatar, OptionDot, PriorityIcon } from "../props";
 import { usePrs } from "../prs/store";
-import { TRIAGE_TABS } from "../triage/queues";
+import { triageTabs } from "../triage/queues";
+import { dimensionOf, primaryDimension, sprintOn } from "@/lib/client/explorer";
+import type { DimKey } from "@/lib/client/types";
 
 const DAY = 86_400_000;
 
@@ -166,7 +168,7 @@ function FlowChart({ issues, today }: { issues: ClientIssue[]; today: string }) 
   );
 }
 
-/** Whole repo, a Team, a Release or a saved view; the URL (`?scope=`) keeps it. */
+/** Whole repo, a dimension value, a Release or a saved view; the URL (`?scope=`) keeps it. */
 function ScopePicker({ scope, onChange }: { scope: Scope; onChange: (s: Scope) => void }) {
   const { data } = useAppData();
   const { views } = useAppViews();
@@ -182,20 +184,26 @@ function ScopePicker({ scope, onChange }: { scope: Scope; onChange: (s: Scope) =
         className="h-7 max-w-[14rem] rounded-md border border-line bg-field px-2 text-[12.5px] text-fg outline-none hover:border-line-field"
       >
         <option value="">Whole repo</option>
-        <optgroup label="Team">
-          {meta.fields.team.map((t) => (
-            <option key={t.id} value={`team:${t.id}`}>
-              {plainName(t.name) || t.name}
-            </option>
+        {meta.dimensions
+          .filter((d) => !d.missing)
+          .map((d) => (
+            <optgroup key={d.id} label={d.name}>
+              {d.options.map((t) => (
+                <option key={t.id} value={`dim:${d.id}:${t.id}`}>
+                  {plainName(t.name) || t.name}
+                </option>
+              ))}
+            </optgroup>
           ))}
-        </optgroup>
-        <optgroup label="Release">
-          {[...meta.releases].reverse().map((r) => (
-            <option key={r.id} value={`release:${r.id}`}>
-              Release {r.title}
-            </option>
-          ))}
-        </optgroup>
+        {sprintOn(meta) && (
+          <optgroup label="Release">
+            {[...meta.releases].reverse().map((r) => (
+              <option key={r.id} value={`release:${r.id}`}>
+                Release {r.title}
+              </option>
+            ))}
+          </optgroup>
+        )}
         <optgroup label="Saved view">
           {views
             .filter((v) => v.entity !== "pr")
@@ -265,9 +273,14 @@ export function InsightsPage() {
   const router = useRouter();
   const path = usePathname();
   const params = useSearchParams();
-  // No scope in the URL: the viewer's default Team, if they set one (the user menu).
-  const { teamId: defaultTeam } = useTeamScope();
-  const scope = useMemo<Scope>(() => (params.has("scope") ? parseScope(params.get("scope")) : defaultTeam ? { kind: "team", id: defaultTeam } : parseScope(null)), [params, defaultTeam]);
+  // No scope in the URL: the viewer's default dimension value, if they set one (the user menu).
+  const { scope: defaultScope } = useDefaultScope();
+  const scope = useMemo<Scope>(
+    () => (params.has("scope") ? parseScope(params.get("scope")) : defaultScope ? { kind: "dim", field: defaultScope.dimension.id, id: defaultScope.optionId } : parseScope(null)),
+    [params, defaultScope],
+  );
+  const tabs = useMemo(() => triageTabs(meta), [meta]);
+  const sprints = sprintOn(meta);
   const days = parseWaitDays(params.get("days"));
   const missingView = scope.kind === "view" && scopeFilters(scope, views) === null;
   const scoped = useMemo(() => scopedIssues(issues, scope, views, meta), [issues, scope, views, meta]);
@@ -281,24 +294,26 @@ export function InsightsPage() {
     router.replace(u.size ? `${path}?${u}` : path, { scroll: false });
   };
 
-  const s = useMemo(() => insightStats(scoped, meta, TRIAGE_TABS[0]!.base), [scoped, meta]);
+  const s = useMemo(() => insightStats(scoped, meta, tabs[0]!.base), [scoped, meta, tabs]);
 
   const total = s.open.length;
   const pct = (n: number) => `${Math.round((n / Math.max(1, total)) * 100)}% of open`;
-  const fieldBars = (field: "team" | "priority", m: Map<string, number>): Bar[] => {
-    const opts = field === "priority" ? [...meta.fields.priority].reverse() : meta.fields[field];
+  const fieldBars = (field: DimKey | "priority", m: Map<string, number>): Bar[] => {
+    const dim = field === "priority" ? undefined : dimensionOf(meta, field);
+    const opts = field === "priority" ? [...meta.fields.priority].reverse() : (dim?.options ?? []);
     const bars: Bar[] = opts.map((o) => ({
       key: o.id,
-      label: field === "team" ? plainName(o.name) || o.name : o.name,
+      label: dim ? plainName(o.name) || o.name : o.name,
       icon: field === "priority" ? <PriorityIcon option={o} total={meta.fields.priority.length} size={13} /> : <OptionDot color={o.color} size={7} />,
       n: m.get(o.id) ?? 0,
       href: href([OPEN, { field, op: "in", values: [o.id] }]),
     }));
-    if (field === "team") bars.sort((a, b) => b.n - a.n);
+    if (dim) bars.sort((a, b) => b.n - a.n);
     const none = m.get("∅") ?? 0;
-    if (none) bars.push({ key: "∅", label: `No ${field}`, icon: <span className="size-[7px] rounded-full border border-dashed border-faint" />, n: none, href: href([OPEN, { field, op: "empty" }]) });
+    if (none) bars.push({ key: "∅", label: `No ${dim ? dim.name : field}`, icon: <span className="size-[7px] rounded-full border border-dashed border-faint" />, n: none, href: href([OPEN, { field, op: "empty" }]) });
     return bars.filter((b) => b.n > 0 || field === "priority");
   };
+  const triageDim = primaryDimension(meta);
   const topN = (m: Map<string, number>, n: number) => [...m.entries()].filter(([k]) => k !== "∅").sort((a, b) => b[1] - a[1]).slice(0, n);
 
   return (
@@ -307,16 +322,20 @@ export function InsightsPage() {
         {missingView && <p className="rounded-lg bg-hover px-3 py-2 text-[12.5px] text-muted">That view doesn&apos;t exist any more, so this shows the whole repo.</p>}
         <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
           <Tile label="Open issues" value={total} href={href([OPEN])} />
-          <Tile label="Needs triage" value={s.triage} sub={`${pct(s.triage)} · no priority or team`} href={scope.kind === "all" ? "/triage" : href(TRIAGE_TABS[0]!.base)} tone={s.triage ? "warning" : undefined} />
-          <Tile label="Not in a release" value={s.noRelease} sub={pct(s.noRelease)} href={scope.kind === "all" ? "/backlog" : href([OPEN, { field: "release", op: "empty" }])} />
-          <Tile label="Stale" value={s.stale} sub="no update in 90+ days" href={scope.kind === "all" ? "/triage?tab=stale" : href(TRIAGE_TABS[4]!.base)} tone={s.stale ? "critical" : undefined} />
+          <Tile label="Needs triage" value={s.triage} sub={`${pct(s.triage)} · no priority${triageDim ? ` or ${triageDim.name.toLowerCase()}` : ""}`} href={scope.kind === "all" ? "/triage" : href(tabs[0]!.base)} tone={s.triage ? "warning" : undefined} />
+          {sprints && <Tile label="Not in a release" value={s.noRelease} sub={pct(s.noRelease)} href={scope.kind === "all" ? "/backlog" : href([OPEN, { field: "release", op: "empty" }])} />}
+          <Tile label="Stale" value={s.stale} sub="no update in 90+ days" href={scope.kind === "all" ? "/triage?tab=stale" : href(tabs.find((t) => t.id === "stale")!.base)} tone={s.stale ? "critical" : undefined} />
           <Tile label="Opened" value={s.created30} sub="last 30 days" href={href([{ field: "created", op: "within_days", days: 30 }], { sort: [{ field: "created", dir: "desc" }] })} />
           <Tile label="Closed" value={s.closed30} sub="last 30 days" href={href([{ field: "closed", op: "within_days", days: 30 }], { sort: [{ field: "updated", dir: "desc" }] })} />
         </div>
 
         <div className="grid gap-4 lg:grid-cols-2">
           <FlowChart issues={scoped} today={meta.today} />
-          <BarList title="Open issues by team" total={total} bars={fieldBars("team", s.byTeam)} />
+          {meta.dimensions
+            .filter((d) => !d.missing)
+            .map((d) => (
+              <BarList key={d.id} title={`Open issues by ${d.name}`} total={total} bars={fieldBars(d.key, s.byDim.get(d.id) ?? new Map())} />
+            ))}
           <BarList title="Open issues by priority" total={total} bars={fieldBars("priority", s.byPriority)} />
           <BarList
             title="Open issues by type"

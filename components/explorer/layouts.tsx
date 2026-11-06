@@ -1,8 +1,9 @@
 "use client";
 
 import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { DEFAULT_PROPS, type DisplayProp, type Group } from "@/lib/client/explorer";
-import type { ClientIssue } from "@/lib/client/types";
+import { DEFAULT_PROPS, dimensionLabel, type DisplayProp, type Group } from "@/lib/client/explorer";
+import { isDimKey } from "@/lib/sync/field-map";
+import type { ClientIssue, DimKey } from "@/lib/client/types";
 import { Icon } from "../icons";
 import { Avatar, OptionDot, PriorityIcon, StatusIcon } from "../props";
 import { useAppData } from "../app/provider";
@@ -137,8 +138,7 @@ export const IssueRow = memo(function IssueRow({
       <span className="hidden min-w-0 shrink items-center gap-1.5 lg:flex">
         {has("labels") && c.labels(issue)}
         {has("parent") && c.parent(issue)}
-        {has("team") && c.team(issue)}
-        {has("platform") && c.platform(issue)}
+        {c.dims(issue, props)}
         {has("type") && c.type(issue)}
         {has("milestone") && c.milestone(issue)}
       </span>
@@ -280,17 +280,20 @@ export function ListLayout({
 
 // ---------------- Table ----------------
 
-const COL_W: Record<DisplayProp, number> = {
-  id: 76, status: 150, priority: 110, team: 170, platform: 150, release: 96, type: 96, labels: 200,
+type FixedProp = Exclude<DisplayProp, DimKey>;
+const COL_W: Record<FixedProp, number> = {
+  id: 76, status: 150, priority: 110, release: 96, type: 96, labels: 200,
   parent: 190, subissues: 90, milestone: 110, assignee: 150, created: 84, updated: 84,
 };
-const SORTABLE: Partial<Record<DisplayProp, string>> = {
-  id: "number", status: "status", priority: "priority", team: "team", release: "release", created: "created", updated: "updated",
+const SORTABLE: Partial<Record<FixedProp, string>> = {
+  id: "number", status: "status", priority: "priority", release: "release", created: "created", updated: "updated",
 };
-const LABEL: Record<DisplayProp, string> = {
-  id: "ID", status: "Status", priority: "Priority", team: "Team", platform: "Platform", release: "Release", type: "Type", labels: "Labels",
+const LABEL: Record<FixedProp, string> = {
+  id: "ID", status: "Status", priority: "Priority", release: "Release", type: "Type", labels: "Labels",
   parent: "Epic", subissues: "Sub-issues", milestone: "Milestone", assignee: "Assignee", created: "Created", updated: "Updated",
 };
+/** Dimension columns (`dim:<fieldId>`) are as wide as a team column was, and sort by themselves. */
+const colWidth = (p: DisplayProp) => (isDimKey(p) ? 170 : COL_W[p]);
 
 export function TableLayout({
   rows,
@@ -314,10 +317,11 @@ export function TableLayout({
   selection?: RowSelection & { all: boolean; toggleAll: () => void };
 }) {
   const c = useCells();
+  const { meta } = useAppData().data;
   const vp = useViewport(scrollRef);
   const cols = props.filter((p) => p !== "id");
   const SEL = selection ? 32 : 0;
-  const width = SEL + 76 + 360 + cols.reduce((s, p) => s + COL_W[p], 0);
+  const width = SEL + 76 + 360 + cols.reduce((s, p) => s + colWidth(p), 0);
   const HEAD = 34;
   const start = Math.max(0, Math.floor((vp.top - HEAD) / ROW_H) - 8);
   const end = Math.min(rows.length, Math.ceil((vp.top + vp.height) / ROW_H) + 8);
@@ -336,6 +340,7 @@ export function TableLayout({
   }, [focusedId, rows, scrollRef]);
 
   const cell = (p: DisplayProp, i: ClientIssue): ReactNode => {
+    if (isDimKey(p)) return c.dim(p, i) ?? <span className="text-faint">—</span>;
     switch (p) {
       case "status":
         return (
@@ -370,8 +375,8 @@ export function TableLayout({
   };
 
   const head = (p: DisplayProp | "title") => {
-    const key = p === "title" ? "title" : SORTABLE[p];
-    const label = p === "title" ? "Title" : LABEL[p];
+    const key = p === "title" ? "title" : isDimKey(p) ? p : SORTABLE[p];
+    const label = p === "title" ? "Title" : isDimKey(p) ? dimensionLabel(meta, p) : LABEL[p];
     const at = key ? sort.findIndex((s) => s.field === key) : -1;
     const active = at >= 0;
     const dir = active ? sort[at]!.dir : null;
@@ -407,7 +412,7 @@ export function TableLayout({
           {head("title")}
         </div>
         {cols.map((p) => (
-          <div key={p} role="columnheader" className="flex shrink-0 items-center px-2" style={{ width: COL_W[p] }}>
+          <div key={p} role="columnheader" className="flex shrink-0 items-center px-2" style={{ width: colWidth(p) }}>
             {head(p)}
           </div>
         ))}
@@ -448,7 +453,7 @@ export function TableLayout({
                 <span data-peek-title>{i.title}</span>
               </div>
               {cols.map((p) => (
-                <div key={p} role="cell" className="flex shrink-0 items-center overflow-hidden px-2" style={{ width: COL_W[p] }}>
+                <div key={p} role="cell" className="flex shrink-0 items-center overflow-hidden px-2" style={{ width: colWidth(p) }}>
                   {cell(p, i)}
                 </div>
               ))}

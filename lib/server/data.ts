@@ -7,6 +7,7 @@ import { writeEnabled } from "@/lib/outbox/queue";
 import { doneStatusOption } from "@/lib/outbox/runtime";
 import { demoSeed } from "@/lib/db-bootstrap";
 import { demoEnabled, getStoreWithGeneration } from "@/lib/store";
+import { currentTarget, settingsVersion } from "@/lib/settings";
 import { dbDir } from "@/db";
 
 /**
@@ -40,11 +41,14 @@ export async function loadClientData(now = new Date()): Promise<ClientDataResult
   // With a connected token, edit controls say why they are off: the token is
   // read-only (SPEC §3.3; every token counts as read-only until Phase C).
   const tokenReadOnly = localToken() !== null;
-  const variant = `${demo ? "d" : "n"}${closeBlocked ? "c" : "o"}${tokenReadOnly ? "t" : "x"}`;
+  // The stored repository (links) and field mapping (§4.1) change without a
+  // cache-generation bump: a remap must still reach the browser.
+  const repo = (await currentTarget())?.repoFull;
+  const variant = `${demo ? "d" : "n"}${closeBlocked ? "c" : "o"}${tokenReadOnly ? "t" : "x"}s${settingsVersion()}`;
   const key = `${generation}|${today}|${writeMode ? 1 : 0}|${variant}`;
   const build = () => {
     if (memo?.key !== key) {
-      const data = buildClientData(store, { viewer: "", writeMode, demo, now });
+      const data = buildClientData(store, { viewer: "", writeMode, demo, now, repo });
       data.meta.closeBlocked = closeBlocked;
       data.meta.editOffReason = tokenReadOnly ? MESSAGES.readOnly : EDITING_OFF;
       memo = { key, data, json: JSON.stringify(data) };

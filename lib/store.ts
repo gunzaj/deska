@@ -1,7 +1,7 @@
 import { dbDir } from "@/db";
 import { ReadModel } from "./sync/read-model";
 import { readGeneration } from "./sync/generation";
-import { readStoredFieldMap } from "./sync/runtime";
+import { readMapping } from "./settings";
 import { readSnapshot } from "./sync/store-postgres";
 
 /**
@@ -20,9 +20,7 @@ let inflight: Promise<Cached> | null = null;
 let epoch = 0;
 
 async function hydrate(): Promise<ReadModel> {
-  const snapshot = await readSnapshot();
-  // The read model resolves Status/Release/... by the stored field IDs (v5 1.3).
-  return ReadModel.fromSnapshot(snapshot, await readStoredFieldMap());
+  return ReadModel.fromSnapshot(await readSnapshot());
 }
 
 /** Reuse the hydrated store while the generation is unchanged, else re-read. */
@@ -51,6 +49,14 @@ async function check(): Promise<Cached> {
  * or empty sync store silently served synthetic issues to real users.
  */
 export async function getStoreWithGeneration(): Promise<{ store: ReadModel; generation: string }> {
+  const served = await readModel();
+  // The confirmed field mapping (§4.1) travels with the model: Status,
+  // Priority, Sprint and the dimensions resolve by the stored field IDs.
+  served.store.mapping = await readMapping();
+  return served;
+}
+
+async function readModel(): Promise<{ store: ReadModel; generation: string }> {
   if (dbDir()) {
     if (cached && Date.now() - cached.checkedAt < GENERATION_CHECK_MS) return cached;
     if (!inflight) {

@@ -25,7 +25,8 @@ import { useSnoozes } from "../triage/snoozes";
 import { Dialog } from "../ui/dialog";
 import { btn } from "../ui/popover";
 import { useToast } from "../ui/toast";
-import { TRIAGE_TABS, useQueueRows } from "../triage/queues";
+import { triageTabs, useQueueRows } from "../triage/queues";
+import { primaryDimension, sprintOn } from "@/lib/client/explorer";
 
 function SnoozeDialog({ open, onClose, today, onPick }: { open: boolean; onClose: () => void; today: string; onPick: (until: string) => void }) {
   const [custom, setCustom] = useState("");
@@ -65,8 +66,12 @@ function SnoozeDialog({ open, onClose, today, onPick }: { open: boolean; onClose
 export function TriageRunPage() {
   const router = useRouter();
   const params = useSearchParams();
-  const tab = TRIAGE_TABS.find((t) => t.id === params.get("tab")) ?? TRIAGE_TABS[0]!;
   const { data, byNodeId } = useAppData();
+  const TRIAGE_TABS = triageTabs(data.meta);
+  const tab = TRIAGE_TABS.find((t) => t.id === params.get("tab")) ?? TRIAGE_TABS[0]!;
+  // T opens the first mapped dimension's picker (e.g. a team field), R the Sprint's.
+  const dim = primaryDimension(data.meta);
+  const sprints = sprintOn(data.meta);
   const { edit } = useIssueEdits();
   const { snoozes, snooze, unsnooze } = useSnoozes();
   const { toast } = useToast();
@@ -113,10 +118,10 @@ export function TriageRunPage() {
       } else if (e.key === "z") {
         e.preventDefault();
         setSnoozing(true);
-      } else if (e.key === "t" || e.key === "r" || e.key === "a") {
+      } else if ((e.key === "t" && dim) || (e.key === "r" && sprints) || e.key === "a") {
         e.preventDefault();
         if (!data.meta.writeMode) toast({ message: data.meta.editOffReason ?? EDITING_OFF });
-        else openPicker(cur.nodeId, e.key === "t" ? "team" : e.key === "r" ? "release" : "assignees");
+        else openPicker(cur.nodeId, e.key === "t" ? dim!.key : e.key === "r" ? "release" : "assignees");
       } else if (/^[1-4]$/.test(e.key)) {
         e.preventDefault();
         const option = prios[Number(e.key) - 1];
@@ -125,7 +130,7 @@ export function TriageRunPage() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [router, edit, toast, data.meta.writeMode, data.meta.editOffReason]);
+  }, [router, edit, toast, data.meta.writeMode, data.meta.editOffReason, dim, sprints]);
 
   const done = index >= ids.length;
   const snoozedNow = issue && isSnoozed(snoozes.get(issue.nodeId), today);
@@ -173,8 +178,16 @@ export function TriageRunPage() {
           <div className="flex shrink-0 flex-wrap items-center gap-x-4 gap-y-1 border-t border-line px-4 py-2 text-[12px] text-faint" aria-label="Triage keys">
             {snoozedNow && <span className="text-warning">Snoozed</span>}
             <span><Kbd>1</Kbd>–<Kbd>{Math.max(1, Math.min(4, priorities.length))}</Kbd> priority</span>
-            <span><Kbd>T</Kbd> team</span>
-            <span><Kbd>R</Kbd> release</span>
+            {dim && (
+              <span>
+                <Kbd>T</Kbd> {dim.name.toLowerCase()}
+              </span>
+            )}
+            {sprints && (
+              <span>
+                <Kbd>R</Kbd> release
+              </span>
+            )}
             <span><Kbd>A</Kbd> assign</span>
             <span><Kbd>S</Kbd> / <Kbd>→</Kbd> skip</span>
             <span><Kbd>←</Kbd> back</span>

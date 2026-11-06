@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { isDimKey } from "../sync/field-map";
 import { prViewStateSchema } from "./pr-view";
 
 /**
@@ -11,11 +12,14 @@ export const VIEW_LIMITS = { name: 120, filters: 50, anyFilters: 20, values: 200
 
 const values = z.array(z.string().max(VIEW_LIMITS.value)).max(VIEW_LIMITS.values).optional();
 
+/** A mapped dimension, by field ID: `dim:<fieldId>` (§4.1). Field and option IDs travel inside a view. */
+export const dimKey = z.custom<`dim:${string}`>((v) => typeof v === "string" && v.length <= VIEW_LIMITS.id + 4 && isDimKey(v), "unknown dimension");
+
 const leafFilterSchema = z.union([
   z.object({ field: z.enum(["assignee"]), op: z.enum(["in", "not_in", "empty"]), values }).strict(),
   z
     .object({
-      field: z.enum(["status", "priority", "team", "platform", "type", "label", "milestone"]),
+      field: z.enum(["status", "priority", "type", "label", "milestone"]),
       op: z.enum(["in", "not_in", "empty"]),
       values,
     })
@@ -27,6 +31,7 @@ const leafFilterSchema = z.union([
       values,
     })
     .strict(),
+  z.object({ field: dimKey, op: z.enum(["in", "not_in", "empty"]), values }).strict(),
   z.object({ field: z.literal("parent"), op: z.enum(["in", "empty", "has_sub_issues"]), values }).strict(),
   z.object({ field: z.literal("state"), op: z.enum(["in"]), values: z.array(z.enum(["open", "closed"])).max(2) }).strict(),
   z.object({ field: z.literal("text"), op: z.literal("contains"), value: z.string().max(VIEW_LIMITS.text) }).strict(),
@@ -57,10 +62,10 @@ export const viewSchema = z
     visibility: z.enum(["personal", "shared"]),
     layout: z.enum(["list", "board", "table"]),
     filters: z.array(filterSchema).max(VIEW_LIMITS.filters),
-    sort: z.array(z.object({ field: z.string().max(VIEW_LIMITS.key), dir: z.enum(["asc", "desc"]) }).strict()).max(VIEW_LIMITS.sort),
-    groupBy: z.string().max(VIEW_LIMITS.key).optional(),
-    boardColumnsField: z.enum(["status", "priority", "team", "platform", "assignee", "release", "type"]).optional(),
-    columns: z.array(z.string().max(VIEW_LIMITS.key)).max(VIEW_LIMITS.columns).optional(),
+    sort: z.array(z.object({ field: z.string().max(VIEW_LIMITS.id + 4), dir: z.enum(["asc", "desc"]) }).strict()).max(VIEW_LIMITS.sort),
+    groupBy: z.string().max(VIEW_LIMITS.id + 4).optional(),
+    boardColumnsField: z.union([z.enum(["status", "priority", "assignee", "release", "type"]), dimKey]).optional(),
+    columns: z.array(z.string().max(VIEW_LIMITS.id + 4)).max(VIEW_LIMITS.columns).optional(),
     /** "pr" views belong to the PR lens and keep their state in `pr` (SPEC §13.3). */
     entity: z.enum(["issue", "pr"]).optional(),
     pr: prViewStateSchema.optional(),

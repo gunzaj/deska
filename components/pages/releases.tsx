@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useMemo, useState } from "react";
 import { optionColor } from "@/lib/client/colors";
+import { primaryDimension } from "@/lib/client/explorer";
 import { daysBetween, formatDate, lastDay, plainName } from "@/lib/client/format";
 import type { ClientIssue, ClientRelease } from "@/lib/client/types";
 import { useAppData } from "../app/provider";
@@ -47,11 +48,16 @@ function ReleaseCard({ r, phase, issues }: { r: ClientRelease; phase: Phase; iss
   const high = meta.fields.priority.at(-1)?.id;
   const urgent = issues.filter((i) => i.state === "open" && i.priorityId === high).length;
   const unassigned = issues.filter((i) => i.state === "open" && !i.assignees.length).length;
+  // Open issues by the first mapped dimension's value (e.g. per team).
+  const dim = primaryDimension(meta);
   const teams = useMemo(() => {
     const m = new Map<string, number>();
-    for (const i of issues) if (i.teamId && i.state === "open") m.set(i.teamId, (m.get(i.teamId) ?? 0) + 1);
+    if (dim) for (const i of issues) {
+      const v = i.dims[dim.id]?.id;
+      if (v && i.state === "open") m.set(v, (m.get(v) ?? 0) + 1);
+    }
     return [...m.entries()].sort((a, b) => b[1] - a[1]).slice(0, 4);
-  }, [issues]);
+  }, [issues, dim]);
   const elapsed = Math.min(1, Math.max(0, daysBetween(r.startDate, meta.today) / r.duration));
   const left = daysBetween(meta.today, r.endDate);
   const until = daysBetween(meta.today, r.startDate);
@@ -109,8 +115,8 @@ function ReleaseCard({ r, phase, issues }: { r: ClientRelease; phase: Phase; iss
         <div className="mt-3 flex flex-wrap gap-x-3 gap-y-1 text-[12px] text-muted">
           {teams.map(([id, n]) => (
             <span key={id} className="flex items-center gap-1.5">
-              <OptionDot color={option("team", id)?.color} size={7} />
-              {plainName(option("team", id)?.name ?? "") || option("team", id)?.name}
+              <OptionDot color={option(dim!.key, id)?.color} size={7} />
+              {plainName(option(dim!.key, id)?.name ?? "") || option(dim!.key, id)?.name}
               <span className="tabular-nums text-faint">{n}</span>
             </span>
           ))}

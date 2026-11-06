@@ -1,7 +1,7 @@
 "use client";
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import type { ClientData, ClientIssue, ClientOption, ClientRelease, SingleSelectKey, WireData, WireIssue } from "@/lib/client/types";
+import type { ClientData, ClientIssue, ClientOption, ClientRelease, DimKey, SingleSelectKey, WireData, WireIssue } from "@/lib/client/types";
 import { preloadAppFetches } from "@/lib/client/preload";
 import type { RelativeRelease } from "@/lib/views/engine";
 import type { View } from "@/lib/views/view";
@@ -21,7 +21,8 @@ type DataCtx = {
   viewer: string;
   byNumber: Map<number, ClientIssue>;
   byNodeId: Map<string, ClientIssue>;
-  option: (field: SingleSelectKey, id: string | null | undefined) => ClientOption | null;
+  /** An option of Status, Priority or a mapped dimension (`dim:<fieldId>`). */
+  option: (field: SingleSelectKey | DimKey, id: string | null | undefined) => ClientOption | null;
   release: (id: string | null | undefined) => ClientRelease | null;
   resolveRelease: (which: RelativeRelease) => string | null;
   avatarOf: (login: string) => string | null;
@@ -141,6 +142,7 @@ function Loaded({ viewer, initialWire, initialViews, initialEtag, children }: { 
     const byNodeId = new Map(issues.map((i) => [i.nodeId, i]));
     const opts = new Map<string, ClientOption>();
     for (const [k, list] of Object.entries(meta.fields)) for (const o of list) opts.set(`${k}:${o.id}`, o);
+    for (const d of meta.dimensions) for (const o of d.options) opts.set(`${d.key}:${o.id}`, o);
     const rel = new Map(meta.releases.map((r) => [r.id, r]));
     const avatars = new Map(meta.users.map((u) => [u.login.toLowerCase(), u.avatarUrl]));
     const labelColors = new Map(meta.labels.map((l) => [l.id, l.color]));

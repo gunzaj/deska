@@ -73,24 +73,26 @@ describe("saved views engine (M5)", () => {
     expect(byPriority.map((r) => r.number)).toEqual([100, 101, 102]); // HIGH, MED, empty
   });
 
-  it("groups by Team, Platform, Type, Release and parent", async () => {
+  it("groups by a dimension, Type, Release and parent", async () => {
     const { rows } = await setup();
     const by = (f: string) => new Map(groupRowEntries(rows, f).map((g) => [g.key, g.rows]));
-    expect(by("team").get("c0000001")?.length).toBe(2);
+    expect(by("dim:PVTSSF_acme_team").get("c0000001")?.length).toBe(2);
+    expect(by("dim:PVTSSF_acme_team").get("empty")?.length).toBe(1);
     expect(by("type").size).toBe(3);
     expect(by("release").get("e0000023")?.length).toBe(1);
     expect(by("parent").get("I_epic")?.length).toBe(1);
-    expect(by("platform").get("empty")?.length).toBe(3);
+    // A dimension the project doesn't map: every row has no value.
+    expect(by("dim:PVTSSF_acme_platform").get("empty")?.length).toBe(3);
   });
 
   it("group headings carry display names, not raw GitHub IDs", async () => {
     const { rows } = await setup();
-    const team = groupRowEntries(rows, "team").find((g) => g.key === "c0000001");
+    const team = groupRowEntries(rows, "dim:PVTSSF_acme_team").find((g) => g.key === "c0000001");
     expect(team?.label).toBe("Core 🧱");
     const release = groupRowEntries(rows, "release").find((g) => g.key === "e0000023");
     expect(release?.label).toBe("Sprint 23");
     // Ungrouped values still need a human label.
-    expect(groupRowEntries(rows, "platform").find((g) => g.key === "empty")?.label).toBe(
+    expect(groupRowEntries(rows, "dim:PVTSSF_acme_team").find((g) => g.key === "empty")?.label).toBe(
       "No value",
     );
     const parent = groupRowEntries(rows, "parent").find((g) => g.key === "I_epic");
@@ -102,7 +104,7 @@ describe("saved views engine (M5)", () => {
     const epic = rows.find((r) => r.number === 100)!;
     expect(epic.statusName).toBe("📋 To do");
     expect(epic.priorityName).toBe("High");
-    expect(epic.teamName).toBe("Core 🧱");
+    expect(epic.dims.PVTSSF_acme_team?.name).toBe("Core 🧱");
     expect(epic.releaseName).toBe("Sprint 23");
     const bug = rows.find((r) => r.number === 102)!;
     expect(bug.statusName).toBeNull();
@@ -117,13 +119,14 @@ describe("saved views engine (M5)", () => {
     expect(visibleViews(views, "alice").map((v) => v.id).sort()).toEqual(["a", "c"]);
   });
 
-  it("seed views run (core board, release table, epics)", async () => {
+  it("seed views run (release table by the first dimension, epics)", async () => {
     const { store, rows } = await setup();
     const ctx = { viewerLogin: "alice", store, todayIso: TODAY };
     const seeds = trySeedViews(store, "alice");
-    expect(runView(seeds[1]!, ctx, rows).map((r) => r.number)).toEqual([100]);
+    expect(seeds.map((v) => v.id)).toEqual(["seed-my-tickets", "seed-untriaged", "seed-release-teams", "seed-epics"]);
+    expect(seeds[2]).toMatchObject({ name: "Current Release by Team", groupBy: "dim:PVTSSF_acme_team" });
+    expect(runView(seeds[2]!, ctx, rows).map((r) => r.number)).toEqual([100]);
     expect(runView(seeds[3]!, ctx, rows).map((r) => r.number)).toEqual([100]);
-    expect(runView(seeds[4]!, ctx, rows).map((r) => r.number)).toEqual([100]);
   });
 });
 

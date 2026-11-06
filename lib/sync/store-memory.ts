@@ -1,4 +1,4 @@
-import { ITEM_FIELD_PROPS, RESTORE_WINDOW_MS, setValue, type ChangeSource, type ImportOptions, type TrackedField } from "./changes";
+import { dimChanges, ITEM_FIELD_PROPS, normDims, RESTORE_WINDOW_MS, setValue, type ChangeSource, type ImportOptions, type TrackedField } from "./changes";
 import type { ImportStore, StoreStats } from "./import";
 import { newerItem } from "./item-rules";
 import { normalizePullRequest } from "./prs";
@@ -32,6 +32,17 @@ export class MemoryStore extends ReadModel implements ImportStore, IdResolver {
     const tally = (r: "inserted" | "updated" | "unchanged") => void (stats[r] += 1);
 
     for (const [i, f] of snapshot.fields.entries()) tally(this.upsertField(f, snapshot.projectId, i));
+    // A field list is the project's whole list: a field missing from it was
+    // deleted on GitHub, and a mapping to it shows "Missing field — remap" (§4.1).
+    if (snapshot.fields.length) {
+      const listed = new Set(snapshot.fields.map((f) => f.id));
+      for (const id of [...this.fields.keys()]) {
+        if (!listed.has(id)) {
+          this.fields.delete(id);
+          tally("updated");
+        }
+      }
+    }
     for (const t of snapshot.issueTypes) tally(this.upsertIssueType(t));
     for (const l of snapshot.labels) tally(this.upsertLabel(l));
     for (const m of snapshot.milestones) tally(this.upsertMilestone(m));
@@ -357,7 +368,8 @@ export class MemoryStore extends ReadModel implements ImportStore, IdResolver {
     // Items whose issue isn't cached (other repos, old closed issues) are skipped.
     if (!this.issues.has(p.issueNodeId)) return "unchanged" as const;
     const prev = this.projectItems.get(p.itemId);
-    const next = { ...p };
+    const next = { ...p, dims: normDims(p.dims) };
+    if (!next.dims) delete next.dims;
     // One item per issue (S7): when GitHub reports two, the more recently
     // updated one is kept and the other dropped.
     const other = this.itemForIssue(p.issueNodeId);
@@ -370,6 +382,7 @@ export class MemoryStore extends ReadModel implements ImportStore, IdResolver {
     const restored = !was && prunedAt !== undefined && Date.now() - prunedAt <= RESTORE_WINDOW_MS;
     if (restored) this.prunedAt.delete(p.issueNodeId);
     for (const [field, prop] of ITEM_FIELD_PROPS) this.record(p.issueNodeId, field, was?.[prop] ?? null, p[prop] ?? null, restored ? "restore" : this.source);
+    for (const c of dimChanges(was?.dims, next.dims)) this.record(p.issueNodeId, c.field, c.oldValue, c.newValue, restored ? "restore" : this.source);
     this.touchedAt.set(p.itemId, Date.now());
     if (replaces) {
       this.dropItem(replaces.itemId);

@@ -1,6 +1,8 @@
-// Release planning (IMPROVEMENTS F1): load per Release by Team and person, and
+// Release planning (IMPROVEMENTS F1): load per Release by the first mapped
+// dimension (e.g. a team field) and by person, and
 // what is left over from Releases that have ended. Pure, so the counts can be
 // tested against the explorer filtered the same way.
+import { primaryDimension } from "./explorer";
 import type { ClientIssue, ClientMeta, ClientRelease } from "./types";
 
 export type LoadRow = { key: string; label: string; open: number; closed: number };
@@ -10,13 +12,14 @@ export type ReleaseLoad = {
   total: number;
   open: number;
   closed: number;
-  byTeam: LoadRow[];
+  /** By the first mapped dimension; empty without one. */
+  byDim: LoadRow[];
   byAssignee: LoadRow[];
   /** Open issues nobody is assigned to. */
   unassigned: number;
 };
 
-const NO_TEAM = "__none";
+const NO_VALUE = "__none";
 
 function bump(map: Map<string, LoadRow>, key: string, label: string, closed: boolean) {
   const row = map.get(key) ?? { key, label, open: 0, closed: 0 };
@@ -26,9 +29,10 @@ function bump(map: Map<string, LoadRow>, key: string, label: string, closed: boo
 
 const bySize = (a: LoadRow, b: LoadRow) => b.open + b.closed - (a.open + a.closed) || a.label.localeCompare(b.label);
 
-/** Issues in `release`: counts by Team and by assignee (an issue with two assignees counts for both). */
-export function releaseLoad(issues: ClientIssue[], release: ClientRelease, meta: Pick<ClientMeta, "fields">): ReleaseLoad {
-  const teams = new Map<string, LoadRow>();
+/** Issues in `release`: counts by the first dimension and by assignee (an issue with two assignees counts for both). */
+export function releaseLoad(issues: ClientIssue[], release: ClientRelease, meta: Pick<ClientMeta, "dimensions">): ReleaseLoad {
+  const dim = primaryDimension(meta);
+  const byDim = new Map<string, LoadRow>();
   const people = new Map<string, LoadRow>();
   let open = 0;
   let closed = 0;
@@ -38,11 +42,14 @@ export function releaseLoad(issues: ClientIssue[], release: ClientRelease, meta:
     const isClosed = i.state === "closed";
     if (isClosed) closed += 1;
     else open += 1;
-    bump(teams, i.teamId ?? NO_TEAM, i.teamId ? (meta.fields.team.find((t) => t.id === i.teamId)?.name ?? "Missing option") : "No team", isClosed);
+    if (dim) {
+      const v = i.dims[dim.id];
+      bump(byDim, v?.id ?? NO_VALUE, v ? (dim.options.find((o) => o.id === v.id)?.name ?? "Missing option") : `No ${dim.name}`, isClosed);
+    }
     if (i.assignees.length) for (const a of i.assignees) bump(people, a.toLowerCase(), a, isClosed);
     else if (!isClosed) unassigned += 1;
   }
-  return { release, total: open + closed, open, closed, byTeam: [...teams.values()].sort(bySize), byAssignee: [...people.values()].sort(bySize), unassigned };
+  return { release, total: open + closed, open, closed, byDim: [...byDim.values()].sort(bySize), byAssignee: [...people.values()].sort(bySize), unassigned };
 }
 
 /** A Release has ended once its (exclusive) end date is today or earlier: its last day is before today. */

@@ -207,6 +207,8 @@ This reuses the Next.js app, API routes and Postgres SQL almost as-is. **[Defaul
 
 Stored locally: repo, org, project number + node ID (pinned after discovery), field mapping (§4.1), done Status options (§4.5), done Status for close (W2), writes toggle, global shortcut, notifications, launch at login, dock badge, time zone. **No defaults point at any real org or repo.** Tests and dev set them through env vars.
 
+**[D4]** Settings live in the `app_settings` table (`github.target`, `project.mapping`), apart from the GitHub cache. The `GITHUB_REPO` / `GITHUB_ORG` / `GITHUB_PROJECT_NUMBER` env vars are only a fallback for tests, dev and the maintainer's CLI tools; the desktop app opens onboarding step 2 until a project and a mapping are stored.
+
 ## 2.5 Removed with the server
 
 OAuth/Auth.js, allowlist and org-access mode, DB token encryption and its key, a shared server token, hosting config (Vercel, Docker), cron routes, the worker script, the health endpoint, and allowlist middleware (replaced by §2.2).
@@ -274,6 +276,7 @@ A GitHub write happens only when all three hold:
 
 - Onboarding suggests a mapping by field name and type; the user confirms or changes it. Settings can remap later.
 - Stored by **field ID**. A renamed field stays mapped. A deleted field shows "Missing field — remap" instead of blank values.
+- **[D4]** Sync keeps every single-select and iteration value of a project item by field ID (`project_item_dims`), besides the Status, Priority and Sprint columns, so a remap needs no new scan. Dimensions are keyed `dim:<fieldId>` in filters, grouping, sort, board columns, edits, saved views and Insights scopes. Suggestions: Status/Priority/Sprint by name and type, every other single-select as a dimension; Priority order guessed from the option names (highest first when unclear). The first mapped dimension is the one triage ("missing Priority or <dimension>"), planning, the sidebar and the triage `T` key use. A field GitHub stops listing gets `missing_at` (never deleted); "Reload fields" in Settings reads the fields again.
 - Native properties (type, labels, milestone, assignees, parent, state) need no mapping.
 - Current sprint = the iteration whose `start ≤ today < start + duration`; previous/next by date.
 
@@ -391,7 +394,7 @@ Steps:
 ### D3 — Local identity and token
 - Remove everything in §2.5 not already gone.
 - Onboarding step 1: paste PAT (with a "How to create it" guide listing §3.2) → `GET /user` → capability check (§3.3). Settings: replace token, disconnect, detected permissions, expiry. `me` in filters = the PAT owner. Drop token storage from the DB.
-- **[D3]** Until D4 stores the repository and project, the capability check reads the ones in `GITHUB_REPO` / `GITHUB_ORG` / `GITHUB_PROJECT_NUMBER`; without them it checks `GET /user` only and lists the permissions as not checked yet.
+- **[D3]** Until D4 stores the repository and project, the capability check reads the ones in `GITHUB_REPO` / `GITHUB_ORG` / `GITHUB_PROJECT_NUMBER`; without them it checks `GET /user` only and lists the permissions as not checked yet. **[D4]** It now checks the stored project first; the env vars remain a fallback for tests and dev.
 - **Acceptance:** each §3.3 state has a mocked test and its own message; a test token never appears in logs, error payloads, exports or the renderer bundle; a read-only token reaches the issue list; a token missing Projects read names the permission, never an empty list.
 
 ### D4 — Project and field mapping

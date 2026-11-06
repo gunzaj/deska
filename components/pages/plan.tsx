@@ -8,11 +8,12 @@ import Link from "next/link";
 import { EDITING_OFF } from "@/lib/client/edit";
 import { useMemo, useState } from "react";
 import { bulkEdit, describeChange, type BulkChange } from "@/lib/client/bulk";
-import { encodeState } from "@/lib/client/explorer";
+import { encodeState, primaryDimension } from "@/lib/client/explorer";
+import type { Filter } from "@/lib/views/view";
 import { formatDate, lastDay, plainName } from "@/lib/client/format";
 import { carryOver, githubSearch, githubSearchUrl, releaseLoad, type LoadRow, type ReleaseLoad } from "@/lib/client/planning";
 import { PRESETS } from "@/lib/client/presets";
-import type { ClientIssue } from "@/lib/client/types";
+import type { ClientIssue, DimKey } from "@/lib/client/types";
 import { useAppData } from "../app/provider";
 import { Page } from "../app/shell";
 import { Icon } from "../icons";
@@ -47,11 +48,12 @@ function Bars({ rows, href, title }: { rows: LoadRow[]; href: (r: LoadRow) => st
   );
 }
 
-const exploreUrl = (releaseId: string, extra: { field: "team" | "assignee"; values: string[] } | null) =>
-  `/issues?s=${encodeState({ ...PRESETS.all, filters: [{ field: "release", op: "in", values: [releaseId] }, ...(extra ? [{ field: extra.field, op: "in" as const, values: extra.values }] : [])] })}`;
+const exploreUrl = (releaseId: string, extra: { field: DimKey | "assignee"; values: string[] } | null) =>
+  `/issues?s=${encodeState({ ...PRESETS.all, filters: [{ field: "release", op: "in", values: [releaseId] }, ...(extra ? [{ field: extra.field, op: "in" as const, values: extra.values }] : [])] as Filter[] })}`;
 
 function LoadColumn({ load, label }: { load: ReleaseLoad; label: string }) {
   const { release: r } = load;
+  const dim = primaryDimension(useAppData().data.meta);
   return (
     <section aria-label={`${label}: Release ${r.title}`} data-plan-release={r.id} className="min-w-0 rounded-xl border border-line bg-surface p-4 shadow-raised">
       <p className="text-[11.5px] font-semibold uppercase tracking-wide text-faint">{label}</p>
@@ -67,8 +69,12 @@ function LoadColumn({ load, label }: { load: ReleaseLoad; label: string }) {
         <span className="text-[20px] font-medium tabular-nums text-fg">{load.total}</span> issues · {load.open} open · {load.closed} closed
         {load.unassigned > 0 && <span className="text-warning"> · {load.unassigned} open unassigned</span>}
       </p>
-      <h3 className="mb-1.5 mt-4 text-[12px] font-semibold text-muted">By team</h3>
-      <Bars rows={load.byTeam} title={`Release ${r.title} by team`} href={(row) => exploreUrl(r.id, row.key === "__none" ? null : { field: "team", values: [row.key] })} />
+      {dim && (
+        <>
+          <h3 className="mb-1.5 mt-4 text-[12px] font-semibold text-muted">By {dim.name}</h3>
+          <Bars rows={load.byDim} title={`Release ${r.title} by ${dim.name}`} href={(row) => exploreUrl(r.id, row.key === "__none" ? null : { field: dim.key, values: [row.key] })} />
+        </>
+      )}
       <h3 className="mb-1.5 mt-4 text-[12px] font-semibold text-muted">By assignee</h3>
       <Bars rows={load.byAssignee} title={`Release ${r.title} by assignee`} href={(row) => exploreUrl(r.id, { field: "assignee", values: [row.label] })} />
     </section>

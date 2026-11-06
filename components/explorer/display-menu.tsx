@@ -2,11 +2,11 @@
 
 import { useRef, useState } from "react";
 import {
-  BOARD_OPTIONS,
+  boardOptions,
   DEFAULT_PROPS,
-  DISPLAY_PROPS,
-  GROUP_OPTIONS,
-  SORT_OPTIONS,
+  displayProps,
+  groupOptions,
+  sortOptions,
   stateFilterValue,
   withStateFilter,
   type BoardField,
@@ -16,6 +16,7 @@ import {
 import { MAX_SORT_KEYS } from "@/lib/client/sort";
 import { Icon, type IconName } from "../icons";
 import { Popover, btn } from "../ui/popover";
+import { useAppData } from "../app/provider";
 
 function Select<T extends string>({ value, options, onChange, label }: { value: T; options: { key: T; label: string }[]; onChange: (v: T) => void; label: string }) {
   return (
@@ -48,6 +49,12 @@ export function DisplayMenu({ state, onChange }: { state: ExplorerState; onChang
   const primarySort = state.sort[0] ?? { field: "updated", dir: "desc" as const };
   const columns = (state.columns ?? DEFAULT_PROPS) as string[];
   const closed = stateFilterValue(state.filters);
+  // Dimensions come from the field mapping (§4.1); Sprint entries only with a Sprint field.
+  const { meta } = useAppData().data;
+  const BOARD_OPTIONS = boardOptions(meta);
+  const GROUP_OPTIONS = groupOptions(meta);
+  const SORT_OPTIONS = sortOptions(meta);
+  const DISPLAY_PROPS = displayProps(meta);
 
   return (
     <>

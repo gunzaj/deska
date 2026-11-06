@@ -3,12 +3,12 @@
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useMemo } from "react";
-import { withTeamScope } from "@/lib/client/team-scope";
+import { withDefaultScope } from "@/lib/client/team-scope";
 import { runExplorer } from "@/lib/client/explorer";
 import { isSnoozed, withoutSnoozed } from "@/lib/client/triage";
 import { useAppData } from "../app/provider";
-import { TRIAGE_TABS } from "../triage/queues";
-import { useTeamScope } from "../app/team-scope";
+import { triageTabs } from "../triage/queues";
+import { useDefaultScope } from "../app/team-scope";
 import { Explorer } from "../explorer/explorer";
 import { Icon } from "../icons";
 import { useSnoozes } from "../triage/snoozes";
@@ -18,12 +18,13 @@ import { btn } from "../ui/popover";
 export function TriagePage() {
   const { data } = useAppData();
   const params = useSearchParams();
+  const TRIAGE_TABS = useMemo(() => triageTabs(data.meta), [data.meta]);
   const tab = TRIAGE_TABS.find((t) => t.id === params.get("tab")) ?? TRIAGE_TABS[0]!;
   const { snoozes } = useSnoozes();
-  const { teamId } = useTeamScope();
+  const { scope } = useDefaultScope();
   const counts = useMemo(
-    () => Object.fromEntries(TRIAGE_TABS.map((t) => [t.id, withoutSnoozed(runExplorer(data.issues, withTeamScope(t.base, [], teamId), [], data.meta), snoozes, data.meta.today).length])),
-    [data, snoozes, teamId],
+    () => Object.fromEntries(TRIAGE_TABS.map((t) => [t.id, withoutSnoozed(runExplorer(data.issues, withDefaultScope(t.base, [], scope), [], data.meta), snoozes, data.meta.today).length])),
+    [data, snoozes, scope, TRIAGE_TABS],
   );
   const hidden = useMemo(() => new Set([...snoozes].filter(([, until]) => isSnoozed(until, data.meta.today)).map(([id]) => id)), [snoozes, data.meta.today]);
 

@@ -10,6 +10,9 @@ import http from "node:http";
 import os from "node:os";
 import path from "node:path";
 import { _electron as electron, expect, test, type ElectronApplication, type Page } from "@playwright/test";
+import { altFields } from "../../lib/demo/fixtures-alt";
+import { fixtureSnapshot } from "../../lib/demo/fixtures";
+import type { SnapshotField } from "../../lib/sync/types";
 
 const root = process.cwd();
 
@@ -29,17 +32,33 @@ function packagedApp(): string | null {
 
 // --- a mock GitHub API --------------------------------------------------------
 
-type MockGitHub = { url: string; requests: { method: string; path: string; auth: string | null }[]; projects: "ok" | "forbidden"; close(): Promise<void> };
+type MockProject = { id: string; number: number; title: string; closed: boolean; fields: SnapshotField[] };
+type MockGitHub = {
+  url: string;
+  requests: { method: string; path: string; auth: string | null; query: string }[];
+  projects: "ok" | "forbidden";
+  /** The org's projects, fields included; a test renames or deletes fields here. */
+  orgProjects: MockProject[];
+  close(): Promise<void>;
+};
 
 async function mockGitHub(): Promise<MockGitHub> {
-  const mock = { requests: [] as MockGitHub["requests"], projects: "ok" as MockGitHub["projects"] };
+  const mock = {
+    requests: [] as MockGitHub["requests"],
+    projects: "ok" as MockGitHub["projects"],
+    orgProjects: [
+      { id: "PVT_acme_widgets_roadmap", number: 7, title: "Widgets Roadmap", closed: false, fields: fixtureSnapshot().fields },
+      { id: "PVT_acme_ops_board", number: 3, title: "Ops Board", closed: false, fields: altFields() },
+    ] as MockProject[],
+  };
   const server = http.createServer((req, res) => {
     let body = "";
     req.on("data", (c) => (body += c));
     req.on("end", () => {
       const url = new URL(req.url ?? "/", "http://mock");
       const auth = req.headers.authorization ?? null;
-      mock.requests.push({ method: req.method ?? "", path: url.pathname, auth });
+      const gql = (JSON.parse(body || "{}") as { query?: string; variables?: Record<string, unknown> }) ?? {};
+      mock.requests.push({ method: req.method ?? "", path: url.pathname, auth, query: String(gql.query ?? "") });
       const json = (status: number, data: unknown, headers: Record<string, string> = {}) => {
         res.writeHead(status, { "content-type": "application/json", ...headers });
         res.end(JSON.stringify(data));
@@ -51,7 +70,19 @@ async function mockGitHub(): Promise<MockGitHub> {
       if (req.method === "GET" && url.pathname === "/repos/acme/widgets") return json(200, { full_name: "acme/widgets", private: true });
       if (req.method === "GET" && url.pathname === "/repos/acme/widgets/issues") return json(200, []);
       if (req.method === "POST" && url.pathname === "/graphql") {
-        const query = String((JSON.parse(body || "{}") as { query?: string }).query ?? "");
+        const query = String(gql.query ?? "");
+        const forbidden = { data: { organization: null }, errors: [{ type: "FORBIDDEN", message: "Resource not accessible by personal access token" }] };
+        if (query.includes("DeskaOrgProjects")) {
+          if (mock.projects === "forbidden") return json(200, forbidden);
+          return json(200, { data: { organization: { projectsV2: { pageInfo: { hasNextPage: false, endCursor: null }, nodes: mock.orgProjects.map(({ fields: _f, ...p }) => p) } } } });
+        }
+        if (query.includes("DeskaProjectFields")) {
+          if (mock.projects === "forbidden") return json(200, forbidden);
+          const p = mock.orgProjects.find((x) => x.number === Number(gql.variables?.number));
+          if (!p) return json(200, { data: { organization: { projectV2: null } }, errors: [{ type: "NOT_FOUND", message: "Could not resolve to a ProjectV2" }] });
+          const nodes = p.fields.map((f) => ({ id: f.id, name: f.name, dataType: f.dataType, ...(f.options ? { options: f.options } : {}), ...(f.iterations ? { configuration: { iterations: f.iterations, completedIterations: [] } } : {}) }));
+          return json(200, { data: { organization: { projectV2: { id: p.id, number: p.number, title: p.title, fields: { pageInfo: { hasNextPage: false, endCursor: null }, nodes } } } } });
+        }
         if (query.includes("projectV2")) {
           if (mock.projects === "forbidden") return json(200, { data: { organization: { projectV2: null } }, errors: [{ type: "FORBIDDEN", message: "Resource not accessible by personal access token" }] });
           return json(200, { data: { organization: { projectV2: { id: "PVT_acme_widgets_roadmap" } } } });
@@ -73,16 +104,19 @@ async function mockGitHub(): Promise<MockGitHub> {
 
 type Launched = { app: ElectronApplication; win: Page; origin: string; logs: () => string };
 
-async function launch(userData: string, github: MockGitHub): Promise<Launched> {
+/**
+ * `envTarget`: also set GITHUB_REPO / _ORG / _PROJECT_NUMBER (tests may; the
+ * token check uses them until a project is chosen). Without it the app knows
+ * only what onboarding step 2 stores (D4).
+ */
+async function launch(userData: string, github: MockGitHub, opts: { seed?: string; envTarget?: boolean } = {}): Promise<Launched> {
   const env: Record<string, string> = {};
   for (const [k, v] of Object.entries(process.env)) if (v !== undefined && !k.startsWith("DESKA_") && !k.startsWith("GITHUB_")) env[k] = v;
   Object.assign(env, {
     DESKA_USER_DATA_DIR: userData,
-    DESKA_DEMO_SEED: "fixtures",
+    DESKA_DEMO_SEED: opts.seed ?? "fixtures",
     DESKA_GITHUB_API_URL: github.url,
-    GITHUB_REPO: "acme/widgets",
-    GITHUB_ORG: "acme",
-    GITHUB_PROJECT_NUMBER: "7",
+    ...(opts.envTarget === false ? {} : { GITHUB_REPO: "acme/widgets", GITHUB_ORG: "acme", GITHUB_PROJECT_NUMBER: "7" }),
   });
   const exe = packagedApp();
   const args = ["--use-mock-keychain"];
@@ -95,7 +129,19 @@ async function launch(userData: string, github: MockGitHub): Promise<Launched> {
   return { app, win, origin: new URL(win.url()).origin, logs: () => out };
 }
 
-/** Onboarding step 1 through the UI: paste, connect, continue to the issue list. */
+/** Onboarding step 2 through the UI: repository, find projects, pick one; `beforeSave` may change the suggested mapping. */
+async function chooseProject(win: Page, origin: string, title: string, beforeSave?: () => Promise<void>) {
+  await expect(win.getByRole("heading", { name: "Choose your project" })).toBeVisible({ timeout: 60_000 });
+  await win.getByLabel("Repository", { exact: true }).fill("acme/widgets");
+  await win.getByRole("button", { name: "Find projects" }).click();
+  await win.getByRole("radio", { name: new RegExp(`^${title}`) }).check();
+  await expect(win.locator("[data-mapping-form]")).toBeVisible({ timeout: 30_000 });
+  await beforeSave?.();
+  await win.getByRole("button", { name: "Save and open Deska" }).click();
+  await win.waitForURL(`${origin}/issues`, { timeout: 60_000 });
+}
+
+/** Onboarding through the UI: paste, connect, choose the project, continue to the issue list. */
 async function connect(win: Page, origin: string) {
   if (!new URL(win.url()).pathname.startsWith("/onboarding")) await win.goto(`${origin}/onboarding`);
   await expect(win.getByRole("heading", { name: "Connect GitHub" })).toBeVisible({ timeout: 60_000 });
@@ -103,7 +149,7 @@ async function connect(win: Page, origin: string) {
   await win.getByRole("button", { name: "Connect" }).click();
   await expect(win.getByText("Connected as")).toContainText("@alice", { timeout: 30_000 });
   await win.getByRole("button", { name: "Continue" }).click();
-  await win.waitForURL(`${origin}/issues`);
+  await chooseProject(win, origin, "Widgets Roadmap");
   await expect(win.getByText("Bug: crash on start")).toBeVisible({ timeout: 60_000 });
 }
 
@@ -174,7 +220,7 @@ test.describe("desktop shell", () => {
       await expect(win.locator('[data-permission="projects"]')).toContainText("Granted");
       await expect(win.getByText("2027-03-01")).toBeVisible();
       await win.getByRole("button", { name: "Continue" }).click();
-      await win.waitForURL(`${origin}/issues`);
+      await chooseProject(win, origin, "Widgets Roadmap");
       await expect(win.getByText("Bug: crash on start")).toBeVisible({ timeout: 60_000 });
       await expect(win.getByText("Epic: dashboard overhaul")).toBeVisible();
       await expect(win.getByText(/^Sample data\./)).toBeVisible();
@@ -186,10 +232,11 @@ test.describe("desktop shell", () => {
       const panel = win.getByRole("complementary", { name: "Issue #101" });
       await expect(panel.getByRole("button", { name: /Close issue/ })).toHaveAttribute("title", "Read-only token", { timeout: 60_000 });
 
-      // The server checked the token against the (mock) API with reads only.
+      // The server checked the token and discovered the project against the (mock) API with reads only.
       expect(github.requests.length).toBeGreaterThan(0);
       for (const r of github.requests) {
         expect(r.method === "GET" || (r.method === "POST" && r.path === "/graphql"), `${r.method} ${r.path}`).toBe(true);
+        expect(r.query).not.toMatch(/\bmutation\b/);
       }
 
       // The token is nowhere the renderer can reach: page, storage, any API answer, the bundle.
@@ -230,8 +277,14 @@ test.describe("desktop shell", () => {
       await expect(win.getByText("This token is missing a permission: Organization → Projects: Read").first()).toBeVisible({ timeout: 30_000 });
       await expect(win.locator('[data-permission="projects"]')).toContainText("Missing");
       await win.getByRole("button", { name: "Continue" }).click();
-      await win.waitForURL(`${origin}/issues`);
-      await expect(win.locator("[data-connection-state]")).toContainText("Organization → Projects: Read", { timeout: 60_000 });
+      // Step 2 can't list the projects either: it names the permission, never an empty list.
+      await win.getByLabel("Repository", { exact: true }).fill("acme/widgets");
+      await win.getByRole("button", { name: "Find projects" }).click();
+      await expect(win.getByRole("alert").filter({ hasText: "This token is missing a permission: Organization → Projects: Read" })).toBeVisible({ timeout: 30_000 });
+      await expect(win.getByRole("radio")).toHaveCount(0);
+      // The app stays on step 2 until a project is chosen.
+      await win.goto(`${origin}/issues`);
+      await win.waitForURL(`${origin}/onboarding?step=2`);
     } finally {
       await app.close();
     }
@@ -349,6 +402,102 @@ test.describe("desktop shell", () => {
       expect(await second.win.evaluate(() => fetch("/api/views").then((r) => r.status))).toBe(401);
     } finally {
       await second.app.close();
+    }
+  });
+
+  test("D4: step 2 maps a project with differently named fields; Settings remaps, follows a rename and reports a deleted field", async () => {
+    const { app, win, origin } = await launch(userData, github, { seed: "alt", envTarget: false });
+    const data = () => win.evaluate(() => fetch("/api/data").then((r) => r.json()));
+    try {
+      await win.waitForURL(`${origin}/onboarding`);
+      await win.getByLabel("Fine-grained personal access token").fill(TOKEN);
+      await win.getByRole("button", { name: "Connect" }).click();
+      await expect(win.getByText("Connected as")).toContainText("@alice", { timeout: 30_000 });
+      // No repository or project yet (and no env): only `GET /user` is checked.
+      await expect(win.locator('[data-permission="projects"]')).toContainText("Not checked yet");
+      await win.getByRole("button", { name: "Continue" }).click();
+      await expect(win.getByRole("heading", { name: "Choose your project" })).toBeVisible({ timeout: 60_000 });
+      // A connected user without a project is sent back to step 2.
+      await win.goto(`${origin}/issues`);
+      await win.waitForURL(`${origin}/onboarding?step=2`);
+
+      await chooseProject(win, origin, "Ops Board", async () => {
+        // Suggested by name and type: Stage, Urgency (options highest first), Cycle; Squad and Surface as dimensions.
+        await expect(win.locator("#map-status")).toHaveValue("PVTSSF_acme_stage");
+        await expect(win.locator("#map-priority")).toHaveValue("PVTSSF_acme_urgency");
+        await expect(win.locator("#map-sprint")).toHaveValue("PVTIF_acme_cycle");
+        await expect(win.locator("[data-priority-preview]")).toContainText("P0 › P1 › P2");
+        await expect(win.getByRole("checkbox", { name: /^Squad/ })).toBeChecked();
+        await expect(win.getByRole("checkbox", { name: /^Surface/ })).toBeChecked();
+        await expect(win.getByRole("checkbox", { name: "Estimate" })).toHaveCount(0);
+        // "Status options that also count as done": empty by default.
+        await expect(win.getByRole("checkbox", { name: "Shipped" })).not.toBeChecked();
+        await win.getByRole("checkbox", { name: "Shipped" }).check();
+        // No Sprint: sprint features stay hidden.
+        await win.locator("#map-sprint").selectOption("");
+      });
+
+      // The differently named fields work end to end.
+      await expect(win.getByText("Bug: crash on start")).toBeVisible({ timeout: 60_000 });
+      const meta = (await data()).meta;
+      expect(meta.mapping).toMatchObject({ status: { name: "Stage" }, priority: { name: "Urgency" }, sprint: null, doneStatusIds: ["f0000003"] });
+      expect(meta.dimensions.map((d: { name: string }) => d.name)).toEqual(["Squad", "Surface"]);
+      await expect(win.getByRole("link", { name: "All issues" }).first()).toBeVisible();
+      await expect(win.getByRole("link", { name: "Releases", exact: true })).toHaveCount(0);
+      await expect(win.getByRole("link", { name: /^Backlog/ })).toHaveCount(0);
+      await win.goto(`${origin}/releases`);
+      await expect(win.getByText("No Sprint field mapped")).toBeVisible({ timeout: 60_000 });
+      const squad = Buffer.from(JSON.stringify({ filters: [{ field: "dim:PVTSSF_acme_squad", op: "in", values: ["h0000001"] }], sort: [{ field: "priority", dir: "desc" }], groupBy: "dim:PVTSSF_acme_squad", layout: "list" })).toString("base64url");
+      await win.goto(`${origin}/issues?s=${squad}`);
+      await expect(win.locator("[data-row-id]")).toHaveCount(2, { timeout: 60_000 });
+      await expect(win.getByRole("button", { name: /Falcons/ }).first()).toBeVisible();
+      // P0 (the first option) is the top priority: #100 sorts first.
+      await expect(win.locator("[data-row-id]").first()).toHaveAttribute("data-issue", "100");
+
+      // Settings: the stored project is checked now, and the mapping can change.
+      await win.goto(`${origin}/settings`);
+      await expect(win.locator("[data-project-target]")).toContainText("Ops Board · acme #3", { timeout: 60_000 });
+      await expect(win.locator("[data-project-target]")).toContainText("PVT_acme_ops_board");
+      await expect(win.locator('[data-permission="projects"]')).toContainText("Granted", { timeout: 30_000 });
+      await win.locator("#map-sprint").selectOption("PVTIF_acme_cycle");
+      await win.getByRole("radio", { name: "Last option is the highest priority" }).check();
+      await expect(win.locator("[data-priority-preview]")).toContainText("P2 › P1 › P0");
+      await win.getByRole("button", { name: "Save mapping" }).click();
+      await expect(win.getByText("Saved", { exact: true })).toBeVisible({ timeout: 30_000 });
+      await expect(win.getByRole("link", { name: "Releases", exact: true })).toBeVisible({ timeout: 30_000 });
+      const remapped = (await data()).meta;
+      expect(remapped.mapping.sprint.name).toBe("Cycle");
+      expect(remapped.releases.length).toBeGreaterThan(0);
+      // Priority rank follows the setting: P2 is now the top.
+      expect(remapped.fields.priority.map((o: { name: string }) => o.name)).toEqual(["P0", "P1", "P2"]);
+
+      // GitHub renames Squad and deletes Surface; "Reload fields" picks it up.
+      const ops = github.orgProjects.find((p) => p.number === 3)!;
+      ops.fields = ops.fields.filter((f) => f.id !== "PVTSSF_acme_surface").map((f) => (f.id === "PVTSSF_acme_squad" ? { ...f, name: "Crew" } : f));
+      await win.getByRole("button", { name: "Reload fields" }).click();
+      await expect(win.getByRole("checkbox", { name: /^Crew/ })).toBeChecked({ timeout: 30_000 });
+      await expect(win.locator("[data-mapping-form] [data-missing-field]")).toContainText("Missing field — remap");
+      await expect(win.locator("[data-missing-summary]")).toContainText("Surface");
+      const after = (await data()).meta;
+      expect(after.dimensions.map((d: { name: string; missing: boolean }) => [d.name, d.missing])).toEqual([
+        ["Crew", false],
+        ["Surface", true],
+      ]);
+      // In the app: a banner, and the issue panel shows the renamed field's value and "Missing field — remap" for the deleted one.
+      await win.goto(`${origin}/issues?issue=100`);
+      await expect(win.locator("[data-missing-banner]")).toContainText("Surface", { timeout: 60_000 });
+      const panel = win.getByRole("complementary", { name: "Issue #100" });
+      await expect(panel.getByText("Crew", { exact: true })).toBeVisible({ timeout: 60_000 });
+      await expect(panel.getByText("Falcons")).toBeVisible();
+      await expect(panel.locator("[data-missing-field]")).toContainText("Missing field — remap");
+
+      // Reads only, all along.
+      for (const r of github.requests) {
+        expect(r.method === "GET" || (r.method === "POST" && r.path === "/graphql"), `${r.method} ${r.path}`).toBe(true);
+        expect(r.query).not.toMatch(/\bmutation\b/);
+      }
+    } finally {
+      await app.close();
     }
   });
 });

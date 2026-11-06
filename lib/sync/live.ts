@@ -6,7 +6,8 @@ import { restClient, gqlClient } from "../github/client";
 import { githubRepo, githubTarget } from "../config";
 import type { IdResolver } from "./poll";
 import type { ReconcileSource } from "./reconcile";
-import { resolveFieldMap, type ProjectFieldMap } from "./field-map";
+import { effectiveMapping, type ProjectFieldMap } from "./field-map";
+import { readMapping } from "../settings";
 import { GitHubSource } from "./source-github";
 import type {
   FullSnapshot,
@@ -207,9 +208,9 @@ export async function fetchLiveSnapshot(token: string): Promise<FullSnapshot> {
       userId: (login) => userIdByLogin.get(login.toLowerCase()) ?? login,
       milestoneId: (n) => (milestones.some((m) => m.number === n) ? String(n) : null),
     },
-    // The logical -> field mapping comes from the fields just discovered,
-    // not a literal, so a renamed field does not blank the cache (AGENTS).
-    resolveFieldMap(fields),
+    // The confirmed mapping (by field ID), or the suggestion from the fields
+    // just discovered: never a literal (AGENTS).
+    effectiveMapping(await readMapping(), fields),
   );
 
   // REST carries neither the parent link nor the type ID. Without this the

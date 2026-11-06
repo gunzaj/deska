@@ -4,6 +4,8 @@
 // the discovered metadata, by ID, shown with their current names.
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { EditField } from "@/lib/client/edit";
+import { dimensionOf } from "@/lib/client/explorer";
+import { dimFieldId, isDimKey } from "@/lib/sync/field-map";
 import type { ClientIssue } from "@/lib/client/types";
 import { useAppData } from "../app/provider";
 import { Icon } from "../icons";
@@ -23,13 +25,19 @@ export function usePickItems(issue: ClientIssue, field: EditField): { items: Pic
   const { data, avatarOf } = useAppData();
   const meta = data.meta;
   const none = (label: string, checked: boolean): PickItem => ({ id: NONE, label, checked, icon: <Icon name="x" size={12} className="text-faint" /> });
+  if (isDimKey(field)) {
+    const d = dimensionOf(meta, field);
+    const cur = issue.dims[dimFieldId(field)]?.id ?? null;
+    return {
+      multi: false,
+      items: [...(d?.options ?? []).map((o) => ({ id: o.id, label: o.name, checked: o.id === cur, icon: <OptionDot color={o.color} /> })), none(`No ${d?.name ?? "value"}`, cur == null)],
+    };
+  }
   switch (field) {
     case "status":
-    case "priority":
-    case "team":
-    case "platform": {
+    case "priority": {
       const options = meta.fields[field];
-      const cur = field === "status" ? issue.statusId : field === "priority" ? issue.priorityId : field === "team" ? issue.teamId : issue.platformId;
+      const cur = field === "status" ? issue.statusId : issue.priorityId;
       return {
         multi: false,
         items: [

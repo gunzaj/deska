@@ -16,6 +16,14 @@ const FICTIONAL = new Set([
   "IT_acme_task",
   "IT_acme_bug",
   "IT_acme_feature",
+  // lib/demo/fixtures-alt.ts: the differently named project (D4)
+  "PVT_acme_ops_board",
+  "PVTSSF_acme_stage",
+  "PVTSSF_acme_urgency",
+  "PVTSSF_acme_squad",
+  "PVTSSF_acme_surface",
+  "PVTF_acme_estimate",
+  "PVTIF_acme_cycle",
   // tests
   "PVT_other_project",
   "PVT_some_other_project",

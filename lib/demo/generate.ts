@@ -4,7 +4,11 @@
 // Links point at a sample repo, so a demo row never opens a live issue.
 // Never used when DESKA_DB_DIR is set (see lib/store.ts).
 import type { FullSnapshot, SnapshotIssue, SnapshotProjectItem, SnapshotPullRequest } from "@/lib/sync/types";
-import { fixtureSnapshot } from "./fixtures";
+import { fixtureSnapshot, projectItem } from "./fixtures";
+
+const ITEM_FIELDS = { status: "PVTSSF_acme_status", priority: "PVTSSF_acme_priority", sprint: "PVTIF_acme_release" };
+const TEAM_FIELD = "PVTSSF_acme_team";
+const PLATFORM_FIELD = "PVTSSF_acme_platform";
 
 function rng(seed: number) {
   let a = seed >>> 0;
@@ -281,11 +285,13 @@ export function demoSnapshot(now = new Date()): FullSnapshot {
       updatedAt: new Date(today - rand() * 10 * DAY).toISOString(), closedAt: null,
       labelIds: AREAS[e.area]!.labels.map(labelId), assigneeIds: [pick(USERS).githubId],
     });
-    items.push({
-      itemId: `PVTI_demo_${number}`, issueNodeId: nodeId, statusOpt: STATUS[1]!.id, priorityOpt: PRIORITY[2]!.id,
-      teamOpt: TEAM[AREAS[e.area]!.team]!.id, platformOpt: PLATFORM[AREAS[e.area]!.platform]!.id,
-      releaseIter: releasesAsc[Math.max(0, currentIdx) + Math.floor(rand() * 3)]?.id ?? null,
-    });
+    items.push(
+      projectItem(
+        { itemId: `PVTI_demo_${number}`, issueNodeId: nodeId, statusOpt: STATUS[1]!.id, priorityOpt: PRIORITY[2]!.id, releaseIter: releasesAsc[Math.max(0, currentIdx) + Math.floor(rand() * 3)]?.id ?? null },
+        ITEM_FIELDS,
+        { [TEAM_FIELD]: TEAM[AREAS[e.area]!.team]!.id, [PLATFORM_FIELD]: PLATFORM[AREAS[e.area]!.platform]!.id },
+      ),
+    );
     number += 1 + Math.floor(rand() * 4);
   }
 
@@ -324,14 +330,11 @@ export function demoSnapshot(now = new Date()): FullSnapshot {
       else if (triaged && rand() < 0.75) releaseIter = releasesAsc[Math.max(0, currentIdx) + Math.floor(Math.pow(rand(), 2) * 4)]?.id ?? null;
       const inCurrent = releaseIter === releasesAsc[currentIdx]?.id;
       const statusIdx = closed ? 5 : inCurrent ? Math.floor(rand() * 7) : releaseIter ? (rand() < 0.8 ? 0 : 6) : rand() < 0.5 ? 0 : -1;
-      items.push({
-        itemId: `PVTI_demo_${number}`, issueNodeId: nodeId,
-        statusOpt: statusIdx >= 0 ? STATUS[statusIdx]!.id : null,
-        priorityOpt: triaged || rand() < 0.3 ? PRIORITY[rand() < 0.2 ? 2 : rand() < 0.6 ? 1 : 0]!.id : null,
-        teamOpt: triaged || rand() < 0.5 ? TEAM[area.team]!.id : null,
-        platformOpt: rand() < 0.7 ? PLATFORM[area.platform]!.id : null,
-        releaseIter,
-      });
+      const statusOpt = statusIdx >= 0 ? STATUS[statusIdx]!.id : null;
+      const priorityOpt = triaged || rand() < 0.3 ? PRIORITY[rand() < 0.2 ? 2 : rand() < 0.6 ? 1 : 0]!.id : null;
+      const team = triaged || rand() < 0.5 ? TEAM[area.team]!.id : null;
+      const platform = rand() < 0.7 ? PLATFORM[area.platform]!.id : null;
+      items.push(projectItem({ itemId: `PVTI_demo_${number}`, issueNodeId: nodeId, statusOpt, priorityOpt, releaseIter }, ITEM_FIELDS, { [TEAM_FIELD]: team, [PLATFORM_FIELD]: platform }));
     }
     number += 1 + Math.floor(rand() * 3);
   }

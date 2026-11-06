@@ -3,7 +3,6 @@
 // cursors afterwards, so a Vercel deploy seeded with `sync:full --live --db`
 // had no `issues.since`: the cron's first poll paged the whole repo history
 // (state=all), timed out, never advanced the cursor, and repeated every tick.
-import { refreshFieldMap } from "./field-map";
 import { recordCycle } from "./health";
 import { importFull, type ImportStore, type StoreStats } from "./import";
 import type { LockResult } from "./lock";
@@ -23,7 +22,6 @@ export const SYNC_FULL_LOCK_WAIT_MS = 10 * 60_000;
  */
 export async function initialImport(snapshot: FullSnapshot, store: ImportStore, kv: Kv, nowIso = new Date().toISOString()): Promise<StoreStats> {
   const stats = await importFull(snapshot, store);
-  refreshFieldMap(kv, snapshot.fields);
   seedCursors(snapshot, kv, nowIso);
   await flushSyncKv();
   return stats;

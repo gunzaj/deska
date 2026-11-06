@@ -1,3 +1,4 @@
+import { dimFieldId, isDimKey } from "../sync/field-map";
 import type { ReadModel } from "../sync/read-model";
 import { resolveRelease, type ViewRow } from "./rows";
 import type { Filter, View } from "./view";
@@ -27,6 +28,7 @@ function releaseValues(values: string[] | undefined, ctx: ViewContext): (string 
 }
 
 function fieldValues(row: ViewRow, field: string): (string | null)[] {
+  if (isDimKey(field)) return [row.dims[dimFieldId(field)]?.id ?? null];
   switch (field) {
     case "assignee":
       return row.assignees;
@@ -34,10 +36,6 @@ function fieldValues(row: ViewRow, field: string): (string | null)[] {
       return [row.statusId];
     case "priority":
       return [row.priorityId];
-    case "team":
-      return [row.teamId];
-    case "platform":
-      return [row.platformId];
     case "release":
       return [row.releaseId];
     case "type":
@@ -178,15 +176,15 @@ function compareBy(a: ViewRow, b: ViewRow, field: string, _ctx: ViewContext): nu
  * the opaque option ID.
  */
 function sortKey(row: ViewRow, field: string): string | number | null {
+  if (isDimKey(field)) {
+    const v = row.dims[dimFieldId(field)];
+    return v ? (v.rank ?? Number.MAX_SAFE_INTEGER) : null;
+  }
   switch (field) {
     case "priority":
       return row.priorityRank;
     case "status":
       return row.statusRank;
-    case "team":
-      return row.teamRank;
-    case "platform":
-      return row.platformRank;
     case "release":
       return row.releaseRank;
     case "type":
@@ -244,15 +242,15 @@ function groupKey(row: ViewRow, groupBy: string): { key: string; label: string }
   const one = (key: string | null, label: string | null): { key: string; label: string }[] => [
     { key: key ?? "empty", label: label ?? "No value" },
   ];
+  if (isDimKey(groupBy)) {
+    const v = row.dims[dimFieldId(groupBy)];
+    return one(v?.id ?? null, v ? (v.name ?? "Missing option") : null);
+  }
   switch (groupBy) {
     case "status":
       return one(row.statusId, row.statusName);
     case "priority":
       return one(row.priorityId, row.priorityName);
-    case "team":
-      return one(row.teamId, row.teamName);
-    case "platform":
-      return one(row.platformId, row.platformName);
     case "release":
       return one(row.releaseId, row.releaseName);
     case "type":

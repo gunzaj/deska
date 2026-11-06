@@ -168,7 +168,8 @@ test("planning pages render: triage queues, releases, epics, insights", async ({
   await expect(page.getByText("0/1 · 0%")).toBeVisible();
 
   await page.goto("/insights");
-  await expect(page.getByText("Open issues by team")).toBeVisible();
+  // One bar list per mapped dimension, named after the field (here "Team").
+  await expect(page.getByText("Open issues by Team")).toBeVisible();
   await expect(page.getByRole("link", { name: /Open issues\s*3/ })).toBeVisible();
   await context.close();
 });

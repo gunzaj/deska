@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
-  FILTER_FIELDS,
+  filterFields,
   dateFilterLabel,
   fieldLabel,
   isDateFilter,
@@ -89,7 +89,7 @@ export function ValuePicker({
   if (field === "label" || field === "assignee" || field === "milestone") {
     items.sort((a, b) => Number(b.checked) - Number(a.checked) || Number(b.hint) - Number(a.hint));
   }
-  return <PickList multi items={items} onPick={onToggle} placeholder={`Filter by ${fieldLabel(field).toLowerCase()}…`} />;
+  return <PickList multi items={items} onPick={onToggle} placeholder={`Filter by ${fieldLabel(field, data.meta).toLowerCase()}…`} />;
 }
 
 /** "statuses", "priorities", "teams" for the chip summary. */
@@ -104,7 +104,7 @@ function Chip({ filter, index, filters, onChange, pool }: { filter: Filter; inde
   const remove = () => onChange(filters.filter((_, i) => i !== index));
 
   if (filter.field === "any") {
-    const parts = filter.filters.map((f) => `${fieldLabel(f.field)} ${"op" in f && f.op === "empty" ? "empty" : "…"}`);
+    const parts = filter.filters.map((f) => `${fieldLabel(f.field, data.meta)} ${"op" in f && f.op === "empty" ? "empty" : "…"}`);
     return (
       <span className="inline-flex h-7 items-center rounded-md border border-line bg-surface text-[12.5px] shadow-raised">
         <span className="px-2 text-muted">Any of</span>
@@ -130,13 +130,13 @@ function Chip({ filter, index, filters, onChange, pool }: { filter: Filter; inde
   }
   if (!isValuesFilter(filter)) return null;
   const field = filter.field as FilterFieldKey;
-  const meta = FILTER_FIELDS.find((f) => f.key === field);
+  const meta = filterFields(data.meta).find((f) => f.key === field);
   const values = filter.values ?? [];
   const op = filter.op;
   const opLabel = opsFor(field).find((o) => o.op === op)?.label ?? op;
   const needsValues = op === "in" || op === "not_in";
   const shown = values.slice(0, 2).map((v) => valueLabel(field, v, data.meta, data.issues));
-  const summary = values.length === 0 ? "any" : values.length <= 2 ? shown.join(", ") : `${values.length} ${plural(fieldLabel(field).toLowerCase())}`;
+  const summary = values.length === 0 ? "any" : values.length <= 2 ? shown.join(", ") : `${values.length} ${plural(fieldLabel(field, data.meta).toLowerCase())}`;
 
   const toggle = (id: string) => {
     const next = values.includes(id) ? values.filter((v) => v !== id) : [...values, id];
@@ -147,7 +147,7 @@ function Chip({ filter, index, filters, onChange, pool }: { filter: Filter; inde
     <span className="inline-flex h-7 max-w-full items-center rounded-md border border-line bg-surface text-[12.5px] shadow-raised">
       <span className="flex items-center gap-1.5 pl-2 pr-1.5 text-muted">
         <Icon name={(meta?.icon ?? "filter") as IconName} size={13} className="text-faint" />
-        {fieldLabel(field)}
+        {fieldLabel(field, data.meta)}
       </span>
       {opsFor(field).length > 1 ? (
         <button ref={opRef} type="button" onClick={() => setMenu("op")} className="h-full border-l border-line px-2 text-muted hover:bg-hover hover:text-fg">
@@ -170,7 +170,7 @@ function Chip({ filter, index, filters, onChange, pool }: { filter: Filter; inde
           <span className="truncate">{summary}</span>
         </button>
       )}
-      <button type="button" aria-label={`Remove ${fieldLabel(field)} filter`} onClick={remove} className="grid h-full w-7 shrink-0 place-items-center rounded-r-md border-l border-line text-faint hover:bg-hover hover:text-fg">
+      <button type="button" aria-label={`Remove ${fieldLabel(field, data.meta)} filter`} onClick={remove} className="grid h-full w-7 shrink-0 place-items-center rounded-r-md border-l border-line text-faint hover:bg-hover hover:text-fg">
         <Icon name="x" size={12} />
       </button>
 
@@ -209,6 +209,7 @@ export const FILTER_EVENT = "deska:filter";
 
 /** "+ Filter" button: pick a field, then values (adds or extends a filter). */
 export function AddFilter({ filters, onChange, pool, compact = false }: { filters: Filter[]; onChange: (f: Filter[]) => void; pool: ClientIssue[]; compact?: boolean }) {
+  const { data } = useAppData();
   const ref = useRef<HTMLButtonElement>(null);
   const [open, setOpen] = useState(false);
   const [field, setField] = useState<FilterFieldKey | null>(null);
@@ -235,7 +236,7 @@ export function AddFilter({ filters, onChange, pool, compact = false }: { filter
         {!field ? (
           <PickList
             items={[
-              ...FILTER_FIELDS.map((f) => ({ id: f.key, label: f.label, icon: <Icon name={f.icon as IconName} size={14} className="text-faint" /> })),
+              ...filterFields(data.meta).map((f) => ({ id: f.key, label: f.label, icon: <Icon name={f.icon as IconName} size={14} className="text-faint" /> })),
               ...DATE_PRESETS.map((d) => ({ id: d.id, label: d.label, section: "Dates", icon: <Icon name="clock" size={14} className="text-faint" /> })),
             ]}
             onPick={(id) => {

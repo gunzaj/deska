@@ -4,68 +4,84 @@
 // them: the sidebar needs the count on every route, and importing it from the
 // page pulled the whole explorer in with it (v5 3.9).
 import { useMemo } from "react";
-import { runExplorer, type ExplorerState } from "@/lib/client/explorer";
+import { primaryDimension, runExplorer, sprintOn, type ExplorerState } from "@/lib/client/explorer";
 import { OPEN } from "@/lib/client/presets";
-import { withTeamScope } from "@/lib/client/team-scope";
+import { withDefaultScope } from "@/lib/client/team-scope";
+import type { ClientMeta } from "@/lib/client/types";
 import { withoutSnoozed } from "@/lib/client/triage";
 import type { Filter } from "@/lib/views/view";
 import { useAppData } from "../app/provider";
-import { useTeamScope } from "../app/team-scope";
+import { useDefaultScope } from "../app/team-scope";
 import { useSnoozes } from "./snoozes";
 
-/** Triage queues: each is a locked filter set over open issues. */
-export const TRIAGE_TABS: { id: string; label: string; hint: string; base: Filter[]; defaults: ExplorerState }[] = [
-  {
-    id: "needs",
-    label: "Needs triage",
-    hint: "Open issues missing a Priority or a Team.",
-    base: [OPEN, { field: "any", filters: [{ field: "priority", op: "empty" }, { field: "team", op: "empty" }] }],
-    defaults: { filters: [], sort: [{ field: "created", dir: "desc" }], layout: "list" },
-  },
-  {
-    id: "new",
-    label: "New this week",
-    hint: "Opened in the last 7 days.",
-    base: [OPEN, { field: "created", op: "within_days", days: 7 }],
-    defaults: { filters: [], sort: [{ field: "created", dir: "desc" }], layout: "list" },
-  },
-  {
-    id: "unplanned",
-    label: "Not in a release",
-    hint: "Open issues with no Release, highest priority first.",
-    base: [OPEN, { field: "release", op: "empty" }],
-    defaults: { filters: [], sort: [{ field: "priority", dir: "desc" }, { field: "updated", dir: "desc" }], groupBy: "team", layout: "list" },
-  },
-  {
-    id: "unassigned",
-    label: "Unassigned in current release",
-    hint: "Planned for the current Release but nobody owns them.",
-    base: [OPEN, { field: "release", op: "in", values: ["current"] }, { field: "assignee", op: "empty" }],
-    defaults: { filters: [], sort: [{ field: "priority", dir: "desc" }], groupBy: "team", layout: "list" },
-  },
-  {
-    id: "stale",
-    label: "Stale",
-    hint: "Open and untouched for more than 90 days — close or re-plan.",
-    base: [OPEN, { field: "updated", op: "older_than_days", days: 90 }],
-    defaults: { filters: [], sort: [{ field: "updated", dir: "asc" }], layout: "list" },
-  },
-];
+export type TriageTab = { id: string; label: string; hint: string; base: Filter[]; defaults: ExplorerState };
+
+/**
+ * Triage queues: each is a locked filter set over open issues. "Needs triage"
+ * means no Priority, or no value in the first mapped dimension (e.g. a team
+ * field, §4.1); the Sprint queues need a Sprint field.
+ */
+export function triageTabs(meta: Pick<ClientMeta, "dimensions" | "mapping">): TriageTab[] {
+  const dim = primaryDimension(meta);
+  const groupBy = dim?.key;
+  const sprints = sprintOn(meta);
+  return [
+    {
+      id: "needs",
+      label: "Needs triage",
+      hint: dim ? `Open issues missing a Priority or a ${dim.name}.` : "Open issues missing a Priority.",
+      base: [OPEN, dim ? { field: "any", filters: [{ field: "priority", op: "empty" }, { field: dim.key, op: "empty" }] } : { field: "priority", op: "empty" }],
+      defaults: { filters: [], sort: [{ field: "created", dir: "desc" }], layout: "list" },
+    },
+    {
+      id: "new",
+      label: "New this week",
+      hint: "Opened in the last 7 days.",
+      base: [OPEN, { field: "created", op: "within_days", days: 7 }],
+      defaults: { filters: [], sort: [{ field: "created", dir: "desc" }], layout: "list" },
+    },
+    ...(sprints
+      ? [
+          {
+            id: "unplanned",
+            label: "Not in a release",
+            hint: "Open issues with no Release, highest priority first.",
+            base: [OPEN, { field: "release", op: "empty" }] as Filter[],
+            defaults: { filters: [], sort: [{ field: "priority", dir: "desc" }, { field: "updated", dir: "desc" }], ...(groupBy ? { groupBy } : {}), layout: "list" } as ExplorerState,
+          },
+          {
+            id: "unassigned",
+            label: "Unassigned in current release",
+            hint: "Planned for the current Release but nobody owns them.",
+            base: [OPEN, { field: "release", op: "in", values: ["current"] }, { field: "assignee", op: "empty" }] as Filter[],
+            defaults: { filters: [], sort: [{ field: "priority", dir: "desc" }], ...(groupBy ? { groupBy } : {}), layout: "list" } as ExplorerState,
+          },
+        ]
+      : []),
+    {
+      id: "stale",
+      label: "Stale",
+      hint: "Open and untouched for more than 90 days — close or re-plan.",
+      base: [OPEN, { field: "updated", op: "older_than_days", days: 90 }],
+      defaults: { filters: [], sort: [{ field: "updated", dir: "asc" }], layout: "list" },
+    },
+  ];
+}
 
 /** The queue's issues for this viewer: snoozed ones are out until their date (F3). */
-export function useQueueRows(tab: (typeof TRIAGE_TABS)[number]) {
+export function useQueueRows(tab: TriageTab) {
   const { data } = useAppData();
   const { snoozes } = useSnoozes();
-  const { teamId } = useTeamScope();
+  const { scope } = useDefaultScope();
   return useMemo(
-    () => withoutSnoozed(runExplorer(data.issues, withTeamScope(tab.base, [], teamId), tab.defaults.sort, data.meta), snoozes, data.meta.today),
-    [data, tab, snoozes, teamId],
+    () => withoutSnoozed(runExplorer(data.issues, withDefaultScope(tab.base, [], scope), tab.defaults.sort, data.meta), snoozes, data.meta.today),
+    [data, tab, snoozes, scope],
   );
 }
 
 export function useTriageCount(): number {
   const { data } = useAppData();
   const { snoozes } = useSnoozes();
-  const { teamId } = useTeamScope();
-  return useMemo(() => withoutSnoozed(runExplorer(data.issues, withTeamScope(TRIAGE_TABS[0]!.base, [], teamId), [], data.meta), snoozes, data.meta.today).length, [data, snoozes, teamId]);
+  const { scope } = useDefaultScope();
+  return useMemo(() => withoutSnoozed(runExplorer(data.issues, withDefaultScope(triageTabs(data.meta)[0]!.base, [], scope), [], data.meta), snoozes, data.meta.today).length, [data, snoozes, scope]);
 }

@@ -1,8 +1,8 @@
 // Live read-only SyncSource: REST issue change check (ETag/304) +
 // periodic project item scan. No writes to GitHub.
 import { gqlClient, restClient } from "../github/client";
-import { githubTarget } from "../config";
-import type { LogicalField, ProjectFieldMap } from "./field-map";
+import { githubTarget, type GithubTarget } from "../config";
+import type { ProjectFieldMap, Role } from "./field-map";
 import type { SnapshotIssue, SnapshotProjectItem, SnapshotPullRequest, SnapshotTeam } from "./types";
 import type { ChangeCheck, IdResolver, SyncSource } from "./poll";
 
@@ -104,10 +104,10 @@ export class GitHubSource implements SyncSource {
   private fields: ProjectFieldMap;
 
   /** No default map: a source built without one is a type error (v5 1.3). */
-  constructor(token: string, ids: IdResolver | undefined, fields: ProjectFieldMap) {
+  /** `target`: the stored repository and project (lib/settings.ts); the env target when omitted (CLI, tests). */
+  constructor(token: string, ids: IdResolver | undefined, fields: ProjectFieldMap, target: GithubTarget = githubTarget()) {
     this.rest = restClient(token);
     this.gql = gqlClient(token);
-    const target = githubTarget();
     this.owner = target.owner;
     this.repo = target.repo;
     this.org = target.org;
@@ -527,8 +527,6 @@ export class GitHubSource implements SyncSource {
         issueNodeId,
         statusOpt: null,
         priorityOpt: null,
-        teamOpt: null,
-        platformOpt: null,
         releaseIter: null,
       };
       applyFieldValues(row, n.fieldValues.nodes, this.fields);
@@ -566,8 +564,6 @@ export class GitHubSource implements SyncSource {
       issueNodeId,
       statusOpt: null,
       priorityOpt: null,
-      teamOpt: null,
-      platformOpt: null,
       releaseIter: null,
     };
     applyFieldValues(row, n.fieldValues.nodes, this.fields);
@@ -591,29 +587,35 @@ export class GitHubSource implements SyncSource {
 type FieldValueNode = { optionId?: string; iterationId?: string; field?: { id?: string; name?: string } };
 
 /**
- * Set a project item's Status/Priority/Team/Platform/Release from GraphQL field
- * values. A value belongs to a key when its field's ID is the mapped field's ID
- * (the name only when the node carries no ID), so a renamed field still maps.
+ * Set a project item's values from GraphQL field values (§4.1): every
+ * single-select and iteration value goes into `dims` by field ID (so a remap
+ * needs no new scan), and the fields mapped to
+ * Status, Priority and Sprint also set those columns. A value belongs to a
+ * role when its field's ID is the mapped field's ID (the name only when the
+ * node carries no ID), so a renamed field still maps.
  */
 export function applyFieldValues(row: SnapshotProjectItem, values: (FieldValueNode | null)[], map: ProjectFieldMap) {
-  const is = (fv: FieldValueNode, key: LogicalField) => {
-    const ref = map[key];
+  const is = (fv: FieldValueNode, role: Role) => {
+    const ref = map[role];
     if (!ref) return false;
     return fv.field?.id ? fv.field.id === ref.id : fv.field?.name === ref.name;
   };
+  const dims: Record<string, string> = {};
   for (const fv of values) {
     if (!fv) continue;
     if (fv.optionId) {
+      if (fv.field?.id) dims[fv.field.id] = fv.optionId;
       if (is(fv, "status")) row.statusOpt = fv.optionId;
       else if (is(fv, "priority")) row.priorityOpt = fv.optionId;
-      else if (is(fv, "team")) row.teamOpt = fv.optionId;
-      else if (is(fv, "platform")) row.platformOpt = fv.optionId;
-    } else if (fv.iterationId && is(fv, "release")) {
-      // Only the Release iteration field sets this; other iteration fields on
-      // the project would otherwise clobber it.
+    } else if (fv.iterationId) {
+      if (fv.field?.id) dims[fv.field.id] = fv.iterationId;
+      if (!is(fv, "sprint")) continue;
+      // Only the mapped Sprint field sets this; other iteration fields on the
+      // project would otherwise clobber it.
       row.releaseIter = fv.iterationId;
     }
   }
+  if (Object.keys(dims).length) row.dims = dims;
 }
 
 type Headers = Record<string, string | undefined>;

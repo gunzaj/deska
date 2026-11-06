@@ -1,8 +1,8 @@
 // Batched writes for project items, with the field change history (F0).
 import * as schema from "@/db/schema";
 import { and, eq, gte, inArray, sql } from "drizzle-orm";
-import { projectItems } from "@/db/schema";
-import { ITEM_FIELD_PROPS, RESTORE_WINDOW_MS } from "../changes";
+import { projectItemDims, projectItems } from "@/db/schema";
+import { dimChanges, ITEM_FIELD_PROPS, normDims, RESTORE_WINDOW_MS } from "../changes";
 import type { StoreStats } from "../import";
 import type { SnapshotProjectItem } from "../types";
 import { newerItem } from "../item-rules";
@@ -10,7 +10,7 @@ import { type ChangeRow, type Ctx, type Tx, add, changed, excludedSet, insertedF
 
 // --- project items -------------------------------------------------------
 
-export const ITEM_PROPS = ["issueId", "statusOpt", "priorityOpt", "teamOpt", "platformOpt", "releaseIter"];
+export const ITEM_PROPS = ["issueId", "statusOpt", "priorityOpt", "releaseIter"];
 
 /**
  * A page of project items. Items whose issue isn't cached (other repos, old
@@ -49,8 +49,6 @@ export async function importItemPage(tx: Tx, page: SnapshotProjectItem[], ctx: C
       updatedAt: projectItems.updatedAt,
       statusOpt: projectItems.statusOpt,
       priorityOpt: projectItems.priorityOpt,
-      teamOpt: projectItems.teamOpt,
-      platformOpt: projectItems.platformOpt,
       releaseIter: projectItems.releaseIter,
     })
     .from(projectItems)
@@ -60,6 +58,12 @@ export async function importItemPage(tx: Tx, page: SnapshotProjectItem[], ctx: C
         chosen.map((p) => ids.get(p.issueNodeId)!),
       ),
     );
+  // The stored single-select values of those items, before anything below replaces them.
+  const oldDimRows = others.length
+    ? await tx.select().from(projectItemDims).where(inArray(projectItemDims.itemId, others.map((o) => o.id)))
+    : [];
+  const oldDims = new Map<string, Record<string, string>>();
+  for (const d of oldDimRows) oldDims.set(d.itemId, { ...(oldDims.get(d.itemId) ?? {}), [d.fieldId]: d.optionId });
   const incomingByIssue = new Map(chosen.map((p) => [ids.get(p.issueNodeId)!, p]));
   const replace: string[] = [];
   const skip = new Set<string>();
@@ -79,6 +83,7 @@ export async function importItemPage(tx: Tx, page: SnapshotProjectItem[], ctx: C
     stats.unchanged += skip.size;
   }
 
+  const written = new Set<string>();
   // Items without updatedAt (fixtures, older payloads) keep the stored one.
   for (const withTime of [true, false]) {
     const group = chosen.filter((p) => (p.updatedAt !== undefined) === withTime);
@@ -92,8 +97,6 @@ export async function importItemPage(tx: Tx, page: SnapshotProjectItem[], ctx: C
           issueId: ids.get(p.issueNodeId)!,
           statusOpt: p.statusOpt,
           priorityOpt: p.priorityOpt,
-          teamOpt: p.teamOpt,
-          platformOpt: p.platformOpt,
           releaseIter: p.releaseIter,
           updatedAt: p.updatedAt ? new Date(p.updatedAt) : null,
           syncedAt: new Date(),
@@ -104,9 +107,53 @@ export async function importItemPage(tx: Tx, page: SnapshotProjectItem[], ctx: C
         set: { ...excludedSet(projectItems, props), syncedAt: sql`excluded.synced_at` },
         setWhere: and(changed(projectItems, props), notOlder(projectItems)),
       })
-      .returning({ inserted: insertedFlag });
+      .returning({ inserted: insertedFlag, itemId: projectItems.ghItemId });
     add(stats, tallyUpsert(group.length, ret));
+    for (const r of ret) if (r.itemId) written.add(r.itemId);
   }
+  // Single-select and iteration values by field ID (§4.1): diffed, so an unchanged item writes nothing.
+  const rowIds = await tx
+    .select({ id: projectItems.id, itemId: projectItems.ghItemId, updatedAt: projectItems.updatedAt })
+    .from(projectItems)
+    .where(inArray(projectItems.ghItemId, chosen.map((p) => p.itemId)));
+  const rowIdOf = new Map(rowIds.map((r) => [r.itemId!, r.id]));
+  // A stale payload (older than the stored item) leaves its values alone, like the row itself.
+  const staleItem = new Set(rowIds.filter((r) => !written.has(r.itemId!) && r.updatedAt && chosen.some((p) => p.itemId === r.itemId && p.updatedAt && new Date(p.updatedAt) < r.updatedAt!)).map((r) => r.itemId!));
+  const curDimRows = rowIds.length ? await tx.select().from(projectItemDims).where(inArray(projectItemDims.itemId, rowIds.map((r) => r.id))) : [];
+  const curDims = new Map<string, Map<string, string>>();
+  for (const d of curDimRows) curDims.set(d.itemId, (curDims.get(d.itemId) ?? new Map()).set(d.fieldId, d.optionId));
+  const dimUpserts: { itemId: string; fieldId: string; optionId: string }[] = [];
+  const dimDeletes: { itemId: string; fieldId: string }[] = [];
+  const dimTouched = new Set<string>();
+  for (const p of chosen) {
+    const rowId = rowIdOf.get(p.itemId);
+    if (!rowId || staleItem.has(p.itemId)) continue;
+    const want = normDims(p.dims) ?? {};
+    const have = curDims.get(rowId) ?? new Map<string, string>();
+    for (const [fieldId, optionId] of Object.entries(want)) {
+      if (have.get(fieldId) !== optionId) {
+        dimUpserts.push({ itemId: rowId, fieldId, optionId });
+        dimTouched.add(p.itemId);
+      }
+    }
+    for (const fieldId of have.keys()) {
+      if (!(fieldId in want)) {
+        dimDeletes.push({ itemId: rowId, fieldId });
+        dimTouched.add(p.itemId);
+      }
+    }
+  }
+  for (const d of dimDeletes) await tx.delete(projectItemDims).where(and(eq(projectItemDims.itemId, d.itemId), eq(projectItemDims.fieldId, d.fieldId)));
+  if (dimUpserts.length) {
+    await tx
+      .insert(projectItemDims)
+      .values(dimUpserts)
+      .onConflictDoUpdate({ target: [projectItemDims.itemId, projectItemDims.fieldId], set: { optionId: sql`excluded.option_id` } });
+  }
+  // An item whose only change is a dimension value still counts as updated.
+  const dimOnly = [...dimTouched].filter((id) => !written.has(id)).length;
+  stats.unchanged -= dimOnly;
+  stats.updated += dimOnly;
   // F0: what the issue's project fields were before this page, against what they are now.
   const oldBy = new Map(others.map((o) => [o.issueId, o]));
   // An item that has no row but was pruned a moment ago is a scan's mistake
@@ -140,6 +187,7 @@ export async function importItemPage(tx: Tx, page: SnapshotProjectItem[], ctx: C
       const now = p[prop] ?? null;
       if (was !== now) (restored.has(issueId) ? back : moved).push({ issueId, field, oldValue: was, newValue: now });
     }
+    if (!staleItem.has(p.itemId)) for (const c of dimChanges(old ? oldDims.get(old.id) : undefined, normDims(p.dims))) (restored.has(issueId) ? back : moved).push({ issueId, ...c });
   }
   await recordChanges(tx, moved, ctx.source);
   await recordChanges(tx, back, "restore");

@@ -1,29 +1,29 @@
+import { dimFieldId, isDimKey } from "../sync/field-map";
 import type { ReadModel } from "../sync/read-model";
 import type { ViewRow } from "../views/rows";
 
 export type BoardColumn = { optionId: string | null; name: string; cards: ViewRow[] };
 
+/** A board's column field: Status, Priority or a mapped dimension (`dim:<fieldId>`). */
+export type BoardSelectField = "status" | "priority" | `dim:${string}`;
+
+/** The row's value for a board field. */
+function valueOf(r: ViewRow, field: BoardSelectField): string | null {
+  if (isDimKey(field)) return r.dims[dimFieldId(field)]?.id ?? null;
+  return field === "status" ? r.statusId : r.priorityId;
+}
+
 /** Board columns follow GitHub's option order; unknown/empty values group last. */
 export function buildBoard(
   rows: ViewRow[],
   store: ReadModel,
-  boardField: "status" | "priority" | "team" | "platform" = "status",
+  boardField: BoardSelectField = "status",
 ): BoardColumn[] {
-  const ref = store.projectFieldMap()[boardField];
+  const map = store.projectFieldMap();
+  const ref = isDimKey(boardField) ? map.dimensions.find((d) => d.id === dimFieldId(boardField)) : map[boardField];
   const def = ref ? store.fields.get(ref.id) : undefined;
   const order = (def?.options ?? []).map((o) => ({ id: o.id, name: o.name }));
-  const colOf = (r: ViewRow): string | null => {
-    switch (boardField) {
-      case "status":
-        return r.statusId;
-      case "priority":
-        return r.priorityId;
-      case "team":
-        return r.teamId;
-      case "platform":
-        return r.platformId;
-    }
-  };
+  const colOf = (r: ViewRow): string | null => valueOf(r, boardField);
   const byId = new Map<string | null, ViewRow[]>();
   for (const r of rows) {
     const k = colOf(r);
@@ -44,7 +44,7 @@ export function buildBoard(
 }
 
 export type MoveDescriptor =
-  | { field: "status" | "priority" | "team" | "platform"; next: string }
+  | { field: BoardSelectField; next: string }
   | { field: "release"; next: string };
 
 /**
@@ -53,18 +53,14 @@ export type MoveDescriptor =
  */
 export function moveCard(
   row: ViewRow,
-  target: { columnOptionId: string | null; boardField: "status" | "priority" | "team" | "platform" },
+  target: { columnOptionId: string | null; boardField: BoardSelectField },
   releaseId: string | null,
 ): MoveDescriptor | null {
   if (row.releaseId == null && releaseId) {
     return { field: "release", next: releaseId };
   }
   if (target.columnOptionId == null) return null;
-  const current =
-    target.boardField === "status" ? row.statusId
-    : target.boardField === "priority" ? row.priorityId
-    : target.boardField === "team" ? row.teamId
-    : row.platformId;
+  const current = valueOf(row, target.boardField);
   if (current === target.columnOptionId) return null;
   return { field: target.boardField, next: target.columnOptionId };
 }

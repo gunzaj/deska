@@ -4,7 +4,7 @@ import { Onboarding } from "@/components/github/onboarding";
 export const metadata: Metadata = { title: "Connect GitHub" };
 export const dynamic = "force-dynamic";
 
-/** First run (SPEC D3): connect a fine-grained token. Step 2 (project and fields) comes with D4. */
+/** First run (SPEC D3, D4): connect a fine-grained token, then choose the project and map its fields. */
 export default function OnboardingPage() {
   return <Onboarding />;
 }

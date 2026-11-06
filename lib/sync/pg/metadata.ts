@@ -1,5 +1,5 @@
 // Batched writes for labels, users, milestones, issue types and project fields.
-import { eq, inArray, sql } from "drizzle-orm";
+import { and, eq, inArray, isNull, notInArray, sql } from "drizzle-orm";
 import { fieldOptions, ghUsers, issueAssignees, issueLabels, issueTypes, issues, iterations, labels, milestones, prAssignees, prLabels, projectFields, pullRequests } from "@/db/schema";
 import type { StoreStats } from "../import";
 import type { FullSnapshot, SnapshotField } from "../types";
@@ -198,13 +198,19 @@ export async function upsertMilestones(tx: Tx, rows: FullSnapshot["milestones"])
  * no longer lists are never deleted (S6): they get `missing_at`, and lose it
  * again if GitHub lists them once more.
  */
-export async function upsertFields(tx: Tx, rows: { f: SnapshotField; position: number }[], projectId: string): Promise<StoreStats> {
+/**
+ * Upsert project fields with their options and iterations. With `complete`
+ * (the project's whole field list, as a full snapshot or the reconcile
+ * carries it), a cached field missing from the list was deleted on GitHub: it
+ * gets missing_at, never a delete, and comes back if GitHub lists it again.
+ */
+export async function upsertFields(tx: Tx, rows: { f: SnapshotField; position: number }[], projectId: string, complete = false): Promise<StoreStats> {
   const list = lastByKey(rows, (x) => x.f.id);
   if (!list.length) return emptyStats();
-  const props = ["projectId", "name", "dataType", "position"];
+  const props = ["projectId", "name", "dataType", "position", "missingAt"];
   const ret = await tx
     .insert(projectFields)
-    .values(list.map(({ f, position }) => ({ id: f.id, projectId, name: f.name, dataType: f.dataType, position })))
+    .values(list.map(({ f, position }) => ({ id: f.id, projectId, name: f.name, dataType: f.dataType, position, missingAt: null })))
     .onConflictDoUpdate({ target: projectFields.id, set: excludedSet(projectFields, props), setWhere: changed(projectFields, props) })
     .returning({ id: projectFields.id, inserted: insertedFlag });
   const result = new Map<string, Result>(ret.map((r) => [r.id, r.inserted ? "inserted" : "updated"]));
@@ -281,6 +287,17 @@ export async function upsertFields(tx: Tx, rows: { f: SnapshotField; position: n
   for (const id of fieldIds) {
     const r = result.get(id) ?? (optTouched.has(id) ? "updated" : "unchanged");
     stats[r] += 1;
+  }
+  if (complete) {
+    // Read first: an unchanged project writes nothing (S4).
+    const gone = await tx
+      .select({ id: projectFields.id })
+      .from(projectFields)
+      .where(and(notInArray(projectFields.id, fieldIds), isNull(projectFields.missingAt)));
+    if (gone.length) {
+      await tx.update(projectFields).set({ missingAt: new Date() }).where(inArray(projectFields.id, gone.map((g) => g.id)));
+      stats.updated += gone.length;
+    }
   }
   return stats;
 }

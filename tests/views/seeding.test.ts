@@ -23,14 +23,14 @@ describe("seed views", () => {
 
   it("serves fallbacks before the first sync and seeds fully once it lands", async () => {
     // Regression: trySeedViews never returns [], so a visit before the first
-    // sync persisted the seeds without the Core board for good.
+    // sync persisted the seeds without the field-dependent ones for good.
     getStore.mockResolvedValue(new MemoryStore());
     const early = (await viewsFor("alice")).map((v) => v.id);
-    expect(early).not.toContain("seed-core-board");
+    expect(early).not.toContain("seed-release-teams");
     expect(early).toContain("seed-untriaged");
 
     getStore.mockResolvedValue(await synced());
-    expect((await viewsFor("alice")).map((v) => v.id)).toContain("seed-core-board");
+    expect((await viewsFor("alice")).map((v) => v.id)).toContain("seed-release-teams");
   });
 
   it("keeps a deleted seed view deleted after a restart", async () => {

@@ -3,19 +3,24 @@
 // /api/issues/[number]/edit and the board's POST /api/issues/edit.
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
+import { dimFieldId, isDimKey } from "@/lib/sync/field-map";
 import type { ReadModel } from "@/lib/sync/read-model";
 import { doneStatusOption, depsFor } from "./runtime";
 import { enqueueEdit, processEdit, type OutboxRow, type ProcessDeps } from "./store";
 
-export const EDIT_FIELDS = ["status", "priority", "team", "platform", "release", "type", "milestone", "labels", "assignees", "state"] as const;
-export type EditField = (typeof EDIT_FIELDS)[number];
+export const EDIT_FIELDS = ["status", "priority", "release", "type", "milestone", "labels", "assignees", "state"] as const;
+/** A fixed field, or a mapped dimension as `dim:<fieldId>` (§4.1). */
+export type EditField = (typeof EDIT_FIELDS)[number] | `dim:${string}`;
+
+/** `dim:<fieldId>`, the key of a dimension in edits, filters and grouping. */
+export const dimKeySchema = z.custom<`dim:${string}`>((v) => typeof v === "string" && v.length <= 120 && isDimKey(v), "unknown field");
 
 const id = z.string().min(1).max(200);
 const delta = z.object({ added: z.array(id).max(50), removed: z.array(id).max(50) }).strict();
 
 export const editSchema = z
   .object({
-    field: z.enum(EDIT_FIELDS),
+    field: z.union([z.enum(EDIT_FIELDS), dimKeySchema]),
     /** The value the client saw; GitHub must still hold it (not for deltas). */
     base: z.union([z.string().max(200), z.null()]).optional(),
     next: z.unknown(),
@@ -25,7 +30,6 @@ export const editSchema = z
   .strict();
 export type EditBody = z.infer<typeof editSchema>;
 
-const SINGLE_SELECT = new Set<EditField>(["status", "priority", "team", "platform"]);
 
 export type EditResult = { status: number; body: { entry?: OutboxRow; error?: string } };
 
@@ -35,15 +39,12 @@ const bad = (error: string): EditResult => ({ status: 400, body: { error } });
 function cachedValue(store: ReadModel, nodeId: string, field: EditField): unknown {
   const issue = store.issues.get(nodeId);
   const item = store.itemForIssue(nodeId);
+  if (isDimKey(field)) return item?.dims?.[dimFieldId(field)] ?? null;
   switch (field) {
     case "status":
       return item?.statusOpt ?? null;
     case "priority":
       return item?.priorityOpt ?? null;
-    case "team":
-      return item?.teamOpt ?? null;
-    case "platform":
-      return item?.platformOpt ?? null;
     case "release":
       return item?.releaseIter ?? null;
     case "type":
@@ -107,11 +108,15 @@ export async function submitEdit(args: {
     if (next !== null) {
       const ok = (() => {
         const map = store.projectFieldMap();
-        if (SINGLE_SELECT.has(field)) {
-          const ref = map[field as "status" | "priority" | "team" | "platform"];
+        if (isDimKey(field)) {
+          const ref = map.dimensions.find((d) => d.id === dimFieldId(field));
           return !!ref && !!store.fields.get(ref.id)?.options.some((o) => o.id === next);
         }
-        if (field === "release") return !!map.release && !!store.fields.get(map.release.id)?.iterations.some((i) => i.id === next);
+        if (field === "status" || field === "priority") {
+          const ref = map[field];
+          return !!ref && !!store.fields.get(ref.id)?.options.some((o) => o.id === next);
+        }
+        if (field === "release") return !!map.sprint && !!store.fields.get(map.sprint.id)?.iterations.some((i) => i.id === next);
         if (field === "type") return store.issueTypes.has(next as string);
         if (field === "milestone") return store.milestones.has(next as string);
         return false;
@@ -130,7 +135,7 @@ export async function submitEdit(args: {
     // Namespaced per user: one user's key can never return another's edit.
     idempotencyKey: `${args.viewer.toLowerCase()}:${body.idempotencyKey ?? randomUUID()}`,
   });
-  const deps = args.deps ? args.deps(done) : depsFor(args.token, done, store.projectFieldMap());
+  const deps = args.deps ? args.deps(done) : await depsFor(args.token, done, store.projectFieldMap());
   const after = (await processEdit(entry.id, deps)) ?? entry;
   const code = after.status === "done" ? 200 : after.status === "conflict" ? 409 : after.status === "failed" ? 502 : 202;
   return { status: code, body: { entry: after } };

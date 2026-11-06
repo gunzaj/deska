@@ -60,6 +60,10 @@ Facts worth knowing:
 
 When a token is entered, and again every few minutes while the app runs, the server asks GitHub who the token belongs to (`GET /user`) and makes one read per permission above against the chosen repository and project. These calls use the same read-only client as the probe below: REST `GET`s and GraphQL queries only. From the answers Deska tells apart: no token, invalid or expired (401), expiring within 14 days (from GitHub's `github-authentication-token-expiration` header), awaiting the org's approval, a missing permission (named, for example "Organization → Projects: Read"), GitHub unreachable, and rate limited. The token's owner becomes the app's one local user; their login, name and avatar URL are kept in the local database so the app works offline. The token is not.
 
+### Choosing the project
+
+After the token, onboarding asks for the repository and the organization project. Deska lists the organization's projects the token can read and reads the chosen project's fields (names, options, iterations), with the same read-only client. It stores the repository, organization, project number and the project's node ID (pinned), and the user's field mapping (which field is Status, Priority, Sprint and which are dimensions), by field ID, in the local database. Before a project is chosen, the token check reads only `GET /user`. "Reload fields" in Settings reads the fields again; if the project number now names a different project than the pinned node ID, Deska refuses and asks for the project again. Choosing or remapping a project never writes to GitHub.
+
 A fine-grained token's write permissions can't be read without attempting a write, and Deska never attempts one to find out. Until writes exist (Phase C), every token counts as read-only and edit controls say "Read-only token".
 
 Automated tests of the desktop app point it at a mock GitHub API with `DESKA_GITHUB_API_URL`. Only `http://127.0.0.1:<port>` is accepted; any other value is ignored, so the token can't be sent anywhere but GitHub or the same Mac.
@@ -86,7 +90,7 @@ All under `~/Library/Application Support/Deska/`, readable only by the user's ma
 | Encrypted token | app data folder (`github-token.bin`) | `safeStorage` ciphertext only |
 | Local database | `db/` | A cache of the repository's issues and project values, the token owner's login, name and avatar URL, plus personal tasks, saved views, snoozes, watches and settings. **No token** |
 | Backups | `backups/` | JSON of local-only data (tasks, projects, labels, sections, views, snoozes, watches, settings). Daily and before each migration; the last 14 are kept. **No token** |
-| Settings | in the database | Repo, org, project number and pinned node ID, field mapping, toggles. **No token** |
+| Settings | in the database (`app_settings`) | Repo, org, project number and pinned node ID, project title, field mapping by field ID (with the Priority order and the Status options that count as done), toggles. **No token** |
 
 Exports from Settings contain the same data as a backup, and never the token.
 

@@ -48,6 +48,7 @@ export async function importSnapshot(snapshot: FullSnapshot, db: Db = getDb(), o
           tx,
           snapshot.fields.map((f, position) => ({ f, position })),
           snapshot.projectId,
+          true,
         ),
       );
       add(s, await upsertIssueTypes(tx, snapshot.issueTypes));

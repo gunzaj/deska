@@ -10,7 +10,7 @@ import { Avatar } from "../props";
 import { usePrefs } from "../tasks/notifications";
 import { Popover } from "../ui/popover";
 import { type Theme, useAppData, useAppTheme } from "./provider";
-import { useTeamScope } from "./team-scope";
+import { useDefaultScope } from "./team-scope";
 
 const THEMES: { id: Theme; icon: IconName; label: string }[] = [
   { id: "system", icon: "monitor", label: "System" },
@@ -22,10 +22,11 @@ export function UserMenu() {
   const { data, viewer, avatarOf } = useAppData();
   const { theme, setTheme } = useAppTheme();
   const { setPrefs } = usePrefs();
-  const { defaultTeamId, teamName } = useTeamScope();
+  const { defaultScope } = useDefaultScope();
+  const teamName = defaultScope?.name ?? null;
   const [open, setOpen] = useState(false);
   const anchor = useRef<HTMLButtonElement>(null);
-  const teams = data.meta.fields.team;
+  const dims = data.meta.dimensions.filter((d) => !d.missing && d.options.length);
 
   return (
     <>
@@ -68,22 +69,29 @@ export function UserMenu() {
 
           <div>
             <label htmlFor="default-team" className="mb-1.5 block font-medium text-muted">
-              My team
+              My default
             </label>
             <select
               id="default-team"
-              value={defaultTeamId ?? ""}
+              value={defaultScope?.optionId ?? ""}
               onChange={(e) => void setPrefs({ defaultTeam: e.target.value || null })}
+              disabled={!dims.length}
               className="h-8 w-full rounded-md border border-line bg-field px-2 text-[12.5px] text-fg outline-none hover:border-line-field"
             >
-              <option value="">No default (all teams)</option>
-              {teams.map((t) => (
-                <option key={t.id} value={t.id}>
-                  {plainName(t.name) || t.name}
-                </option>
+              <option value="">No default (everything)</option>
+              {dims.map((d) => (
+                <optgroup key={d.id} label={d.name}>
+                  {d.options.map((t) => (
+                    <option key={t.id} value={t.id}>
+                      {plainName(t.name) || t.name}
+                    </option>
+                  ))}
+                </optgroup>
               ))}
             </select>
-            <p className="mt-1 text-[11.5px] text-faint">Lists, triage, the backlog and Insights start filtered to this team. Switch it off on a page with the team chip in its filter bar.</p>
+            <p className="mt-1 text-[11.5px] text-faint">
+              {dims.length ? "Lists, triage, the backlog and Insights start filtered to this value. Switch it off on a page with its chip in the filter bar." : "Map a dimension (such as a team field) in Settings to pick a default."}
+            </p>
           </div>
 
           <div className="border-t border-line pt-2.5">

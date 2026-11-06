@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { dbDir } from "@/db";
 import { localToken } from "@/lib/github/local-token";
 import { route } from "@/lib/server/route";
+import { currentTarget } from "@/lib/settings";
 import { GitHubSource } from "@/lib/sync/source-github";
 import { PostgresStore } from "@/lib/sync/store-postgres";
 import { redactError } from "@/lib/sync/health";
@@ -27,7 +28,9 @@ export const POST = route({ auth: "viewer" }, async () => {
   try {
     // Inside the try: reading sync_state is the first DB call, and a database
     // outage used to escape as an unhandled 500 instead of this JSON error.
-    const out = await triggerSync(new GitHubSource(token, store, await currentFieldMap(store)), store, { manual: true });
+    const target = await currentTarget();
+    if (!target) return NextResponse.json({ error: "Choose a repository and project first" }, { status: 409 });
+    const out = await triggerSync(new GitHubSource(token, store, await currentFieldMap(store), target), store, { manual: true });
     if (out.kind === "skipped") return NextResponse.json({ skipped: out.skipped, lastSync: out.lastSync });
     // No cursor yet: the poll refused to page the whole repo history (S2).
     if (!out.result.issues.applied && out.result.issues.reason === "needs-initial-import") {

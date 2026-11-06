@@ -1,21 +1,46 @@
 // Pure explorer logic shared by every issue list: field registry, URL state,
 // filtering (via the saved-view engine), ordered grouping.
+import { dimFieldId, isDimKey, MISSING_FIELD } from "../sync/field-map";
 import { runView, type ViewContext } from "../views/engine";
 import type { Filter, View } from "../views/view";
-import type { ClientIssue, ClientMeta, SingleSelectKey } from "./types";
+import type { ClientDimension, ClientIssue, ClientMeta, DimKey, SingleSelectKey } from "./types";
 
 export type Layout = View["layout"];
-export type GroupField = "status" | "priority" | "team" | "platform" | "release" | "type" | "assignee" | "label" | "milestone" | "parent";
+export type GroupField = "status" | "priority" | "release" | "type" | "assignee" | "label" | "milestone" | "parent" | DimKey;
 export type BoardField = NonNullable<View["boardColumnsField"]>;
-export type SortField = "priority" | "status" | "updated" | "created" | "number" | "title" | "release" | "team";
+export type SortField = "priority" | "status" | "updated" | "created" | "number" | "title" | "release" | DimKey;
 
-/** Properties a row/card/table can show. */
-export const DISPLAY_PROPS = [
+/** The mapped dimension a `dim:<fieldId>` key names, if it is (still) mapped. */
+export function dimensionOf(meta: Pick<ClientMeta, "dimensions">, key: string | undefined | null): ClientDimension | undefined {
+  return isDimKey(key) ? meta.dimensions.find((d) => d.id === dimFieldId(key)) : undefined;
+}
+
+/** A dimension's label: its field's current name, or "Missing field — remap" once it was deleted (§4.1). */
+export function dimensionLabel(meta: Pick<ClientMeta, "dimensions">, key: string): string {
+  const d = dimensionOf(meta, key);
+  return !d || d.missing ? MISSING_FIELD : d.name;
+}
+
+/** Whether sprint features show: a Sprint (iteration) field is mapped and still exists (§4.1). */
+export function sprintOn(meta: Pick<ClientMeta, "mapping">): boolean {
+  return !!meta.mapping.sprint && !meta.mapping.sprint.missing;
+}
+
+/** The first mapped dimension: what triage, planning and the sidebar use as "the" grouping dimension. */
+export function primaryDimension(meta: Pick<ClientMeta, "dimensions">): ClientDimension | undefined {
+  return meta.dimensions.find((d) => !d.missing);
+}
+
+/** Usable dimensions (deleted ones are reported, not offered). */
+const liveDims = (meta: Pick<ClientMeta, "dimensions">) => meta.dimensions.filter((d) => !d.missing);
+/** Leave the Sprint entries out when no Sprint field is mapped. */
+const withSprint = <T extends { key: string }>(meta: Pick<ClientMeta, "mapping">, list: T[]) => (sprintOn(meta) ? list : list.filter((x) => x.key !== "release"));
+
+/** Properties a row/card/table can show: fixed ones, then one per dimension. */
+const BASE_PROPS = [
   { key: "id", label: "ID" },
   { key: "status", label: "Status" },
   { key: "priority", label: "Priority" },
-  { key: "team", label: "Team" },
-  { key: "platform", label: "Platform" },
   { key: "release", label: "Release" },
   { key: "type", label: "Type" },
   { key: "labels", label: "Labels" },
@@ -26,43 +51,53 @@ export const DISPLAY_PROPS = [
   { key: "created", label: "Created" },
   { key: "updated", label: "Updated" },
 ] as const;
-export type DisplayProp = (typeof DISPLAY_PROPS)[number]["key"];
+export type DisplayProp = (typeof BASE_PROPS)[number]["key"] | DimKey;
 export const DEFAULT_PROPS: DisplayProp[] = ["id", "status", "priority", "labels", "parent", "subissues", "release", "assignee", "updated"];
 
-export const GROUP_OPTIONS: { key: GroupField | ""; label: string }[] = [
-  { key: "", label: "No grouping" },
-  { key: "status", label: "Status" },
-  { key: "priority", label: "Priority" },
-  { key: "team", label: "Team" },
-  { key: "platform", label: "Platform" },
-  { key: "release", label: "Release" },
-  { key: "type", label: "Type" },
-  { key: "assignee", label: "Assignee" },
-  { key: "label", label: "Label" },
-  { key: "parent", label: "Epic" },
-  { key: "milestone", label: "Milestone" },
-];
+export function displayProps(meta: Pick<ClientMeta, "dimensions" | "mapping">): { key: DisplayProp; label: string }[] {
+  const base: { key: DisplayProp; label: string }[] = withSprint(meta, [...BASE_PROPS]);
+  const at = base.findIndex((p) => p.key === "priority") + 1;
+  return [...base.slice(0, at), ...liveDims(meta).map((d) => ({ key: d.key, label: d.name })), ...base.slice(at)];
+}
 
-export const BOARD_OPTIONS: { key: BoardField; label: string }[] = [
-  { key: "status", label: "Status" },
-  { key: "priority", label: "Priority" },
-  { key: "team", label: "Team" },
-  { key: "platform", label: "Platform" },
-  { key: "release", label: "Release" },
-  { key: "assignee", label: "Assignee" },
-  { key: "type", label: "Type" },
-];
+export function groupOptions(meta: Pick<ClientMeta, "dimensions" | "mapping">): { key: GroupField | ""; label: string }[] {
+  return withSprint(meta, [
+    { key: "", label: "No grouping" },
+    { key: "status", label: "Status" },
+    { key: "priority", label: "Priority" },
+    ...liveDims(meta).map((d) => ({ key: d.key, label: d.name })),
+    { key: "release", label: "Release" },
+    { key: "type", label: "Type" },
+    { key: "assignee", label: "Assignee" },
+    { key: "label", label: "Label" },
+    { key: "parent", label: "Epic" },
+    { key: "milestone", label: "Milestone" },
+  ] as { key: GroupField | ""; label: string }[]);
+}
 
-export const SORT_OPTIONS: { key: SortField; label: string; defaultDir: "asc" | "desc" }[] = [
-  { key: "priority", label: "Priority", defaultDir: "desc" },
-  { key: "updated", label: "Last updated", defaultDir: "desc" },
-  { key: "created", label: "Created", defaultDir: "desc" },
-  { key: "status", label: "Status", defaultDir: "asc" },
-  { key: "release", label: "Release", defaultDir: "asc" },
-  { key: "team", label: "Team", defaultDir: "asc" },
-  { key: "number", label: "Issue number", defaultDir: "desc" },
-  { key: "title", label: "Title", defaultDir: "asc" },
-];
+export function boardOptions(meta: Pick<ClientMeta, "dimensions" | "mapping">): { key: BoardField; label: string }[] {
+  return withSprint(meta, [
+    { key: "status", label: "Status" },
+    { key: "priority", label: "Priority" },
+    ...liveDims(meta).map((d) => ({ key: d.key, label: d.name })),
+    { key: "release", label: "Release" },
+    { key: "assignee", label: "Assignee" },
+    { key: "type", label: "Type" },
+  ] as { key: BoardField; label: string }[]);
+}
+
+export function sortOptions(meta: Pick<ClientMeta, "dimensions" | "mapping">): { key: SortField; label: string; defaultDir: "asc" | "desc" }[] {
+  return withSprint(meta, [
+    { key: "priority", label: "Priority", defaultDir: "desc" },
+    { key: "updated", label: "Last updated", defaultDir: "desc" },
+    { key: "created", label: "Created", defaultDir: "desc" },
+    { key: "status", label: "Status", defaultDir: "asc" },
+    { key: "release", label: "Release", defaultDir: "asc" },
+    ...liveDims(meta).map((d) => ({ key: d.key, label: d.name, defaultDir: "asc" as const })),
+    { key: "number", label: "Issue number", defaultDir: "desc" },
+    { key: "title", label: "Title", defaultDir: "asc" },
+  ] as { key: SortField; label: string; defaultDir: "asc" | "desc" }[]);
+}
 
 /** Everything about a list except its identity — what the URL carries. */
 export type ExplorerState = {
@@ -109,17 +144,15 @@ export function sameState(a: ExplorerState, b: ExplorerState): boolean {
 
 // ---------- Filter fields ----------------------------------------------------
 
-export type FilterFieldKey = "status" | "priority" | "team" | "platform" | "release" | "type" | "assignee" | "label" | "milestone" | "state" | "parent";
+export type FilterFieldKey = "status" | "priority" | "release" | "type" | "assignee" | "label" | "milestone" | "state" | "parent" | DimKey;
 
 export type FilterValue = { id: string; label: string; color?: string | null; kind?: "relative" | "me" | "special" };
 
-export const FILTER_FIELDS: { key: FilterFieldKey; label: string; icon: string }[] = [
+const FIXED_FILTERS: { key: FilterFieldKey; label: string; icon: string }[] = [
   { key: "status", label: "Status", icon: "circleDot" },
   { key: "priority", label: "Priority", icon: "flag" },
   { key: "assignee", label: "Assignee", icon: "user" },
-  { key: "team", label: "Team", icon: "users" },
   { key: "release", label: "Release", icon: "calendar" },
-  { key: "platform", label: "Platform", icon: "monitorSmartphone" },
   { key: "type", label: "Type", icon: "box" },
   { key: "label", label: "Label", icon: "tag" },
   { key: "parent", label: "Epic", icon: "epic" },
@@ -127,16 +160,21 @@ export const FILTER_FIELDS: { key: FilterFieldKey; label: string; icon: string }
   { key: "state", label: "State", icon: "circleCheck" },
 ];
 
+/** The fields a list can filter by: the fixed ones and every mapped dimension (`dim:<fieldId>`). */
+export function filterFields(meta: Pick<ClientMeta, "dimensions" | "mapping">): { key: FilterFieldKey; label: string; icon: string }[] {
+  const fixed = withSprint(meta, FIXED_FILTERS);
+  const at = fixed.findIndex((f) => f.key === "assignee") + 1;
+  return [...fixed.slice(0, at), ...liveDims(meta).map((d) => ({ key: d.key, label: d.name, icon: "users" })), ...fixed.slice(at)];
+}
+
 export function filterValues(field: FilterFieldKey, meta: ClientMeta, issues: ClientIssue[]): FilterValue[] {
+  if (isDimKey(field)) return (dimensionOf(meta, field)?.options ?? []).map((o) => ({ id: o.id, label: o.name, color: o.color }));
   switch (field) {
     case "status":
+      return meta.fields.status.map((o) => ({ id: o.id, label: o.name, color: o.color }));
     case "priority":
-    case "team":
-    case "platform": {
-      const list = meta.fields[field as SingleSelectKey].map((o) => ({ id: o.id, label: o.name, color: o.color }));
-      // Priority reads best highest-first; GitHub stores it lowest-first.
-      return field === "priority" ? list.reverse() : list;
-    }
+      // Highest first reads best; `meta.fields.priority` is lowest to highest.
+      return meta.fields.priority.map((o) => ({ id: o.id, label: o.name, color: o.color })).reverse();
     case "release": {
       const rel = [...meta.releases].reverse().map((r) => ({
         id: r.id,
@@ -168,10 +206,13 @@ export function filterValues(field: FilterFieldKey, meta: ClientMeta, issues: Cl
         .sort((a, b) => (a.state === b.state ? b.updatedAt.localeCompare(a.updatedAt) : a.state === "open" ? -1 : 1))
         .map((i) => ({ id: i.nodeId, label: `#${i.number} ${i.title}` }));
   }
+  return [];
 }
 
-export function fieldLabel(key: string): string {
-  return FILTER_FIELDS.find((f) => f.key === key)?.label ?? key;
+/** A filter field's label; a dimension's is its field's name (or "Missing field — remap"). */
+export function fieldLabel(key: string, meta?: Pick<ClientMeta, "dimensions">): string {
+  if (isDimKey(key)) return meta ? dimensionLabel(meta, key) : MISSING_FIELD;
+  return FIXED_FILTERS.find((f) => f.key === key)?.label ?? key;
 }
 
 /** Value label for chips; falls back to "missing option" for deleted IDs (SPEC §4). */
@@ -187,15 +228,15 @@ export function valueLabel(field: FilterFieldKey, id: string, meta: ClientMeta, 
 
 /** Issue's value IDs for a filter field (used for counts in pickers). */
 export function issueValueIds(i: ClientIssue, field: FilterFieldKey): string[] {
+  if (isDimKey(field)) {
+    const v = i.dims[dimFieldId(field)];
+    return v ? [v.id] : [];
+  }
   switch (field) {
     case "status":
       return i.statusId ? [i.statusId] : [];
     case "priority":
       return i.priorityId ? [i.priorityId] : [];
-    case "team":
-      return i.teamId ? [i.teamId] : [];
-    case "platform":
-      return i.platformId ? [i.platformId] : [];
     case "release":
       return i.releaseId ? [i.releaseId] : [];
     case "type":
@@ -211,6 +252,7 @@ export function issueValueIds(i: ClientIssue, field: FilterFieldKey): string[] {
     case "parent":
       return i.parentNodeId ? [i.parentNodeId] : [];
   }
+  return [];
 }
 
 // ---------- Running --------------------------------------------------------------
@@ -236,13 +278,22 @@ const MISSING = "Missing option";
 const UNKNOWN = 1e9 - 1;
 const known = (index: number) => (index < 0 ? UNKNOWN : index);
 
-/** Single-select order: GitHub's option order (priority highest first), deleted options, then "No value". */
-function optionRank(meta: ClientMeta, field: SingleSelectKey, key: string): number {
+/** The options of a single-select field or dimension key. */
+function optionsOf(meta: ClientMeta, field: string) {
+  if (isDimKey(field)) return dimensionOf(meta, field)?.options ?? [];
+  return field === "status" || field === "priority" ? meta.fields[field as SingleSelectKey] : [];
+}
+
+const isSingleSelect = (field: string) => field === "status" || field === "priority" || isDimKey(field);
+
+/** Single-select order: the project's option order (priority highest first), deleted options, then "No value". */
+function optionRank(meta: ClientMeta, field: string, key: string): number {
   if (key === "∅") return 1e9;
-  const at = meta.fields[field].findIndex((o) => o.id === key);
+  const list = optionsOf(meta, field);
+  const at = list.findIndex((o) => o.id === key);
   if (at < 0) return UNKNOWN;
-  // GitHub stores priority lowest first.
-  return field === "priority" ? meta.fields.priority.length - at : at;
+  // `meta.fields.priority` is lowest to highest; groups read highest first.
+  return field === "priority" ? list.length - at : at;
 }
 
 /**
@@ -261,13 +312,17 @@ export function groupIssues(rows: ClientIssue[], groupBy: string | undefined, me
     }
     g.rows.push(r);
   };
-  const optColor = (field: SingleSelectKey, id: string) => meta.fields[field].find((o) => o.id === id)?.color ?? null;
+  const optColor = (field: string, id: string) => optionsOf(meta, field).find((o) => o.id === id)?.color ?? null;
+  const dimLabel = isDimKey(groupBy) ? dimensionLabel(meta, groupBy) : "";
   for (const r of rows) {
+    if (isDimKey(groupBy)) {
+      const v = r.dims[dimFieldId(groupBy)];
+      add(v?.id ?? "∅", v ? (v.name ?? MISSING) : `No ${dimLabel}`, v ? optColor(groupBy, v.id) : null, r);
+      continue;
+    }
     switch (groupBy) {
       case "status":
-      case "priority":
-      case "team":
-      case "platform": {
+      case "priority": {
         const id = r[`${groupBy}Id` as const];
         const name = r[`${groupBy}Name` as const];
         add(id ?? "∅", name ?? (id ? MISSING : `No ${groupBy}`), id ? optColor(groupBy, id) : null, r);
@@ -300,12 +355,8 @@ export function groupIssues(rows: ClientIssue[], groupBy: string | undefined, me
   const groups = [...map.values()];
   const order = (g: Group): number => {
     if (g.key === "∅") return 1e9;
+    if (isSingleSelect(groupBy)) return optionRank(meta, groupBy, g.key);
     switch (groupBy) {
-      case "status":
-      case "priority":
-      case "team":
-      case "platform":
-        return optionRank(meta, groupBy, g.key);
       case "release": {
         const at = meta.releases.findIndex((r) => r.id === g.key);
         return at < 0 ? UNKNOWN : -at;
@@ -326,9 +377,9 @@ export function groupIssues(rows: ClientIssue[], groupBy: string | undefined, me
 /** Board columns: every option of the field (even empty ones) in GitHub order, then "No value". */
 export function boardColumns(rows: ClientIssue[], field: BoardField, meta: ClientMeta): Group[] {
   const groups = groupIssues(rows, field, meta);
-  if (field === "status" || field === "priority" || field === "team" || field === "platform") {
+  if (isSingleSelect(field)) {
     const have = new Set(groups.map((g) => g.key));
-    const empties: Group[] = meta.fields[field]
+    const empties: Group[] = optionsOf(meta, field)
       .filter((o) => !have.has(o.id))
       .map((o) => ({ key: o.id, label: o.name, color: o.color, field, rows: [] }));
     const all = [...groups, ...empties];

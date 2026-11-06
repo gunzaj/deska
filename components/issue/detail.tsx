@@ -5,6 +5,7 @@ import { EDITING_OFF } from "@/lib/client/edit";
 import { useEffect, useState, type ReactNode } from "react";
 import { formatDate, longAgo, plainName } from "@/lib/client/format";
 import type { ClientIssue, IssueDetail } from "@/lib/client/types";
+import { MISSING_FIELD } from "@/lib/sync/field-map";
 import { useAppData } from "../app/provider";
 import { useOpenIssue } from "../app/open-issue";
 import { useCells } from "../explorer/cells";
@@ -65,23 +66,41 @@ function Skeleton() {
   );
 }
 
+/** In place of a deleted field's values (§4.1): say so and link to the mapping. */
+function MissingField() {
+  return (
+    <Link href="/settings#mapping" data-missing-field className="text-[12.5px] font-medium text-warning hover:underline">
+      {MISSING_FIELD}
+    </Link>
+  );
+}
+
 function Properties({ issue }: { issue: ClientIssue }) {
-  const { option } = useAppData();
+  const { option, data } = useAppData();
+  const { meta } = data;
   const c = useCells();
   const none = <span className="text-faint">—</span>;
   return (
     <dl className="grid gap-x-6 sm:grid-cols-2">
       <Prop label="Status">
-        <FieldPicker issue={issue} field="status" label="Status">
-          {c.status(issue)}
-          {issue.state === "closed" ? `Closed${issue.stateReason === "not_planned" ? " · not planned" : ""}` : (issue.statusName ?? none)}
-        </FieldPicker>
+        {meta.mapping.status?.missing ? (
+          <MissingField />
+        ) : (
+          <FieldPicker issue={issue} field="status" label="Status">
+            {c.status(issue)}
+            {issue.state === "closed" ? `Closed${issue.stateReason === "not_planned" ? " · not planned" : ""}` : (issue.statusName ?? none)}
+          </FieldPicker>
+        )}
       </Prop>
       <Prop label="Priority">
-        <FieldPicker issue={issue} field="priority" label="Priority">
-          {c.priority(issue)}
-          {issue.priorityName ?? none}
-        </FieldPicker>
+        {meta.mapping.priority?.missing ? (
+          <MissingField />
+        ) : (
+          <FieldPicker issue={issue} field="priority" label="Priority">
+            {c.priority(issue)}
+            {issue.priorityName ?? none}
+          </FieldPicker>
+        )}
       </Prop>
       <Prop label="Assignees">
         <FieldPicker issue={issue} field="assignees" label="Assignees">
@@ -95,28 +114,38 @@ function Properties({ issue }: { issue: ClientIssue }) {
           )}
         </FieldPicker>
       </Prop>
-      <Prop label="Release">
-        <FieldPicker issue={issue} field="release" label="Release">
-          {c.release(issue) ?? none}
-        </FieldPicker>
-      </Prop>
-      <Prop label="Team">
-        <FieldPicker issue={issue} field="team" label="Team">
-          {issue.teamName ? (
-            <>
-              <OptionDot color={option("team", issue.teamId)?.color} />
-              {plainName(issue.teamName) || issue.teamName}
-            </>
+      {meta.mapping.sprint && (
+        <Prop label="Release">
+          {meta.mapping.sprint.missing ? (
+            <MissingField />
           ) : (
-            none
+            <FieldPicker issue={issue} field="release" label="Release">
+              {c.release(issue) ?? none}
+            </FieldPicker>
           )}
-        </FieldPicker>
-      </Prop>
-      <Prop label="Platform">
-        <FieldPicker issue={issue} field="platform" label="Platform">
-          {issue.platformName ?? none}
-        </FieldPicker>
-      </Prop>
+        </Prop>
+      )}
+      {meta.dimensions.map((d) => {
+        const v = issue.dims[d.id];
+        return (
+          <Prop key={d.id} label={d.name}>
+            {d.missing ? (
+              <MissingField />
+            ) : (
+              <FieldPicker issue={issue} field={d.key} label={d.name}>
+                {v ? (
+                  <>
+                    <OptionDot color={option(d.key, v.id)?.color} />
+                    {plainName(v.name ?? "Missing option") || v.name}
+                  </>
+                ) : (
+                  none
+                )}
+              </FieldPicker>
+            )}
+          </Prop>
+        );
+      })}
       <Prop label="Type">
         <FieldPicker issue={issue} field="type" label="Type">
           {c.type(issue) ?? none}

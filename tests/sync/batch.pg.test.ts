@@ -58,8 +58,7 @@ const item = (n: number, status: string | null = "a0000001"): SnapshotProjectIte
   issueNodeId: `I_s${n}`,
   statusOpt: status,
   priorityOpt: null,
-  teamOpt: null,
-  platformOpt: null,
+
   releaseIter: null,
 });
 

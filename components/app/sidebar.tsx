@@ -14,7 +14,8 @@ import { useTasks } from "../tasks/store";
 import { useTaskDrop } from "../tasks/drop";
 import type { DropTarget } from "@/lib/client/task-drop";
 import { useWatchlist } from "../watch/store";
-import { useTeamScope } from "./team-scope";
+import { useDefaultScope } from "./team-scope";
+import { primaryDimension, sprintOn } from "@/lib/client/explorer";
 import { UserMenu } from "./user-menu";
 import { inInbox, isDelegated, type SidebarSection } from "@/lib/tasks/model";
 import { ColorDot, ProjectDialog } from "../tasks/organize";
@@ -113,7 +114,9 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
   const { views } = useAppViews();
   const { sync, syncNow } = useAppSync();
   const { meta, issues } = data;
-  const { teamId } = useTeamScope();
+  const { scope } = useDefaultScope();
+  const sprints = sprintOn(meta);
+  const dim = primaryDimension(meta);
   const syncWarn = meta.demo || sync.needsInitialImport ? null : syncWarning(sync);
 
   const counts = useMemo(() => {
@@ -123,11 +126,11 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
     for (const i of issues) {
       if (i.state !== "open") continue;
       if (i.assignees.some((a) => a.toLowerCase() === me)) mine++;
-      // The backlog opens filtered to the default Team, so its count does too.
-      if (!i.releaseId && (!teamId || i.teamId === teamId)) backlog++;
+      // The backlog opens filtered to the default value, so its count does too.
+      if (!i.releaseId && (!scope || i.dims[scope.dimension.id]?.id === scope.optionId)) backlog++;
     }
     return { mine, backlog };
-  }, [issues, viewer, teamId]);
+  }, [issues, viewer, scope]);
 
   const { tasks, projects, labels, openCompose } = useTasks();
   const { today } = useToday();
@@ -183,10 +186,13 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
   ];
   const workspace: NavItem[] = [
     { href: "/issues", label: "All issues", icon: "layers", match: (p) => p === "/issues" },
-    { href: "/backlog", label: "Backlog", icon: "list", count: counts.backlog },
-    { href: "/releases", label: "Releases", icon: "rocket", match: (p) => p === "/releases" },
-    ...(current
-      ? [{ href: `/releases/${current.id}`, label: `Current · ${current.title}`, icon: "calendar" as IconName }]
+    // Sprint features show only with a mapped Sprint field (§4.1).
+    ...(sprints
+      ? [
+          { href: "/backlog", label: "Backlog", icon: "list" as IconName, count: counts.backlog },
+          { href: "/releases", label: "Releases", icon: "rocket" as IconName, match: (p: string) => p === "/releases" },
+          ...(current ? [{ href: `/releases/${current.id}`, label: `Current · ${current.title}`, icon: "calendar" as IconName }] : []),
+        ]
       : []),
     { href: "/epics", label: "Epics", icon: "epic" },
     { href: "/insights", label: "Insights", icon: "chart" },
@@ -283,8 +289,9 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
       </Section>
     ),
     teams: (
-      <Section key="teams" title="Teams">
-        {meta.fields.team.map((t) => (
+      <Section key="teams" title={dim?.name ?? "Dimensions"}>
+        {!dim && <p className="px-2 py-1 text-[12px] text-faint">No dimension mapped</p>}
+        {(dim?.options ?? []).map((t) => (
           <Link
             key={t.id}
             href={`/teams/${t.id}`}
