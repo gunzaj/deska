@@ -6,6 +6,7 @@
 // part-way is fine: the next launch continues from here.
 import { useCallback, useEffect, useRef, useState } from "react";
 import { MESSAGES, type ConnectionStatus } from "@/lib/github/token-states";
+import { IMPORT_COPY, IMPORT_STEPS, importView, type ImportStepState } from "@/lib/import-view";
 import type { ImportPhase } from "@/lib/sync/import-state";
 import { Logo } from "../icons";
 import { fetchConnection } from "../app/connection";
@@ -19,14 +20,15 @@ type Status = {
   rateLimitedUntil: string | null;
 };
 
-const STEPS: { phase: ImportPhase; label: string }[] = [
-  { phase: "metadata", label: "Project fields, labels and milestones" },
-  { phase: "open", label: "Open issues" },
-  { phase: "closed", label: "Recently closed issues" },
-  { phase: "items", label: "Project items" },
-];
-
 const POLL_MS = 1_000;
+
+/** The dot for one step: done, in progress (animated only on a fresh start), or still to do. */
+function dotClass(step: ImportStepState, failed: boolean): string {
+  if (step === "done") return "bg-brand";
+  if (step === "active") return failed ? "bg-warning" : "animate-pulse bg-brand-border";
+  if (step === "active-idle") return failed ? "bg-warning" : "bg-brand-border";
+  return "bg-faint";
+}
 
 export function ImportProgress() {
   const [status, setStatus] = useState<Status | null>(null);
@@ -79,9 +81,20 @@ export function ImportProgress() {
     if (failure === "forbidden" || failure === "other") void fetchConnection(true).then(setConnection);
   }, [failure]);
 
-  const phase = status?.import.phase ?? null;
-  const at = phase ? STEPS.findIndex((s) => s.phase === phase) : -1;
   const p = status?.import;
+  // Everything the screen shows is derived here (lib/import-view.ts), so the
+  // Electron-only screen has a gate that does not need Electron.
+  const view = status
+    ? importView({
+        needsInitialImport: status.needsInitialImport,
+        running: status.running,
+        phase: p!.phase,
+        issues: p!.issues,
+        items: p!.items,
+        itemsTotal: p!.itemsTotal,
+        failure: status.failure,
+      })
+    : null;
 
   return (
     <main className="min-h-dvh overflow-auto p-6">
@@ -95,31 +108,30 @@ export function ImportProgress() {
         </p>
 
         <ol className="mt-6 space-y-2 text-[13px]" data-import-steps>
-          {STEPS.map((s, i) => {
-            const state = at < 0 ? "todo" : i < at ? "done" : i === at ? "active" : "todo";
+          {IMPORT_STEPS.map((phase, i) => {
+            const step = view?.steps[i] ?? "todo";
             return (
-              <li key={s.phase} data-step={s.phase} data-state={state} className="flex items-center gap-2">
-                <span
-                  aria-hidden
-                  className={`size-2 shrink-0 rounded-full ${state === "done" ? "bg-brand" : state === "active" ? (failure ? "bg-warning" : "animate-pulse bg-brand-border") : "bg-faint"}`}
-                />
-                <span className={state === "todo" ? "text-muted" : ""}>{s.label}</span>
-                <span className="sr-only">{state === "done" ? " (done)" : state === "active" ? " (in progress)" : ""}</span>
+              <li key={phase} data-step={phase} data-state={step} className="flex items-center gap-2">
+                <span aria-hidden className={`size-2 shrink-0 rounded-full ${dotClass(step, view?.state === "failed")}`} />
+                <span className={step === "todo" ? "text-muted" : ""}>{IMPORT_COPY.steps[phase]}</span>
+                <span className="sr-only">{step === "done" ? " (done)" : step === "todo" ? "" : " (in progress)"}</span>
               </li>
             );
           })}
         </ol>
 
         <p role="status" aria-live="polite" className="mt-5 text-[13px]" data-import-progress>
-          {!status ? (
-            "Starting…"
+          {view?.state === "resumed" ? (
+            <span data-import-resumed>{IMPORT_COPY.resumed(p!.issues)}</span>
+          ) : view?.progress === "none" ? (
+            IMPORT_COPY.starting
           ) : (
             <>
               <strong className="font-semibold" data-import-issues>
                 {p!.issues.toLocaleString()} {p!.issues === 1 ? "issue" : "issues"}
               </strong>{" "}
               imported
-              {phase === "items" || p!.items > 0 ? (
+              {view?.progress === "items" ? (
                 <>
                   {" · "}
                   <span data-import-items>
@@ -131,7 +143,7 @@ export function ImportProgress() {
             </>
           )}
         </p>
-        {phase === "items" && p?.itemsTotal ? (
+        {p?.phase === "items" && p.itemsTotal ? (
           <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-hover">
             <div className="h-full bg-brand" style={{ width: `${Math.min(100, Math.round((p.items / p.itemsTotal) * 100))}%` }} />
           </div>
