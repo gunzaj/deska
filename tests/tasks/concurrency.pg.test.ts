@@ -1,13 +1,11 @@
 // S9 against Postgres: updateTask runs under the row lock in one transaction.
-// Skipped unless TEST_DATABASE_URL points at a throwaway, migrated database.
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+// Runs on an in-memory PGlite database (tests/setup/db.ts).
+import { beforeEach, describe, expect, it } from "vitest";
 import { sql } from "drizzle-orm";
 import { getDb } from "@/db";
 import { PostgresTaskRepo, type StoredTask } from "@/lib/tasks/repo";
 import { updateTask } from "@/lib/tasks/service";
 
-const url = process.env.TEST_DATABASE_URL;
-const suite = url ? describe : describe.skip;
 const anyone = () => true;
 
 function task(p: Partial<StoredTask> = {}): StoredTask {
@@ -35,16 +33,10 @@ function task(p: Partial<StoredTask> = {}): StoredTask {
   };
 }
 
-suite("safe task updates (Postgres)", () => {
+describe("safe task updates (Postgres)", () => {
   const repo = new PostgresTaskRepo();
-  beforeAll(() => {
-    process.env.DATABASE_URL = url;
-  });
   beforeEach(async () => {
     await getDb().execute(sql`TRUNCATE tasks, task_completions, notifications RESTART IDENTITY CASCADE`);
-  });
-  afterAll(() => {
-    delete process.env.DATABASE_URL;
   });
 
   const completions = async (id: string) => (await getDb().execute(sql`SELECT due_date::text AS d FROM task_completions WHERE task_id = ${id}`)).rows.map((r) => r.d);

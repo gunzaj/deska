@@ -1,6 +1,6 @@
-// S1 against Postgres: the advisory lock serialises cycles across sessions.
-// Skipped unless TEST_DATABASE_URL points at a throwaway, migrated database.
-import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+// S1 on PGlite: the in-process lock serialises cycles writing one database.
+// Runs on an in-memory PGlite database (tests/setup/db.ts).
+import { beforeAll, describe, expect, it, vi } from "vitest";
 import { sql } from "drizzle-orm";
 import { getDb } from "@/db";
 import { issues } from "@/db/schema";
@@ -10,9 +10,6 @@ import type { ChangeCheck } from "@/lib/sync/poll";
 import { PostgresStore } from "@/lib/sync/store-postgres";
 import { triggerSync } from "@/lib/sync/trigger";
 import type { SnapshotIssue } from "@/lib/sync/types";
-
-const url = process.env.TEST_DATABASE_URL;
-const suite = url ? describe : describe.skip;
 
 const newIssue: SnapshotIssue = {
   nodeId: "I_race",
@@ -44,16 +41,11 @@ function racingSource() {
   } satisfies CycleSource;
 }
 
-suite("sync lock (Postgres)", () => {
+describe("sync lock (PGlite)", () => {
   beforeAll(async () => {
-    process.env.DATABASE_URL = url;
     await getDb().execute(sql`TRUNCATE issues, issue_labels, issue_assignees, project_items, sync_state RESTART IDENTITY CASCADE`);
     // After the initial import: polls only run from a cursor (S2).
     await getDb().execute(sql`INSERT INTO sync_state (key, value) VALUES ('issues.since', '2026-10-01T00:00:00Z')`);
-  });
-
-  afterAll(() => {
-    delete process.env.DATABASE_URL;
   });
 
   it("two parallel cycles: one runs, one skips, no unique-key error", async () => {
@@ -73,18 +65,5 @@ suite("sync lock (Postgres)", () => {
   it("is released when fn throws", async () => {
     await expect(withSyncLock(async () => Promise.reject(new Error("boom")))).rejects.toThrow("boom");
     expect(await withSyncLock(async () => "free")).toEqual({ ran: true, value: "free" });
-  });
-
-  it("a second session sees the lock as taken", async () => {
-    let release!: () => void;
-    const held = withSyncLock(() => new Promise<void>((r) => (release = r)));
-    await vi.waitFor(async () => {
-      const { rows } = await getDb().execute(sql`SELECT count(*)::int AS n FROM pg_locks WHERE locktype = 'advisory' AND granted`);
-      expect((rows[0] as { n: number }).n).toBeGreaterThan(0);
-    });
-    expect(await withSyncLock(async () => "no")).toEqual({ ran: false });
-    release();
-    await held;
-    expect(await withSyncLock(async () => "yes")).toEqual({ ran: true, value: "yes" });
   });
 });

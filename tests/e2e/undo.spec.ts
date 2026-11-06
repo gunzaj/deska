@@ -26,9 +26,11 @@ test("delete a task, Undo: it is back with its links and labels", async ({ brows
 
   // The confirmation sits in a polite live region, so screen readers hear it.
   const toast = page.locator('[role="status"][aria-live="polite"] [data-toast]').filter({ hasText: `Deleted “${title}”` });
-  await expect(toast).toBeVisible();
+  // Generous waits: on a cold `next dev` the delete and restore routes compile
+  // on first use (CI runners are slow).
+  await expect(toast).toBeVisible({ timeout: 15_000 });
   await toast.getByRole("button", { name: "Undo" }).click();
-  await expect(row).toBeVisible();
+  await expect(row).toBeVisible({ timeout: 15_000 });
 
   const back = (await (await page.request.get(`/api/tasks/${id}`)).json()).task;
   expect(back.links.map((l: { number: number }) => l.number)).toEqual([101]);

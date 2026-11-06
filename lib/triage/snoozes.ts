@@ -1,7 +1,7 @@
 // Triage snoozes (IMPROVEMENTS F3): personal, kept in Deska only. Postgres in
 // production; a process-local map without a database (dev and tests).
 import { and, eq } from "drizzle-orm";
-import { databaseUrl, getDb } from "@/db";
+import { dbDir, getDb } from "@/db";
 import { triageSnoozes } from "@/db/schema";
 import { isIsoDate } from "@/lib/tasks/dates";
 
@@ -18,14 +18,14 @@ const norm = (login: string) => login.toLowerCase();
 /** The login's snoozes. Expired ones are the caller's to ignore; retention deletes them. */
 export async function listSnoozes(login: string): Promise<Snooze[]> {
   const who = norm(login);
-  if (!databaseUrl()) return [...(memory().get(who) ?? [])].map(([nodeId, until]) => ({ nodeId, until }));
+  if (!dbDir()) return [...(memory().get(who) ?? [])].map(([nodeId, until]) => ({ nodeId, until }));
   const rows = await getDb().select({ nodeId: triageSnoozes.issueNodeId, until: triageSnoozes.until }).from(triageSnoozes).where(eq(triageSnoozes.login, who));
   return rows;
 }
 
 export async function setSnooze(login: string, nodeId: string, until: string): Promise<void> {
   const who = norm(login);
-  if (!databaseUrl()) {
+  if (!dbDir()) {
     const m = memory().get(who) ?? new Map<string, string>();
     m.set(nodeId, until);
     memory().set(who, m);
@@ -39,7 +39,7 @@ export async function setSnooze(login: string, nodeId: string, until: string): P
 
 export async function clearSnooze(login: string, nodeId: string): Promise<void> {
   const who = norm(login);
-  if (!databaseUrl()) {
+  if (!dbDir()) {
     memory().get(who)?.delete(nodeId);
     return;
   }

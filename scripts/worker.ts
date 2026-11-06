@@ -1,8 +1,8 @@
 // pnpm worker — incremental polling loop (SPEC §3).
-// Needs GITHUB_TOKEN (read-only) and DATABASE_URL. Both the issue change check
+// Needs GITHUB_TOKEN (read-only) and DESKA_DB_DIR. Both the issue change check
 // and the project scan write to the shared Postgres cache that the web
 // app reads, so this process and the app finally agree on the data.
-import { databaseUrl, getDb } from "../db";
+import { dbDir, getDb } from "../db";
 import { clearStoredTokensWhenReadOnly } from "../lib/auth-tokens";
 import { issues } from "../db/schema";
 import { recordCycle, redactError } from "../lib/sync/health";
@@ -26,8 +26,8 @@ async function main() {
     process.exitCode = 1;
     return;
   }
-  if (!databaseUrl()) {
-    console.error("deska worker: DATABASE_URL not set — the sync would be written nowhere.");
+  if (!dbDir()) {
+    console.error("deska worker: DESKA_DB_DIR not set — the sync would be written nowhere.");
     process.exitCode = 1;
     return;
   }

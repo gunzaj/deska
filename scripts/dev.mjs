@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // `pnpm dev`: `next dev`, plus a demo preview when nothing else is configured.
 //
-// With no DATABASE_URL, no .env file and no e2e bypass set, the app serves the
+// With no DESKA_DB_DIR, no .env file and no e2e bypass set, the app serves the
 // generated demo dataset (fictional acme/widgets, SPEC §0.2) signed in as
 // `alice` through the dev-only bypass (lib/e2e-bypass.ts, never active in
 // production). Anything already configured wins: Playwright sets its own env,
@@ -11,7 +11,7 @@ import { existsSync, readdirSync } from "node:fs";
 
 const env = { ...process.env };
 const hasEnvFile = readdirSync(".").some((f) => f.startsWith(".env") && f !== ".env.example");
-const configured = env.DATABASE_URL || env.E2E_AUTH_BYPASS || hasEnvFile;
+const configured = env.DESKA_DB_DIR || env.E2E_AUTH_BYPASS || hasEnvFile;
 
 if (!configured) {
   Object.assign(env, {
@@ -25,7 +25,7 @@ if (!configured) {
     AUTH_SECRET: "dev-preview-secret-not-for-production",
     TOKEN_ENC_KEY: "0".repeat(64),
   });
-  console.log("deska: demo preview (no DATABASE_URL or .env), signed in as alice");
+  console.log("deska: demo preview (no DESKA_DB_DIR or .env), signed in as alice");
 }
 
 const bin = existsSync("node_modules/.bin/next") ? "node_modules/.bin/next" : "next";

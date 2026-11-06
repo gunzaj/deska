@@ -1,6 +1,6 @@
 // v5 2.1 against Postgres: an older payload never overwrites a newer cache row.
-// Skipped unless TEST_DATABASE_URL points at a throwaway, migrated database.
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+// Runs on an in-memory PGlite database (tests/setup/db.ts).
+import { beforeAll, describe, expect, it } from "vitest";
 import { sql } from "drizzle-orm";
 import { getDb } from "@/db";
 import { importFull } from "@/lib/sync/import";
@@ -8,19 +8,12 @@ import { PostgresStore, readSnapshot } from "@/lib/sync/store-postgres";
 import { partialSnapshot } from "@/lib/sync/types";
 import { fixtureSnapshot } from "../fixtures/github";
 
-const url = process.env.TEST_DATABASE_URL;
-const suite = url ? describe : describe.skip;
-
-suite("a stale payload cannot go backwards (v5 2.1)", () => {
+describe("a stale payload cannot go backwards (v5 2.1)", () => {
   beforeAll(async () => {
-    process.env.DATABASE_URL = url;
     await getDb().execute(
       sql`TRUNCATE issues, issue_labels, issue_assignees, project_items, project_scan_seen, field_options, iterations, project_fields, labels, milestones, gh_users, issue_types, sync_state RESTART IDENTITY CASCADE`,
     );
     await importFull(fixtureSnapshot(), new PostgresStore());
-  });
-  afterAll(() => {
-    delete process.env.DATABASE_URL;
   });
 
   it("keeps a newer issue row when an older payload arrives later", async () => {

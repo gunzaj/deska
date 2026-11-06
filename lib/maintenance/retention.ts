@@ -4,7 +4,7 @@
 //
 // task_completions are kept: they are history users may want. issue_field_changes (F0) are kept 13 months.
 import { and, isNotNull, isNull, lt, ne } from "drizzle-orm";
-import { databaseUrl, getDb } from "@/db";
+import { dbDir, getDb } from "@/db";
 import { auditLog, issueFieldChanges, notifications, outbox, taskComments, tasks, triageSnoozes, views } from "@/db/schema";
 
 export type RetentionConfig = {
@@ -58,7 +58,7 @@ export type RetentionResult = {
  */
 export async function runRetention(now = new Date(), cfg: RetentionConfig = retentionConfig()): Promise<RetentionResult> {
   const result: RetentionResult = { notificationsRead: 0, notificationsUnread: 0, tasks: 0, comments: 0, views: 0, audit: 0, fieldChanges: 0, snoozes: 0, outbox: 0 };
-  if (!databaseUrl()) return result;
+  if (!dbDir()) return result;
   const ago = (d: number) => new Date(now.getTime() - d * 86_400_000);
   const today = now.toISOString().slice(0, 10);
 

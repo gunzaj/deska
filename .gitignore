@@ -15,6 +15,7 @@ node_modules/
 # Builds
 .next/
 .next-e2e/
+.next-desktop/
 out/
 build/
 dist/
@@ -42,3 +43,6 @@ Thumbs.db
 .idea/
 .vscode/
 *.swp
+
+# Local PGlite databases (DESKA_DB_DIR)
+.deska-db/

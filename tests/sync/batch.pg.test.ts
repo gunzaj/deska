@@ -1,10 +1,9 @@
 // S4 against Postgres: page-sized transactions, no rewrites of unchanged rows,
 // and a project scan that resumes from its checkpoint.
-// Skipped unless TEST_DATABASE_URL points at a throwaway, migrated database.
-import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { Client } from "pg";
+// Runs on an in-memory PGlite database (tests/setup/db.ts).
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { sql } from "drizzle-orm";
-import { getDb } from "@/db";
+import { getDb, onQuery } from "@/db";
 import { projectItems } from "@/db/schema";
 import { scanProject } from "@/lib/sync/cycle";
 import { importFull } from "@/lib/sync/import";
@@ -14,8 +13,6 @@ import { PostgresStore, readSnapshot } from "@/lib/sync/store-postgres";
 import type { SnapshotIssue, SnapshotProjectItem } from "@/lib/sync/types";
 import { fixtureSnapshot } from "../fixtures/github";
 
-const url = process.env.TEST_DATABASE_URL;
-const suite = url ? describe : describe.skip;
 // A scan only prunes items last written before it began (v5 1.4): its start must be later than the test's own writes.
 const SCAN_START = new Date(Date.now() + 60_000).toISOString();
 const SCAN_RESUME = new Date(Date.now() + 120_000).toISOString();
@@ -29,16 +26,11 @@ async function truncate() {
 /** Every SQL statement sent while `fn` runs. */
 async function statementsDuring(fn: () => Promise<unknown>): Promise<string[]> {
   const seen: string[] = [];
-  const original = Client.prototype.query;
-  const spy = vi.spyOn(Client.prototype, "query").mockImplementation(function (this: Client, ...args: unknown[]) {
-    const q = args[0] as string | { text?: string };
-    seen.push((typeof q === "string" ? q : (q?.text ?? "")).trim());
-    return (original as (...a: unknown[]) => unknown).apply(this, args) as never;
-  });
+  const stop = onQuery((q) => seen.push(q.trim()));
   try {
     await fn();
   } finally {
-    spy.mockRestore();
+    stop();
   }
   return seen;
 }
@@ -71,14 +63,8 @@ const item = (n: number, status: string | null = "a0000001"): SnapshotProjectIte
   releaseIter: null,
 });
 
-suite("batched Postgres sync writes (S4)", () => {
-  beforeAll(() => {
-    process.env.DATABASE_URL = url;
-  });
+describe("batched Postgres sync writes (S4)", () => {
   beforeEach(truncate);
-  afterAll(() => {
-    delete process.env.DATABASE_URL;
-  });
 
   it("sync:full twice: the second run reports nothing changed and sends no UPDATE or DELETE", async () => {
     const snapshot = fixtureSnapshot();

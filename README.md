@@ -8,6 +8,18 @@ A macOS desktop app for working with **GitHub Issues and an org GitHub Project**
 
 **Status:** early. The spec is written; the app is being built milestone by milestone. See [`docs/SPEC.md`](docs/SPEC.md).
 
+## Run it
+
+Needs Node 24 and pnpm on macOS.
+
+```bash
+pnpm install
+pnpm desktop:dev     # the app with hot reload, on fictional demo data
+pnpm desktop:build   # an unsigned universal .dmg in release/
+```
+
+`pnpm dev` still serves the same UI in a browser on the demo data, which is handy for UI work.
+
 ## Contributing
 
 Read [`AGENTS.md`](AGENTS.md) first, whether you're a person or a coding agent. After cloning:

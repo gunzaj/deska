@@ -1,5 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { databaseUrl } from "@/db";
+import { dbDir } from "@/db";
 import { viewerToken } from "@/lib/github/viewer-token";
 import { getStore } from "@/lib/store";
 import type { IssueDetail } from "@/lib/client/types";
@@ -32,7 +32,7 @@ export async function detailResponse(req: NextRequest, rawNumber: string, kind: 
   if (!Number.isInteger(number) || number <= 0) return NextResponse.json({ error: `bad ${k.label} number` }, { status: 400 });
 
   const store = await getStore();
-  if (!databaseUrl()) return found(await k.demo(store, number));
+  if (!dbDir()) return found(await k.demo(store, number));
   const token = await viewerToken(req);
   if (!token) return found(await k.cached(store, number, "No GitHub token for this session — showing the cached description."));
   try {

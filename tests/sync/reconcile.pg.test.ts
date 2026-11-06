@@ -1,17 +1,13 @@
 // S6 against Postgres: the nightly reconcile on a fixture source.
-// Skipped unless TEST_DATABASE_URL points at a throwaway, migrated database.
-import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+// Runs on an in-memory PGlite database (tests/setup/db.ts).
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { NextRequest } from "next/server";
-import { Client } from "pg";
 import { sql } from "drizzle-orm";
 
 vi.mock("@/lib/session", () => ({ getViewerLogin: async () => "alice" }));
 
-const url = process.env.TEST_DATABASE_URL;
-const suite = url ? describe : describe.skip;
-
-suite("nightly reconcile (Postgres)", async () => {
-  const { getDb } = await import("@/db");
+describe("nightly reconcile (Postgres)", async () => {
+  const { getDb, onQuery } = await import("@/db");
   const { fieldOptions, issues } = await import("@/db/schema");
   const { importFull } = await import("@/lib/sync/import");
   const { readGeneration } = await import("@/lib/sync/generation");
@@ -52,13 +48,7 @@ suite("nightly reconcile (Postgres)", async () => {
   }
   const row = async (nodeId: string) => (await getDb().select().from(issues).where(sql`${issues.ghNodeId} = ${nodeId}`))[0]!;
 
-  beforeAll(() => {
-    process.env.DATABASE_URL = url;
-  });
   beforeEach(reset);
-  afterAll(() => {
-    delete process.env.DATABASE_URL;
-  });
 
   it("an issue removed from GitHub is marked deleted and disappears from /api/data", async () => {
     const res = await reconcile(fakeSource({ open: ["I_epic", "I_sub"] }), new PostgresStore(), new MapKv(), { closedCutoff: CUTOFF, now: NOW });
@@ -113,17 +103,12 @@ suite("nightly reconcile (Postgres)", async () => {
     await reconcile(source, new PostgresStore(), new MapKv(), { closedCutoff: CUTOFF, now: NOW });
     const gen = await readGeneration();
     const seen: string[] = [];
-    const original = Client.prototype.query;
-    const spy = vi.spyOn(Client.prototype, "query").mockImplementation(function (this: Client, ...args: unknown[]) {
-      const q = args[0] as string | { text?: string };
-      seen.push((typeof q === "string" ? q : (q?.text ?? "")).trim());
-      return (original as (...a: unknown[]) => unknown).apply(this, args) as never;
-    });
+    const stop = onQuery((q) => seen.push(q.trim()));
     let second;
     try {
       second = await reconcile(source, new PostgresStore(), new MapKv(), { closedCutoff: CUTOFF, now: NOW });
     } finally {
-      spy.mockRestore();
+      stop();
     }
     expect(second).toMatchObject({ refetched: 0, deleted: 0, transferred: 0, agedOut: 0, metadata: { inserted: 0, updated: 0 } });
     expect(seen.filter((s) => /^(update|delete)\b/i.test(s))).toEqual([]);

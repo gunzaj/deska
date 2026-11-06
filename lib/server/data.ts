@@ -2,8 +2,9 @@ import { buildClientData } from "@/lib/client/build";
 import type { WireData } from "@/lib/client/types";
 import { writeEnabled } from "@/lib/outbox/queue";
 import { doneStatusOption } from "@/lib/outbox/runtime";
+import { demoSeed } from "@/lib/db-bootstrap";
 import { demoEnabled, getStoreWithGeneration } from "@/lib/store";
-import { databaseUrl } from "@/db";
+import { dbDir } from "@/db";
 
 /**
  * The client payload is the same for every viewer of one cache generation on
@@ -24,7 +25,8 @@ export type ClientDataResult = { etag: string; data: () => WireData; json: () =>
 export async function loadClientData(now = new Date()): Promise<ClientDataResult> {
   const { store, generation } = await getStoreWithGeneration();
   const writeMode = writeEnabled();
-  const demo = !databaseUrl() && demoEnabled();
+  // Sample data: the in-memory preview, or a database seeded with it (D2).
+  const demo = (!dbDir() && demoEnabled()) || demoSeed() !== null;
   const today = now.toISOString().slice(0, 10);
   // closeBlocked is derived from STATUS_DONE_OPTION_ID, which can change on a
   // redeploy without a cache-generation bump; it must be part of the ETag too.

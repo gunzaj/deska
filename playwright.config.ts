@@ -12,12 +12,11 @@ const e2eEnv = {
   TOKEN_ENC_KEY: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
 };
 
-// With TEST_DATABASE_URL (CI), a second project runs the smoke and task specs
-// against the production path: Postgres → getStore → the APIs (S11). Its
-// server seeds the database in the global setup (tests/e2e/warmup.ts), which
-// TRUNCATEs every table first: never point TEST_DATABASE_URL at real data.
-const pg = process.env.TEST_DATABASE_URL?.trim() || null;
-const PG_PORT = 3101;
+// A second project runs the smoke and task specs against the database path:
+// PGlite → getStore → the APIs (S11). Its server keeps an in-memory database
+// that it migrates and seeds with the fixtures when it starts
+// (instrumentation-node.ts), so every run starts from the same data.
+const DB_PORT = 3101;
 
 export default defineConfig({
   testDir: "tests/e2e",
@@ -31,15 +30,11 @@ export default defineConfig({
   use: { trace: "on-first-retry" },
   projects: [
     { name: "mocks", use: { baseURL: "http://localhost:3100" } },
-    ...(pg
-      ? [
-          {
-            name: "e2e-postgres",
-            testMatch: /(smoke|tasks)\.spec\.ts/,
-            use: { baseURL: `http://localhost:${PG_PORT}` },
-          },
-        ]
-      : []),
+    {
+      name: "e2e-db",
+      testMatch: /(smoke|tasks)\.spec\.ts/,
+      use: { baseURL: `http://localhost:${DB_PORT}` },
+    },
   ],
   webServer: [
     {
@@ -50,21 +45,18 @@ export default defineConfig({
       env: {
         ...e2eEnv,
         PORT: "3100",
-        // Mocked e2e runs on demo fixtures. Next loads .env, so unset DATABASE_URL
-        // must be forced empty here or a local .env sends the pages to Postgres.
-        DATABASE_URL: "",
+        // Mocked e2e runs on demo fixtures. Next loads .env, so an unset
+        // DESKA_DB_DIR must be forced empty here or a local .env sends the pages
+        // to a database.
+        DESKA_DB_DIR: "",
       },
     },
-    ...(pg
-      ? [
-          {
-            command: `pnpm dev --port ${PG_PORT}`,
-            url: `http://localhost:${PG_PORT}/signin`,
-            timeout: 180_000,
-            reuseExistingServer: !process.env.CI,
-            env: { ...e2eEnv, PORT: String(PG_PORT), DATABASE_URL: pg, NEXT_DIST_DIR: ".next-e2e" },
-          },
-        ]
-      : []),
+    {
+      command: `pnpm dev --port ${DB_PORT}`,
+      url: `http://localhost:${DB_PORT}/signin`,
+      timeout: 180_000,
+      reuseExistingServer: !process.env.CI,
+      env: { ...e2eEnv, PORT: String(DB_PORT), DESKA_DB_DIR: "memory://", DESKA_DEMO_SEED: "fixtures", NEXT_DIST_DIR: ".next-e2e" },
+    },
   ],
 });

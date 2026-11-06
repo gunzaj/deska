@@ -2,7 +2,7 @@
 // It describes the fictional `acme/widgets` repo and its "Widgets Roadmap"
 // project (SPEC §0.2): every ID, name, login and issue here is made up.
 // Links point at a sample repo, so a demo row never opens a live issue.
-// Never used when DATABASE_URL is set (see lib/store.ts).
+// Never used when DESKA_DB_DIR is set (see lib/store.ts).
 import type { FullSnapshot, SnapshotIssue, SnapshotProjectItem, SnapshotPullRequest } from "@/lib/sync/types";
 import { fixtureSnapshot } from "./fixtures";
 

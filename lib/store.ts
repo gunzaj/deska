@@ -1,4 +1,4 @@
-import { databaseUrl } from "@/db";
+import { dbDir } from "@/db";
 import { ReadModel } from "./sync/read-model";
 import { readGeneration } from "./sync/generation";
 import { readStoredFieldMap } from "./sync/runtime";
@@ -51,7 +51,7 @@ async function check(): Promise<Cached> {
  * or empty sync store silently served synthetic issues to real users.
  */
 export async function getStoreWithGeneration(): Promise<{ store: ReadModel; generation: string }> {
-  if (databaseUrl()) {
+  if (dbDir()) {
     if (cached && Date.now() - cached.checkedAt < GENERATION_CHECK_MS) return cached;
     if (!inflight) {
       const p: Promise<Cached> = check().finally(() => {
@@ -68,14 +68,14 @@ export async function getStoreWithGeneration(): Promise<{ store: ReadModel; gene
       // would push mutations against arbitrary GitHub IDs, so refuse outright.
       throw new Error(
         "Refusing to serve fixtures with WRITE_MODE=on: demo data is not writable. " +
-          "Configure DATABASE_URL for a writable deployment.",
+          "Configure DESKA_DB_DIR for a writable deployment.",
       );
     }
     const { getDemoStore } = await import("./demo/store");
     return { store: await getDemoStore(), generation: await readGeneration() };
   }
   throw new Error(
-    "No data source configured: set DATABASE_URL, or DEMO=1 to run on fixtures. " +
+    "No data source configured: set DESKA_DB_DIR, or DEMO=1 to run on fixtures. " +
       "Refusing to render fabricated issues.",
   );
 }
@@ -92,7 +92,7 @@ export async function getStore(): Promise<ReadModel> {
  */
 export function demoEnabled(): boolean {
   if (process.env.DEMO === "1") return true;
-  return !databaseUrl() && process.env.NODE_ENV !== "production";
+  return !dbDir() && process.env.NODE_ENV !== "production";
 }
 
 /** Drop the hydrated snapshot (used by tests and after a manual sync). */

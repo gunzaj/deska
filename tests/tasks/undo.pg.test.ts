@@ -1,13 +1,11 @@
 // U1 against Postgres: restore brings back exactly one delete; undoing an
-// occurrence removes its completion row. Skipped without TEST_DATABASE_URL.
-import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+// occurrence removes its completion row. Runs on in-memory PGlite (tests/setup/db.ts).
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { sql } from "drizzle-orm";
 import { getDb } from "@/db";
 import { PostgresTaskRepo, type StoredTask } from "@/lib/tasks/repo";
 import { deleteTask, restoreTask, updateTask } from "@/lib/tasks/service";
 
-const url = process.env.TEST_DATABASE_URL;
-const suite = url ? describe : describe.skip;
 const anyone = () => true;
 
 function task(p: Partial<StoredTask> = {}): StoredTask {
@@ -35,16 +33,10 @@ function task(p: Partial<StoredTask> = {}): StoredTask {
   };
 }
 
-suite("undo (Postgres)", () => {
+describe("undo (Postgres)", () => {
   const repo = new PostgresTaskRepo();
-  beforeAll(() => {
-    process.env.DATABASE_URL = url;
-  });
   beforeEach(async () => {
     await getDb().execute(sql`TRUNCATE tasks, task_comments, task_completions, task_links, task_labels RESTART IDENTITY CASCADE`);
-  });
-  afterAll(() => {
-    delete process.env.DATABASE_URL;
   });
 
   it("restores the task, its sub-task and comments from that delete, not an older deleted comment", async () => {
@@ -117,33 +109,5 @@ suite("undo (Postgres)", () => {
       spy.mockRestore();
     }
     expect((await getDb().execute(sql`SELECT count(*)::int AS n FROM tasks`)).rows[0]!.n).toBe(0);
-  });
-
-  it("listing and viewing inside a transaction never runs queries concurrently (v5 2.12)", async () => {
-    const { Client } = await import("pg");
-    const t = task({ recurrence: null });
-    await repo.insert(t);
-    // Count the queries in flight on each client: a transaction has one client,
-    // and pg 9 drops a second query sent while the first is running.
-    const inflight = new Map<unknown, number>();
-    let worst = 0;
-    const original = Client.prototype.query;
-    const spy = vi.spyOn(Client.prototype, "query").mockImplementation(function (this: InstanceType<typeof Client>, ...args: unknown[]) {
-      const n = (inflight.get(this) ?? 0) + 1;
-      inflight.set(this, n);
-      worst = Math.max(worst, n);
-      const out = (original as (...a: unknown[]) => unknown).apply(this, args);
-      const done = () => inflight.set(this, (inflight.get(this) ?? 1) - 1);
-      if (out && typeof (out as Promise<unknown>).then === "function") (out as Promise<unknown>).then(done, done);
-      else done();
-      return out as never;
-    });
-    try {
-      await updateTask("alice", t.id, { title: "Renamed" }, anyone); // viewOne runs inside locked()
-      await repo.locked(t.id, () => repo.listVisible("alice")); // listVisible + withLinks inside a transaction
-    } finally {
-      spy.mockRestore();
-    }
-    expect(worst).toBe(1);
   });
 });

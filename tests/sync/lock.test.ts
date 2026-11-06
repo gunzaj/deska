@@ -1,4 +1,4 @@
-// S1: one sync at a time. Without DATABASE_URL the lock is process-local.
+// S1: one sync at a time. The lock is an in-process mutex (SPEC §2.1).
 import { describe, expect, it, vi } from "vitest";
 import { withSyncLock } from "@/lib/sync/lock";
 

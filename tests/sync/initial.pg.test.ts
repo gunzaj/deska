@@ -1,6 +1,6 @@
 // S2 against Postgres: sync:full seeds the cursors so the cron can take over.
-// Skipped unless TEST_DATABASE_URL points at a throwaway, migrated database.
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+// Runs on an in-memory PGlite database (tests/setup/db.ts).
+import { beforeAll, describe, expect, it } from "vitest";
 import { sql } from "drizzle-orm";
 import { getDb } from "@/db";
 import { syncState } from "@/db/schema";
@@ -8,19 +8,11 @@ import { syncFull } from "@/lib/sync/initial";
 import { PostgresStore } from "@/lib/sync/store-postgres";
 import { fixtureSnapshot } from "../fixtures/github";
 
-const url = process.env.TEST_DATABASE_URL;
-const suite = url ? describe : describe.skip;
-
-suite("sync:full --db (Postgres)", () => {
+describe("sync:full --db (Postgres)", () => {
   beforeAll(async () => {
-    process.env.DATABASE_URL = url;
     await getDb().execute(
       sql`TRUNCATE issues, issue_labels, issue_assignees, project_items, field_options, iterations, project_fields, labels, milestones, gh_users, issue_types, sync_state, pull_requests, pr_labels, pr_assignees, pr_review_requests, pr_reviews, pr_issue_links, gh_team_members RESTART IDENTITY CASCADE`,
     );
-  });
-
-  afterAll(() => {
-    delete process.env.DATABASE_URL;
   });
 
   it("leaves issues.since, project.lastScan and prs.lastScan set, and is idempotent", async () => {

@@ -2,7 +2,7 @@
 
 For security reviewers and org admins deciding whether to approve a Deska token. Deska is a macOS desktop app that reads one GitHub repository and one organization Project (v2) with the user's own fine-grained personal access token (PAT). It has no backend, no hosting and no OAuth app.
 
-This page describes the design in [`SPEC.md`](SPEC.md). The desktop shell, local token storage and onboarding land in milestones D2–D5; until then the code in this repo is still the web app it was ported from. Check [`PROGRESS.md`](PROGRESS.md) for what is built.
+This page describes the design in [`SPEC.md`](SPEC.md). The desktop shell and the local server hardening below landed in D2; token entry through the app, onboarding and in-process sync land in D3–D5, and until D3 the app shows a fictional demo dataset. Check [`PROGRESS.md`](PROGRESS.md) for what is built.
 
 ## Architecture
 
@@ -66,7 +66,8 @@ The UI is a Next.js app served by a local process. Other software on the Mac mus
 - Mutating requests must carry a matching `Origin`. Pages have a strict Content Security Policy.
 - The renderer runs with `contextIsolation: true`, `sandbox: true` and `nodeIntegration: false`. The preload bridge exposes only token entry, notifications, open-external and app info.
 - Navigation is locked to the app's own origin. `https://github.com/*` links open in the default browser; every other external URL is blocked.
-- Nothing is loaded from the network at runtime except the GitHub API.
+- Nothing is loaded from the network at runtime except the GitHub API. The window itself may only fetch images from GitHub's hosts (`github.com`, `*.githubusercontent.com`) for avatars and issue attachments; every other request it makes outside the app is cancelled.
+- One app instance per user profile, so two servers never open the same database.
 
 ## What is stored on disk
 

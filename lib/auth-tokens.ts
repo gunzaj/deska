@@ -3,7 +3,7 @@
 // WRITE_MODE is off. So the token is stored only while writes are on, and every
 // stored token is cleared when the app starts with writes off (Q-C).
 import { isNotNull } from "drizzle-orm";
-import { databaseUrl, getDb } from "@/db";
+import { dbDir, getDb } from "@/db";
 import { users } from "@/db/schema";
 import { writeEnabled } from "./outbox/queue";
 
@@ -38,7 +38,7 @@ export async function recordSignIn(user: { githubId: string; login: string; name
  * startup must not stop the app.
  */
 export async function clearStoredTokensWhenReadOnly(): Promise<number> {
-  if (writeEnabled() || !databaseUrl()) return 0;
+  if (writeEnabled() || !dbDir()) return 0;
   try {
     const cleared = await getDb().update(users).set({ tokenEnc: null }).where(isNotNull(users.tokenEnc)).returning({ id: users.id });
     if (cleared.length) console.warn(`WRITE_MODE is off: cleared ${cleared.length} stored GitHub token(s)`);

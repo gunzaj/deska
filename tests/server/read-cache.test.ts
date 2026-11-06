@@ -12,12 +12,12 @@ const { getStore, invalidateReadCache } = await import("@/lib/store");
 
 describe("read cache hydration", () => {
   beforeEach(() => {
-    process.env.DATABASE_URL = "postgres://test/deska";
+    process.env.DESKA_DB_DIR = "memory://";
     invalidateReadCache();
     readSnapshot.mockReset();
   });
   afterEach(() => {
-    delete process.env.DATABASE_URL;
+    delete process.env.DESKA_DB_DIR;
     invalidateReadCache();
   });
 

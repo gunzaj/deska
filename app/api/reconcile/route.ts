@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { route } from "@/lib/server/route";
-import { databaseUrl } from "@/db";
+import { dbDir } from "@/db";
 import { redactError } from "@/lib/sync/health";
 import { githubReconcileSource } from "@/lib/sync/live";
 import { runNightly } from "@/lib/sync/nightly";
@@ -21,7 +21,7 @@ export const dynamic = "force-dynamic";
 export const GET = route({ auth: "cron", query: z.object({ force: z.string().optional() }) }, async ({ query }) => {
   const token = process.env.GITHUB_TOKEN;
   if (!token) return NextResponse.json({ error: "GITHUB_TOKEN not configured" }, { status: 503 });
-  if (!databaseUrl()) return NextResponse.json({ error: "DATABASE_URL not configured — nothing to reconcile" }, { status: 503 });
+  if (!dbDir()) return NextResponse.json({ error: "DESKA_DB_DIR not configured — nothing to reconcile" }, { status: 503 });
   const force = query.force === "1";
   const store = new PostgresStore();
   try {

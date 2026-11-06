@@ -1,29 +1,20 @@
 // v5 2.8 against Postgres: a GitHub token is stored only while writes are on,
 // and cleared at startup (and on the next sign-in) while they are off.
-// Skipped unless TEST_DATABASE_URL points at a throwaway, migrated database.
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
+// Runs on an in-memory PGlite database (tests/setup/db.ts).
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { sql } from "drizzle-orm";
 
-const url = process.env.TEST_DATABASE_URL;
-const suite = url ? describe : describe.skip;
-
-suite("stored GitHub tokens (Postgres)", async () => {
+describe("stored GitHub tokens (Postgres)", async () => {
   const { getDb } = await import("@/db");
   const { clearStoredTokensWhenReadOnly, recordSignIn } = await import("@/lib/auth-tokens");
 
   const tokens = async () => Object.fromEntries((await getDb().execute(sql`SELECT login, token_enc FROM users`)).rows.map((r) => [r.login, r.token_enc]));
 
-  beforeAll(() => {
-    process.env.DATABASE_URL = url;
-  });
   beforeEach(async () => {
     await getDb().execute(sql`TRUNCATE users RESTART IDENTITY CASCADE`);
   });
   afterEach(() => {
     delete process.env.WRITE_MODE;
-  });
-  afterAll(() => {
-    delete process.env.DATABASE_URL;
   });
 
   it("stores the token at sign-in only while writes are on", async () => {

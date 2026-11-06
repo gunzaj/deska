@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { decideAccess, isAllowedLogin } from "./lib/allowlist";
 import { contentSecurityPolicy } from "./lib/csp";
+import { checkDesktopRequest, desktopGuard, LAUNCH_COOKIE } from "./lib/desktop/guard";
 import { e2eBypassActive, e2eDefaultLogin } from "./lib/e2e-bypass";
 import { scopeMatchesMode } from "./lib/github/scopes";
 import { getSessionToken } from "./lib/session-token";
@@ -39,11 +40,25 @@ function isPublic(pathname: string): boolean {
 }
 
 export async function middleware(req: NextRequest) {
+  // Desktop app (SPEC §2.2): every request, static files included, needs the
+  // per-launch secret cookie and the exact 127.0.0.1:<port> Host. The answer
+  // says nothing about which check failed.
+  const guard = desktopGuard();
+  if (guard) {
+    const verdict = checkDesktopRequest(guard, {
+      host: req.headers.get("host"),
+      cookie: req.cookies.get(LAUNCH_COOKIE)?.value,
+      method: req.method,
+      origin: req.headers.get("origin"),
+    });
+    if (verdict !== "ok") return new NextResponse("Forbidden", { status: 403, headers: { "content-type": "text/plain" } });
+  }
+  if (req.nextUrl.pathname.startsWith("/_next/static/") || req.nextUrl.pathname.startsWith("/_next/image")) return NextResponse.next();
   // API calls answer JSON: no page, no CSP. Pages get a nonce that Next.js
   // reads back from the request's CSP header and stamps on its own scripts.
   if (req.nextUrl.pathname.startsWith("/api/")) return decide(req);
   const nonce = btoa(crypto.randomUUID());
-  const csp = contentSecurityPolicy(nonce);
+  const csp = contentSecurityPolicy(nonce, process.env.NODE_ENV !== "production", guard !== null);
   const headers = new Headers(req.headers);
   headers.set("x-nonce", nonce);
   headers.set("content-security-policy", csp);
@@ -56,6 +71,9 @@ async function decide(req: NextRequest, headers?: Headers) {
   const { pathname } = req.nextUrl;
   const pass = () => NextResponse.next(headers ? { request: { headers } } : undefined);
   if (isPublic(pathname)) return pass();
+  // The desktop guard already admitted this request: one local user, no
+  // sign-in (lib/session.ts names them).
+  if (desktopGuard()) return pass();
 
   // Vercel Cron calls GET /api/sync-now and /api/reconcile with a bearer
   // secret, not a session.
@@ -93,6 +111,7 @@ async function decide(req: NextRequest, headers?: Headers) {
   return pass();
 }
 
+// Every path: the desktop guard covers static files too (SPEC §2.2).
 export const config = {
-  matcher: ["/((?!_next/static|_next/image|favicon.ico).*)"],
+  matcher: ["/:path*"],
 };

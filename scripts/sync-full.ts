@@ -1,9 +1,9 @@
 // pnpm sync:full — full import from fixtures (default) or a live read-only
-// GitHub snapshot (--live, needs GITHUB_TOKEN). With --db (or DATABASE_URL
-// set) it imports into the shared Postgres cache so the app can render it;
+// GitHub snapshot (--live, needs GITHUB_TOKEN). With --db (or DESKA_DB_DIR
+// set) it imports into the local PGlite database so the app can render it;
 // otherwise it imports into a throwaway in-memory store and prints counts.
 // A re-import of the same snapshot must be a no-op (idempotency asserted).
-import { databaseUrl } from "../db";
+import { closeDb, dbDir, ensureMigrated } from "../db";
 import { MemoryStore } from "../lib/sync/store-memory";
 import { PostgresStore } from "../lib/sync/store-postgres";
 import { fetchLiveSnapshot } from "../lib/sync/live";
@@ -12,7 +12,7 @@ import { SYNC_FULL_LOCK_WAIT_MS, syncFull } from "../lib/sync/initial";
 
 async function main() {
   const live = process.argv.includes("--live");
-  const useDb = process.argv.includes("--db") || !!databaseUrl();
+  const useDb = process.argv.includes("--db") || !!dbDir();
   if (live && !process.env.GITHUB_TOKEN) {
     console.error("sync:full --live needs GITHUB_TOKEN (read-only).");
     process.exit(1);
@@ -20,6 +20,11 @@ async function main() {
   const snapshot = live
     ? await fetchLiveSnapshot(process.env.GITHUB_TOKEN ?? "")
     : fixtureSnapshot();
+  if (useDb && !dbDir()) {
+    console.error("sync:full --db needs DESKA_DB_DIR (a database directory the app is not running on).");
+    process.exit(1);
+  }
+  if (useDb) await ensureMigrated();
   const store = useDb ? new PostgresStore() : new MemoryStore();
   // One sync at a time (lib/sync/lock.ts): wait for a running cron, worker or
   // "Sync now" cycle to finish, but give up after 10 minutes. The import also
@@ -30,7 +35,7 @@ async function main() {
     process.exit(1);
   }
   const { first, second } = locked.value;
-  console.log(`mode: ${live ? "live" : "fixtures"}${useDb ? " -> postgres" : " -> memory"}`);
+  console.log(`mode: ${live ? "live" : "fixtures"}${useDb ? " -> database" : " -> memory"}`);
   console.log(`first run:  ${JSON.stringify(first)}`);
   console.log(`second run: ${JSON.stringify(second)}`);
   if (store instanceof MemoryStore) {
@@ -38,6 +43,8 @@ async function main() {
       `rows: issues=${store.issueCount} fields=${store.fields.size} types=${store.issueTypes.size} labels=${store.labels.size} items=${store.projectItems.size} prs=${store.pullRequests.size}`,
     );
   }
+  // PGlite writes its files on close.
+  await closeDb();
   if (second.inserted !== 0 || second.updated !== 0) {
     console.error("NOT IDEMPOTENT");
     process.exit(1);
