@@ -126,7 +126,9 @@ export function ImportProgress() {
             // Before the first status arrives, and until anything is copied.
             IMPORT_COPY.starting
           ) : view.state === "resumed" ? (
-            <span data-import-resumed>{IMPORT_COPY.resumed(p!.issues)}</span>
+            // A resume that has not re-read its first page has no number to show; it
+            // still says it is continuing rather than starting.
+            <span data-import-resumed>{p!.issues > 0 ? IMPORT_COPY.resumed(p!.issues) : IMPORT_COPY.resumedNoCount}</span>
           ) : (
             <>
               <strong className="font-semibold" data-import-issues>

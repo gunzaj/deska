@@ -26,6 +26,12 @@ export const IMPORT_COPY = {
   starting: "Starting…",
   /** Copied before this run began: a relaunch continues, it does not restart. */
   resumed: (issues: number) => `Resuming · ${issues.toLocaleString()} issues already copied`,
+  /**
+   * A resume that has not re-read its first page yet (it quit during metadata), so
+   * there is no number to show. Still a resume, so it must not say "Starting…".
+   * Designer owns these words; this is a placeholder that is true, not a choice.
+   */
+  resumedNoCount: "Resuming…",
   /** The alert's headline when no more specific reason is available (§3.3). */
   failed: "The import stopped",
 } as const;
@@ -34,9 +40,16 @@ export const IMPORT_COPY = {
 export type ImportStepState = "todo" | "active" | "active-idle" | "done";
 
 /**
- * `starting` — nothing copied yet; `importing` — this run copied some, a count line;
- * `resumed` — this run continued a checkpoint, so the copy says so; `failed` — the last
- * completed run stopped and nothing is running.
+ * Four states, and four is the count: each one is a different sentence on screen, and
+ * each is decided by a fact the import reports, not by a number that happens to be
+ * non-zero. Do not add a fifth to fix a sentence — a wrong word is fixed in
+ * `IMPORT_COPY`, not in this type (Architect, D5).
+ *
+ * `starting` — nothing copied and nothing to continue; `importing` — this run copied
+ * something and there is nothing to resume, so the count line is the truth;
+ * `resumed` — this run continued a checkpoint, whether or not it has a count yet, so
+ * the copy says it continues; `failed` — the last completed run stopped and nothing is
+ * running.
  */
 export type ImportViewState = "starting" | "importing" | "resumed" | "failed";
 
@@ -65,8 +78,10 @@ export function importView(s: ImportViewInput): ImportView {
   // (lib/sync/first-import.ts writes it at entry). Counting issues is not the same
   // question: one run counts across its pages, so page 2 of a first import has
   // issues > 0 and nothing to resume.
-  const state: ImportViewState =
-    s.failure && !s.running ? "failed" : s.resumed && s.issues > 0 ? "resumed" : s.issues > 0 ? "importing" : "starting";
+  // A resume is a resume even with nothing copied yet: a relaunch that quit during
+  // the metadata phase has no count to show, and calling that "Starting…" would be a
+  // second sentence for the same fact.
+  const state: ImportViewState = s.failure && !s.running ? "failed" : s.resumed ? "resumed" : s.issues > 0 ? "importing" : "starting";
   const at = s.phase ? IMPORT_STEPS.indexOf(s.phase) : -1;
   const steps: ImportStepState[] = IMPORT_STEPS.map((_, i) => {
     if (at < 0) return s.issues > 0 ? "done" : "todo";

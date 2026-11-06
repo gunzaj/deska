@@ -37,10 +37,14 @@ describe("importView", () => {
     expect(resumed.steps).toEqual(["done", "active-idle", "todo", "todo"]);
   });
 
-  it("says starting when a resumed run has nothing to show yet", () => {
-    // A relaunch that resumed but has not re-read its first page: the count would
-    // read "0 issues already copied", which is worse than saying nothing.
-    expect(importView(input({ resumed: true, issues: 0, phase: "metadata" })).state).toBe("starting");
+  it("is still resumed when a relaunch has nothing to show yet", () => {
+    // A relaunch that quit during the metadata phase: nothing copied, so there is no
+    // number, but it is continuing rather than starting. The state stays `resumed` and
+    // the copy drops the count (Architect: fix the sentence, never add a state).
+    const v = importView(input({ resumed: true, issues: 0, phase: "metadata" }));
+    expect(v.state).toBe("resumed");
+    expect(v.steps).toEqual(["active-idle", "todo", "todo", "todo"]);
+    expect(v.progress).toBe("count");
   });
 
   it("is failed when the last completed run failed and nothing is running", () => {
@@ -82,5 +86,7 @@ describe("importView", () => {
   it("says a resume continues rather than restarts", () => {
     expect(IMPORT_COPY.starting).toBe("Starting…");
     expect(IMPORT_COPY.resumed(4812)).toBe("Resuming · 4,812 issues already copied");
+    // The count-less resume must not fall back to the starting sentence.
+    expect(IMPORT_COPY.resumedNoCount).not.toBe(IMPORT_COPY.starting);
   });
 });
