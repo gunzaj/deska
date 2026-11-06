@@ -1,0 +1,23 @@
+# Maintainer-only context: never committed
+/private/
+
+# Secrets
+.env
+.env.*
+!.env.example
+
+# Dependencies and builds
+node_modules/
+.next/
+out/
+dist/
+release/
+coverage/
+test-results/
+playwright-report/
+*.tsbuildinfo
+
+# OS / editors
+.DS_Store
+.idea/
+.vscode/
