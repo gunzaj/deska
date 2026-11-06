@@ -121,17 +121,18 @@ export function ImportProgress() {
         </ol>
 
         <p role="status" aria-live="polite" className="mt-5 text-[13px]" data-import-progress>
-          {view?.state === "resumed" ? (
-            <span data-import-resumed>{IMPORT_COPY.resumed(p!.issues)}</span>
-          ) : view?.progress === "none" ? (
+          {!view || view.progress === "none" ? (
+            // Before the first status arrives, and until anything is copied.
             IMPORT_COPY.starting
+          ) : view.state === "resumed" ? (
+            <span data-import-resumed>{IMPORT_COPY.resumed(p!.issues)}</span>
           ) : (
             <>
               <strong className="font-semibold" data-import-issues>
                 {p!.issues.toLocaleString()} {p!.issues === 1 ? "issue" : "issues"}
               </strong>{" "}
               imported
-              {view?.progress === "items" ? (
+              {view.progress === "items" ? (
                 <>
                   {" · "}
                   <span data-import-items>
