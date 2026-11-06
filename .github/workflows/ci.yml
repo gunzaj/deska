@@ -1,0 +1,105 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+# A newer push to the same branch makes the running one pointless.
+concurrency:
+  group: ci-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # Runs on every push to every branch, before anything is installed.
+  leak-guard:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: node scripts/leak-guard.mjs --all
+
+  # The full checks run once per change: on pull requests and on main. A push
+  # to a branch with an open pull request would otherwise run them twice.
+  ci:
+    if: github.event_name == 'pull_request' || github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: deska
+          POSTGRES_PASSWORD: deska
+          POSTGRES_DB: deska
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      TEST_DATABASE_URL: postgres://deska:deska@localhost:5432/deska
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm typecheck
+      - run: pnpm lint
+      # The schema and the migrations must agree: `drizzle-kit check` verifies
+      # the migration history, and generating from the schema must produce
+      # nothing (no missing migration, no stray file).
+      - name: Migration drift
+        run: |
+          pnpm exec drizzle-kit check
+          pnpm db:generate
+          git diff --exit-code drizzle/
+          test -z "$(git status --porcelain drizzle/)"
+      # Applies the migrations so the Postgres integration tests (skipped
+      # without TEST_DATABASE_URL) actually run in CI.
+      - run: pnpm db:migrate
+        env:
+          DATABASE_URL: postgres://deska:deska@localhost:5432/deska
+      - run: pnpm test
+      - run: pnpm build
+        env:
+          # The production build must not need real credentials.
+          GITHUB_CLIENT_ID: ci-placeholder
+          GITHUB_CLIENT_SECRET: ci-placeholder
+          AUTH_SECRET: ci-placeholder-secret
+          TOKEN_ENC_KEY: 0000000000000000000000000000000000000000000000000000000000000000
+      # Only Chromium runs (playwright.config.ts), so only Chromium is installed.
+      - uses: actions/cache@v4
+        id: playwright-cache
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+      - name: Install Chromium
+        run: |
+          if [ "${{ steps.playwright-cache.outputs.cache-hit }}" = "true" ]; then
+            pnpm exec playwright install-deps chromium
+          else
+            pnpm exec playwright install --with-deps chromium
+          fi
+      # The e2e servers run `next dev`: the test-only auth bypass is compiled out
+      # of production builds on purpose (lib/e2e-bypass.ts), so `next start`
+      # cannot sign the specs in.
+      - run: pnpm test:e2e
+      - name: Upload the Playwright report and traces
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: |
+            playwright-report/
+            test-results/
+          retention-days: 7

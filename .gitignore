@@ -5,19 +5,40 @@
 .env
 .env.*
 !.env.example
+*.pem
 
-# Dependencies and builds
+# Dependencies
 node_modules/
+.pnp
+.pnp.*
+
+# Builds
 .next/
+.next-e2e/
 out/
+build/
 dist/
 release/
+next-env.d.ts
+*.tsbuildinfo
+.drizzle/
+.turbo
+.cache
+
+# Testing
 coverage/
 test-results/
 playwright-report/
-*.tsbuildinfo
+blob-report/
+playwright/.cache/
+
+# Logs
+npm-debug.log*
+.pnpm-debug.log*
 
 # OS / editors
 .DS_Store
+Thumbs.db
 .idea/
 .vscode/
+*.swp

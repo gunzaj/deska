@@ -1,0 +1,71 @@
+import { z } from "zod";
+import { prViewStateSchema } from "./pr-view";
+
+/**
+ * Limits on a saved view (v5 2.6), in line with the task schemas
+ * (lib/tasks/model.ts). A shared view is processed by every user's
+ * `/api/views` load and by every watch-coverage run, so one member must not be
+ * able to save a multi-megabyte name or 100k filter values.
+ */
+export const VIEW_LIMITS = { name: 120, filters: 50, anyFilters: 20, values: 200, value: 100, text: 200, sort: 10, columns: 40, key: 40, id: 100 } as const;
+
+const values = z.array(z.string().max(VIEW_LIMITS.value)).max(VIEW_LIMITS.values).optional();
+
+const leafFilterSchema = z.union([
+  z.object({ field: z.enum(["assignee"]), op: z.enum(["in", "not_in", "empty"]), values }).strict(),
+  z
+    .object({
+      field: z.enum(["status", "priority", "team", "platform", "type", "label", "milestone"]),
+      op: z.enum(["in", "not_in", "empty"]),
+      values,
+    })
+    .strict(),
+  z
+    .object({
+      field: z.literal("release"),
+      op: z.enum(["in", "not_in", "empty"]),
+      values,
+    })
+    .strict(),
+  z.object({ field: z.literal("parent"), op: z.enum(["in", "empty", "has_sub_issues"]), values }).strict(),
+  z.object({ field: z.literal("state"), op: z.enum(["in"]), values: z.array(z.enum(["open", "closed"])).max(2) }).strict(),
+  z.object({ field: z.literal("text"), op: z.literal("contains"), value: z.string().max(VIEW_LIMITS.text) }).strict(),
+  // Relative dates, resolved when the view runs (like "me" and "current").
+  z
+    .object({
+      field: z.enum(["created", "updated", "closed"]),
+      op: z.enum(["within_days", "older_than_days"]),
+      days: z.number().int().positive().max(3650),
+    })
+    .strict(),
+]);
+
+type LeafFilter = z.infer<typeof leafFilterSchema>;
+/** `any` matches when at least one nested filter matches (one level of OR). */
+export type AnyFilter = { field: "any"; filters: LeafFilter[] };
+
+export const filterSchema: z.ZodType<LeafFilter | AnyFilter> = z.union([
+  leafFilterSchema,
+  z.object({ field: z.literal("any"), filters: z.array(leafFilterSchema).min(1).max(VIEW_LIMITS.anyFilters) }).strict(),
+]);
+
+export const viewSchema = z
+  .object({
+    id: z.string().max(VIEW_LIMITS.id),
+    name: z.string().max(VIEW_LIMITS.name),
+    ownerId: z.string().max(VIEW_LIMITS.id),
+    visibility: z.enum(["personal", "shared"]),
+    layout: z.enum(["list", "board", "table"]),
+    filters: z.array(filterSchema).max(VIEW_LIMITS.filters),
+    sort: z.array(z.object({ field: z.string().max(VIEW_LIMITS.key), dir: z.enum(["asc", "desc"]) }).strict()).max(VIEW_LIMITS.sort),
+    groupBy: z.string().max(VIEW_LIMITS.key).optional(),
+    boardColumnsField: z.enum(["status", "priority", "team", "platform", "assignee", "release", "type"]).optional(),
+    columns: z.array(z.string().max(VIEW_LIMITS.key)).max(VIEW_LIMITS.columns).optional(),
+    /** "pr" views belong to the PR lens and keep their state in `pr` (SPEC §13.3). */
+    entity: z.enum(["issue", "pr"]).optional(),
+    pr: prViewStateSchema.optional(),
+  })
+  .strict();
+
+export type View = z.infer<typeof viewSchema>;
+export type Filter = z.infer<typeof filterSchema>;
