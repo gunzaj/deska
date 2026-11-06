@@ -1,0 +1,9 @@
+# pnpm reads non-auth settings from here, not from .npmrc (only auth and
+# registry settings are read from .npmrc since pnpm v11). Without these
+# approvals, CI fails with ERR_PNPM_IGNORED_BUILDS on Linux.
+allowBuilds:
+  esbuild: true
+  unrs-resolver: true
+  # msw's postinstall only copies a browser service worker; the tests use
+  # msw/node, so its build script is denied on purpose.
+  msw: false
