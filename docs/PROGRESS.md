@@ -5,7 +5,7 @@
 | D0 | done | [#1](https://github.com/gunzaj/deska/pull/1) | Predecessor imported and scrubbed |
 | D1 | done | [#2](https://github.com/gunzaj/deska/pull/2) | Token probe + security doc |
 | D2 | done | [#3](https://github.com/gunzaj/deska/pull/3) | Electron shell, §2.2 hardening, PGlite, unsigned universal .dmg |
-| D3 | todo | | |
+| D3 | done | [#4](https://github.com/gunzaj/deska/pull/4) | Auth server removed; PAT owner is the local user; onboarding step 1, Settings, §3.3 token states |
 | D4 | todo | | |
 | D5 | todo | | |
 | D6 | todo | | |
@@ -44,6 +44,18 @@
 - D2: The token bridge (`deska.token.set/clear/status`) already encrypts with `safeStorage`, stores the ciphertext in the profile and hands the plaintext to the server over IPC. The server keeps it in memory only, and nothing reads it until D3.
 - D2: Fixed a hydration warning from the start of the D0 code (the theme script's CSP nonce). It raised the Next dev overlay over the user menu and broke `user-menu.spec.ts`.
 - D2: The e2e "database" project (`e2e-db`) always runs now, on an in-memory PGlite dev server. The desktop smoke test (`pnpm test:desktop`) runs in a new `desktop` CI job on `macos-latest`.
+- D3: The token check reuses the D1 probe's read-only client (REST GET and GraphQL queries only): `GET /user`, then one read per §3.2 permission. "Awaiting org approval" = `/user` works while the repo is out of reach and the project isn't readable, or GitHub answers with an org-policy message. "Missing a permission" = a 403 "Resource not accessible…" (or GraphQL FORBIDDEN / a null project) on that permission's read.
+- D3: Write permissions can't be read off a fine-grained token without trying a write, so every token counts as read-only ("Read-only token" on edit controls) until W0 adds detection. SPEC §3.3 notes this.
+- D3: Until D4 stores the repo and project, the capability check uses `GITHUB_REPO` / `GITHUB_ORG` / `GITHUB_PROJECT_NUMBER` from the environment. In the real app (no env) it checks `GET /user` only and lists the permissions as "not checked yet".
+- D3: The desktop app still seeds the fictional demo dataset into an empty database until in-process sync (D5), under the "Sample data" banner. `me` is now the PAT owner, not `alice`.
+- D3: The PAT owner's login, name and avatar URL are saved in `sync_state` (`github.*` keys), so `me` is known offline after a relaunch. A token replaced during a run is trusted only after its own `GET /user`.
+- D3: Main waits for the server to acknowledge each token message (`token-ack`), so the page's next `/api/connection?refresh=1` sees the new token. Main accepts only `github_pat_…` tokens (§3.1).
+- D3: The server installs console redaction at start (`lib/redact.ts`), covering every log line. `redactError` uses the same rules.
+- D3: `pnpm desktop:dev` runs `next dev` in-process via Next's custom-server API. The `next dev` CLI forks a child process the token never reaches. Not exercised by CI.
+- D3: `DESKA_GITHUB_API_URL` (only `http://127.0.0.1:<port>`) points every GitHub call, Octokit included, at a mock. The Electron smoke test uses it with `--use-mock-keychain`, so tests never touch the real keychain.
+- D3: The test-only identity (`E2E_AUTH_BYPASS` + `x-e2e-login`) stays for e2e and the `pnpm dev` preview, without an allowlist. Multi-user task tests keep working until D7. The tasks "blocked" access state is gone with the allowlist.
+- D3: `scripts/probe-pat.ts` and `sync:full --live` still read `GITHUB_TOKEN`: they are maintainer CLI tools, not the app. `docs/security.md` says so. The `users` table stays (without `token_enc`) until D7.
+- D3: `drainLeftovers` (cron/worker outbox drain) was removed with its callers. W0 builds the in-process outbox.
 
 ## Maintainer to-do
 - [ ] Create a **read-only** fine-grained PAT: resource owner = the org, repository access = only the one repo; Repository → Metadata: Read, Repository → Issues: Read, Organization → Projects: Read, Organization → Issue types: Read (optional); nothing else. Then run the probe (report lands in `private/findings/`):
@@ -51,7 +63,7 @@
   read -rs GITHUB_TOKEN && export GITHUB_TOKEN
   GITHUB_REPO=<owner>/<repo> GITHUB_ORG=<org> GITHUB_PROJECT_NUMBER=<n> pnpm probe:pat
   ```
-- [ ] Try the D2 build on your Mac: `pnpm desktop:build`, then open `release/Deska-0.0.0-universal.dmg`. The app is unsigned, so the first time, right-click Deska.app → Open (or allow it under System Settings → Privacy & Security). It shows the fictional demo data until D3.
+- [ ] Try the D2 build on your Mac: `pnpm desktop:build`, then open `release/Deska-0.0.0-universal.dmg`. The app is unsigned, so the first time, right-click Deska.app → Open (or allow it under System Settings → Privacy & Security). Since D3 it opens on "Connect GitHub": paste a read-only fine-grained PAT (see the first item). The issue list still shows the fictional sample data until D5.
 - [ ] Optional: add a `.env.example` if you want one (the agent could not write `.env.*` files). Use only fictional values.
 
 ## Blockers
