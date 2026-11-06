@@ -186,26 +186,15 @@ describe("runSyncCycle error handling (v5 4.3)", () => {
     return { kv, source };
   };
 
-  it("throws by default (cron, Sync now)", async () => {
+  it("throws when a step fails (the service records it)", async () => {
     const { kv, source } = failingPoll();
     await expect(runSyncCycle(source, new MemoryStore(), kv)).rejects.toThrow("502");
   });
 
-  it("with continueOnError a failed poll is collected and the scans still run (worker)", async () => {
-    const { kv, source } = failingPoll();
-    const res = await runSyncCycle(source, new MemoryStore(), kv, { continueOnError: true });
-    expect(res.issues).toEqual({ applied: false, reason: "error" });
-    expect(res.errors).toEqual([expect.stringContaining("issues cycle: HTTP 502")]);
-    expect(res.project).not.toBeNull();
-    expect(res.prs).not.toBeNull();
-  });
-
-  it("without a cursor it stops before the scans in both modes", async () => {
+  it("without a cursor it stops before the scans", async () => {
     const { source } = failingPoll();
-    for (const continueOnError of [false, true]) {
-      const res = await runSyncCycle(source, new MemoryStore(), new MapKv(), { continueOnError });
-      expect(res).toMatchObject({ issues: { reason: "needs-initial-import" }, project: null, prs: null, errors: [] });
-    }
+    const res = await runSyncCycle(source, new MemoryStore(), new MapKv());
+    expect(res).toMatchObject({ issues: { reason: "needs-initial-import" }, project: null, prs: null });
   });
 });
 

@@ -1,7 +1,7 @@
-// Sync runtime. Key/value sync state (ETag, since, lastSync) lives in the
-// Postgres sync_state table when DESKA_DB_DIR is set, so a Vercel Cron
-// invocation, the web app and `pnpm worker` all observe the same cursor.
-// Without a database it falls back to a process-local map (dev/tests only).
+// Sync runtime. Key/value sync state (ETag, since, lastSync, the first
+// import's checkpoint) lives in the sync_state table when DESKA_DB_DIR is set,
+// so it survives a relaunch. Without a database it falls back to a
+// process-local map (dev/tests only).
 import { dbDir, getDb } from "@/db";
 import { syncState } from "@/db/schema";
 import { bumpGenerationOnce } from "./generation";
@@ -10,6 +10,7 @@ import { effectiveMapping, type FieldMapping } from "./field-map";
 import { consecutiveFailures } from "./health";
 import { withSyncLock, type LockOptions, type LockResult } from "./lock";
 import { MapKv, type Kv } from "./poll";
+import { IMPORT_KEYS, importProgress, type ImportProgress } from "./import-state";
 
 const syncKv: Kv = new MapKv();
 
@@ -29,7 +30,7 @@ class DbKv implements Kv {
   set(key: string, value: string): void {
     this.cache.set(key, value);
     // Fire-and-forget, but never as an unhandled rejection: one failed write
-    // used to crash the long-running worker. Writes to one key are chained so
+    // must not crash the server. Writes to one key are chained so
     // an older value can never land after a newer one.
     const prev = this.pending.get(key) ?? Promise.resolve();
     const p: Promise<void> = prev
@@ -45,7 +46,7 @@ class DbKv implements Kv {
   }
 
   /**
-   * Wait for queued writes (serverless handlers must not return before this).
+   * Wait for queued writes (a checkpoint must be on disk before the next page).
    * Throws if any write failed, so a lost cursor or checkpoint surfaces as a
    * failed cycle instead of a silently "healthy" one.
    */
@@ -58,7 +59,7 @@ class DbKv implements Kv {
     }
   }
 
-  /** Re-read from the database, so a cron run in another process is visible. */
+  /** Re-read from the database (the maintainer's `sync:full --db` CLI writes it from another process). */
   async refresh(keys: string[]): Promise<void> {
     if (!dbDir()) return;
     // Our own queued writes must land first, or the re-read resurrects the
@@ -81,9 +82,8 @@ class DbKv implements Kv {
 
 /**
  * Every key a sync cycle reads. A key missing here is never re-read from the
- * database: `prs.lastScan` was, so each cold serverless start (and every
- * process other than the one that scanned) saw it as null and rescanned all
- * open PRs on every cron tick.
+ * database, so after a relaunch it would read as null (the predecessor
+ * rescanned every open PR on each start that way).
  */
 const SHARED_KEYS = [
   "issues.since",
@@ -99,6 +99,8 @@ const SHARED_KEYS = [
   "project.scanStartedAt",
   "prs.lastScan",
   "reconcile.lastRun",
+  "retention.lastRun",
+  ...Object.values(IMPORT_KEYS),
 ];
 
 let dbKv: DbKv | null = null;
@@ -149,6 +151,11 @@ async function readShared(keys: string[]): Promise<Map<string, string | null>> {
   return new Map(keys.map((k) => [k, found.get(k) ?? null]));
 }
 
+/** Whether the first import finished (it sets the poll cursor last). */
+export async function initialImportDone(): Promise<boolean> {
+  return !!(await readShared(["issues.since"])).get("issues.since");
+}
+
 /** Read-only sync state for the status chip. */
 export async function readSyncState(): Promise<{
   lastSync: string | null;
@@ -157,14 +164,17 @@ export async function readSyncState(): Promise<{
   lastAttemptAt: string | null;
   lastError: string | null;
   consecutiveFailures: number;
+  /** The first import's progress while it hasn't finished. */
+  importProgress: ImportProgress;
 }> {
   const state = await readShared(SHARED_KEYS);
   const kv = new MapKv();
   for (const [k, v] of state) if (v != null) kv.set(k, v);
   return {
+    importProgress: importProgress(kv),
     lastSync: state.get("sync.lastSync") ?? null,
     rateLimitedUntil: state.get("sync.rateLimitedUntil") ?? null,
-    // Polls refuse to run without a cursor until the initial import (S2).
+    // Polls refuse to run without a cursor until the first import is done (S2).
     needsInitialImport: !state.get("issues.since"),
     lastAttemptAt: state.get("sync.lastAttemptAt") || null,
     lastError: state.get("sync.lastError") || null,

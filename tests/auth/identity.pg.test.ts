@@ -32,7 +32,8 @@ const server = setupServer(
 
 const { getDb } = await import("@/db");
 const { setLocalToken, localToken } = await import("@/lib/github/local-token");
-const { connectionStatus, resetConnectionCache, savedIdentity } = await import("@/lib/connection");
+const { cachedConnection, connectionStatus, noteSyncProblem, resetConnectionCache, savedIdentity } = await import("@/lib/connection");
+const { MESSAGES } = await import("@/lib/github/token-states");
 const { getViewerLogin } = await import("@/lib/session");
 const { GET: connectionRoute } = await import("@/app/api/connection/route");
 const { route } = await import("@/lib/server/route");
@@ -99,6 +100,34 @@ describe("the local user is the PAT owner", () => {
     setLocalToken(["github", "pat", "TEST", "REVOKED", "0".repeat(20)].join("_"), "user");
     expect(await getViewerLogin()).toBeNull();
     expect((await connectionStatus()).state).toBe("invalid");
+  });
+
+  it("D5: a token revoked mid-session keeps its owner as `me` and says why, so the cached data stays", async () => {
+    setLocalToken(TOKEN, "user");
+    expect(await getViewerLogin()).toBe("carol");
+    // A sync cycle got a 401: the banner says so at once…
+    noteSyncProblem("invalid");
+    expect(cachedConnection()).toMatchObject({ state: "invalid", message: MESSAGES.invalid, login: "carol" });
+    expect(await getViewerLogin()).toBe("carol");
+    // …and when the next check also gets a 401 (no owner in that answer), `me` is still known.
+    delete owners[TOKEN];
+    try {
+      expect(await connectionStatus({ refresh: true })).toMatchObject({ state: "invalid", login: null });
+      expect(await getViewerLogin()).toBe("carol");
+    } finally {
+      owners[TOKEN] = "carol";
+    }
+    // A different token is trusted only after its own check.
+    setLocalToken(OTHER, "user");
+    expect(await getViewerLogin()).toBe("dave");
+  });
+
+  it("D5: a sync that can't reach GitHub shows \"Can't reach GitHub\" with the owner kept", async () => {
+    setLocalToken(TOKEN, "user");
+    expect(await getViewerLogin()).toBe("carol");
+    noteSyncProblem("offline");
+    expect(cachedConnection()).toMatchObject({ state: "offline", message: MESSAGES.offline, login: "carol" });
+    expect(await getViewerLogin()).toBe("carol");
   });
 
   it("disconnecting removes the user", async () => {

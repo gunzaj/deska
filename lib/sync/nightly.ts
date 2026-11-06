@@ -1,5 +1,6 @@
-// The nightly job (IMPROVEMENTS S6, S8): the reconcile and retention, once a
-// day (D5 runs it in-process on launch when the last run is over 24 h old).
+// The daily job (IMPROVEMENTS S6, S8): the reconcile and retention, once a
+// day. The sync service runs it with a cycle when the last run is over 24 h
+// old, so on launch after a day away.
 // Runs under the sync lock like every other sync write.
 import { runRetention, type RetentionResult } from "@/lib/maintenance/retention";
 import type { ImportStore } from "./import";

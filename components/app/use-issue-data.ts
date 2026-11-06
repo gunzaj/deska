@@ -8,7 +8,12 @@ import { reuseRows } from "@/lib/client/reuse";
 import { isUnauthorized } from "@/lib/client/session";
 import type { WireData, WireIssue } from "@/lib/client/types";
 
-export const REFRESH_MS = 120_000;
+/**
+ * How often the rows are re-read while the tab is visible. The local server
+ * answers an unchanged cache with the same ETag, so a poll costs nothing; a
+ * change the sync service brought in shows within one cycle plus this (D5).
+ */
+export const REFRESH_MS = 10_000;
 
 /**
  * The payload names no viewer (it is the same for everyone, so one serialized
@@ -96,7 +101,7 @@ export function useIssueData(viewer: string, initialWire: WireData, initialEtag:
   }, [viewer]);
 
   // Background freshness: while the tab is visible, and when it comes back.
-  usePoll(refresh, { every: 30_000, minGap: REFRESH_MS, lastRun: lastFetch, immediate: false });
+  usePoll(refresh, { every: REFRESH_MS, minGap: REFRESH_MS, lastRun: lastFetch, immediate: false });
 
   return { data, refresh, staleSince, wireIssue, overlayIssue, clearOverlay, commitIssue };
 }
