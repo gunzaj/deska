@@ -149,7 +149,12 @@ export function ImportProgress() {
           </div>
         ) : null}
 
-        {failure && <ImportProblem failure={failure} status={status!} connection={connection} retrying={retrying} onRetry={() => void start()} />}
+        {/* Gated on the derived state, not on `failure`: that field survives a retry
+            (lib/sync/service.ts clears it only on success), so a live Retry button
+            would sit on an import that is already running. */}
+        {view?.state === "failed" && (
+          <ImportProblem failure={failure!} status={status!} connection={connection} retrying={retrying} onRetry={() => void start()} />
+        )}
       </div>
     </main>
   );
@@ -178,7 +183,7 @@ function ImportProblem({
           ? status.rateLimitedUntil
             ? MESSAGES.rateLimited(new Date(status.rateLimitedUntil).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }))
             : "GitHub is rate limiting Deska"
-          : (named ?? "The import stopped");
+          : (named ?? IMPORT_COPY.failed);
   const hint =
     failure === "invalid"
       ? "Create a new token on GitHub and replace it. The import continues where it stopped."
