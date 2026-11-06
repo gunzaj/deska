@@ -1,8 +1,8 @@
-// The initial import into an empty cache (IMPROVEMENTS S2), shared by
-// `pnpm worker` and `pnpm sync:full`. Only the worker used to seed the sync
-// cursors afterwards, so a Vercel deploy seeded with `sync:full --live --db`
-// had no `issues.since`: the cron's first poll paged the whole repo history
-// (state=all), timed out, never advanced the cursor, and repeated every tick.
+// The initial import into an empty cache (IMPROVEMENTS S2), shared by the
+// first import (lib/sync/first-import.ts), the demo seed and `pnpm sync:full`.
+// It seeds the sync cursors afterwards: an import that did not would leave no
+// `issues.since`, and the next poll would page the whole repo history
+// (state=all) every cycle.
 import { recordCycle } from "./health";
 import { importFull, type ImportStore, type StoreStats } from "./import";
 import type { LockResult } from "./lock";

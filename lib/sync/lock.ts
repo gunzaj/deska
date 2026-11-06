@@ -5,7 +5,7 @@
 //
 // The desktop app has one process and one embedded database (SPEC §2.1), so the
 // lock is an in-process mutex. It replaced the Postgres advisory lock the
-// hosted predecessor needed across serverless instances and a worker.
+// hosted predecessor needed across instances.
 
 export type LockResult<T> = { ran: true; value: T } | { ran: false };
 
