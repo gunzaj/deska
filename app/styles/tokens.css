@@ -1,0 +1,208 @@
+/*
+ * Deska design tokens (standard + dark themes).
+ * Names here are Deska-local; comments give the design token each maps to.
+ * Light by default; dark follows the OS unless the user picked a theme
+ * (html[data-theme]).
+ */
+:root {
+  --bg: #f4f5f7; /* surfaceFillPage */
+  --sunken: #e6e8eb; /* surfaceFillSunken */
+  --surface: #ffffff; /* surfaceFillRaised */
+  --popover: #ffffff; /* surfaceFillModeless */
+  --elevated: #ffffff; /* elementFillElevated */
+  --hover: #2e395212; /* elementFillGhostHovered */
+  --active: #1f2c471c; /* elementFillNeutralSoft */
+  --field: #203a600d; /* elementFillField */
+  --fg: #0e1115f0; /* contentPrimary */
+  --fg-muted: #212830ba; /* contentSecondary */
+  --fg-faint: #242d38b0; /* contentTertiary, darker than the DS token: 0x99 was 3.8:1 on the page, under WCAG AA (U2) */
+  --fg-disabled: #29334278; /* contentDisabled */
+  --border: #1f2c471c; /* borderNeutral */
+  --border-soft: #2e395212; /* elementBorderNeutralSofter */
+  --border-field: #23304345; /* elementBorderField */
+  --border-field-hover: #242d3899; /* elementBorderFieldHovered */
+  --focus: #8fb6ffba; /* elementBorderFocusRing */
+  --brand: #60e198; /* elementFillBrandBold */
+  --brand-hover: #4bce81; /* elementFillBrandBoldHovered */
+  --brand-on: #062d16; /* contentButtonBrandPrimary */
+  --brand-text: #1e5736; /* contentBrand */
+  --brand-soft: #60e19833; /* elementFillBrandSofter */
+  --brand-border: #36ab66; /* borderBrand */
+  --brand-dark: #062d16; /* surfaceFillBrandDark */
+  --critical: #82262c; /* contentCritical */
+  --critical-soft: #fd91984d; /* elementFillCriticalSoft */
+  --warning: #744306; /* contentWarning */
+  --warning-soft: #f8b55d5e; /* elementFillWarningSoft */
+  --info: #1d4690; /* contentInfo */
+  --info-soft: #8fb6ff4d; /* elementFillInfoSoft */
+  --violet: #423295; /* contentAccentViolet */
+  --violet-soft: #b3a4fe4d; /* elementFillAccentVioletSoft */
+  --prio-1: #c8352b; /* task priorities (Deska-only): Todoist red, orange, blue */
+  --prio-2: #b86200;
+  --prio-3: #1f63cc;
+  --banner-info: #dde9ff; /* surfaceFillModelessInfo */
+  --banner-warning: #fce4c3; /* surfaceFillModelessWarning */
+  --underlay: #2e395226; /* surfaceFillModalUnderlay, stronger */
+  --series-1: #3b78e0; /* chart series, CVD-validated pair */
+  --series-2: #e07a2f;
+  --shadow-raised: 0 2px 4px -2px rgba(0, 40, 71, 0.08), 0 0 2px 0 rgba(0, 40, 71, 0.06); /* elementShadowElevated */
+  --shadow-pop: 0 12px 20px -2px rgba(0, 40, 71, 0.06), 0 0 12px 0 rgba(0, 40, 71, 0.04), 0 0 0 1px #2e395212; /* surfaceShadowModeless */
+  --shadow-modal: 0 32px 64px -4px rgba(0, 40, 71, 0.08), 0 0 32px 0 rgba(0, 40, 71, 0.06), 0 0 0 1px #2e395212; /* surfaceShadowModal */
+  color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #151719;
+    --sunken: #0e0f10;
+    --surface: #1c1e20;
+    --popover: #232527;
+    --elevated: #313335;
+    --hover: #ffffff0f;
+    --active: #ffffff1f;
+    --field: #ffffff08;
+    --fg: #ffffff;
+    --fg-muted: #ffffff9e;
+    --fg-faint: #ffffff80;
+    --fg-disabled: #ffffff61;
+    --border: #ffffff17;
+    --border-soft: #ffffff12;
+    --border-field: #ffffff26;
+    --border-field-hover: #ffffff80;
+    --focus: #6698f5b5;
+    --brand: #5ad38e;
+    --brand-hover: #83e7af;
+    --brand-on: #14231d;
+    --brand-text: #83e7af;
+    --brand-soft: #0fbd5924;
+    --brand-border: #45b374;
+    --brand-dark: #142e22;
+    --critical: #fea9af;
+    --critical-soft: #d5626942;
+    --warning: #ffcc8f;
+    --warning-soft: #b67a2b42;
+    --info: #acc6f6;
+    --info-soft: #5987de42;
+    --violet: #c4b8fe;
+    --violet-soft: #8676d642;
+    --prio-1: #ff7a70;
+    --prio-2: #ffa23a;
+    --prio-3: #6aa6ff;
+    --banner-info: #1d2636;
+    --banner-warning: #2c2418;
+    --underlay: #00000080;
+    --series-1: #5b8ff0;
+    --series-2: #d66f26;
+    --shadow-raised: 0 2px 4px -2px rgba(0, 0, 0, 0.16), 0 0 2px 0 rgba(0, 0, 0, 0.12);
+    --shadow-pop: 0 12px 20px -2px rgba(0, 0, 0, 0.32), 0 0 12px 0 rgba(0, 0, 0, 0.2), 0 0 0 1px #ffffff14;
+    --shadow-modal: 0 32px 64px -4px rgba(0, 0, 0, 0.4), 0 0 32px 0 rgba(0, 0, 0, 0.3), 0 0 0 1px #ffffff14;
+    color-scheme: dark;
+  }
+}
+
+:root[data-theme="dark"] {
+  --bg: #151719;
+  --sunken: #0e0f10;
+  --surface: #1c1e20;
+  --popover: #232527;
+  --elevated: #313335;
+  --hover: #ffffff0f;
+  --active: #ffffff1f;
+  --field: #ffffff08;
+  --fg: #ffffff;
+  --fg-muted: #ffffff9e;
+  --fg-faint: #ffffff80;
+  --fg-disabled: #ffffff61;
+  --border: #ffffff17;
+  --border-soft: #ffffff12;
+  --border-field: #ffffff26;
+  --border-field-hover: #ffffff80;
+  --focus: #6698f5b5;
+  --brand: #5ad38e;
+  --brand-hover: #83e7af;
+  --brand-on: #14231d;
+  --brand-text: #83e7af;
+  --brand-soft: #0fbd5924;
+  --brand-border: #45b374;
+  --brand-dark: #142e22;
+  --critical: #fea9af;
+  --critical-soft: #d5626942;
+  --warning: #ffcc8f;
+  --warning-soft: #b67a2b42;
+  --info: #acc6f6;
+  --info-soft: #5987de42;
+  --violet: #c4b8fe;
+  --violet-soft: #8676d642;
+  --prio-1: #ff7a70;
+  --prio-2: #ffa23a;
+  --prio-3: #6aa6ff;
+  --banner-info: #1d2636;
+  --banner-warning: #2c2418;
+  --underlay: #00000080;
+  --series-1: #5b8ff0;
+  --series-2: #d66f26;
+  --shadow-raised: 0 2px 4px -2px rgba(0, 0, 0, 0.16), 0 0 2px 0 rgba(0, 0, 0, 0.12);
+  --shadow-pop: 0 12px 20px -2px rgba(0, 0, 0, 0.32), 0 0 12px 0 rgba(0, 0, 0, 0.2), 0 0 0 1px #ffffff14;
+  --shadow-modal: 0 32px 64px -4px rgba(0, 0, 0, 0.4), 0 0 32px 0 rgba(0, 0, 0, 0.3), 0 0 0 1px #ffffff14;
+  color-scheme: dark;
+}
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-sunken: var(--sunken);
+  --color-surface: var(--surface);
+  --color-popover: var(--popover);
+  --color-elevated: var(--elevated);
+  --color-hover: var(--hover);
+  --color-active: var(--active);
+  --color-field: var(--field);
+  --color-fg: var(--fg);
+  --color-muted: var(--fg-muted);
+  --color-faint: var(--fg-faint);
+  --color-disabled: var(--fg-disabled);
+  --color-line: var(--border);
+  --color-line-soft: var(--border-soft);
+  --color-line-field: var(--border-field);
+  --color-line-field-hover: var(--border-field-hover);
+  --color-focus: var(--focus);
+  --color-brand: var(--brand);
+  --color-brand-hover: var(--brand-hover);
+  --color-brand-on: var(--brand-on);
+  --color-brand-text: var(--brand-text);
+  --color-brand-soft: var(--brand-soft);
+  --color-brand-border: var(--brand-border);
+  --color-brand-dark: var(--brand-dark);
+  --color-critical: var(--critical);
+  --color-critical-soft: var(--critical-soft);
+  --color-warning: var(--warning);
+  --color-warning-soft: var(--warning-soft);
+  --color-info: var(--info);
+  --color-info-soft: var(--info-soft);
+  --color-violet: var(--violet);
+  --color-violet-soft: var(--violet-soft);
+  --color-banner-info: var(--banner-info);
+  --color-banner-warning: var(--banner-warning);
+  --color-underlay: var(--underlay);
+  --color-series-1: var(--series-1);
+  --color-series-2: var(--series-2);
+  --shadow-raised: var(--shadow-raised);
+  --shadow-pop: var(--shadow-pop);
+  --shadow-modal: var(--shadow-modal);
+  --font-sans: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji";
+  --font-mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, monospace;
+  /*
+   * Deska type scale (docs/UI-PASS.md §2). Inert: nothing consumes these yet.
+   * The sweep that rewires components lands separately; each step carries its
+   * own line-height so a size can never reflow a list on its own.
+   */
+  --text-d2xs: 11px;
+  --text-d2xs--line-height: 16px;
+  --text-dxs: 12px;
+  --text-dxs--line-height: 16px;
+  --text-dsm: 13px;
+  --text-dsm--line-height: 20px;
+  --text-dmd: 15px;
+  --text-dmd--line-height: 22px;
+  --text-dlg: 20px;
+  --text-dlg--line-height: 28px;
+}
