@@ -588,7 +588,8 @@ type FieldValueNode = { optionId?: string; iterationId?: string; field?: { id?: 
 
 /**
  * Set a project item's values from GraphQL field values (§4.1): every
- * single-select value goes into `dims` by field ID, and the fields mapped to
+ * single-select and iteration value goes into `dims` by field ID (so a remap
+ * needs no new scan), and the fields mapped to
  * Status, Priority and Sprint also set those columns. A value belongs to a
  * role when its field's ID is the mapped field's ID (the name only when the
  * node carries no ID), so a renamed field still maps.
@@ -606,7 +607,9 @@ export function applyFieldValues(row: SnapshotProjectItem, values: (FieldValueNo
       if (fv.field?.id) dims[fv.field.id] = fv.optionId;
       if (is(fv, "status")) row.statusOpt = fv.optionId;
       else if (is(fv, "priority")) row.priorityOpt = fv.optionId;
-    } else if (fv.iterationId && is(fv, "sprint")) {
+    } else if (fv.iterationId) {
+      if (fv.field?.id) dims[fv.field.id] = fv.iterationId;
+      if (!is(fv, "sprint")) continue;
       // Only the mapped Sprint field sets this; other iteration fields on the
       // project would otherwise clobber it.
       row.releaseIter = fv.iterationId;

@@ -190,9 +190,9 @@ export const projectItems = pgTable(
 );
 
 /**
- * Single-select values of a project item, keyed by field ID (§4.1): what
- * dimensions (and a remapped Status or Priority) read, whatever the fields
- * are called.
+ * Single-select and iteration values of a project item, keyed by field ID
+ * (§4.1): what dimensions (and a remapped Status, Priority or Sprint) read,
+ * whatever the fields are called. `option_id` holds the option or iteration ID.
  */
 export const projectItemDims = pgTable(
   "project_item_dims",

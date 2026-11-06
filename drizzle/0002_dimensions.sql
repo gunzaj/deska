@@ -26,7 +26,8 @@ CROSS JOIN LATERAL (VALUES
   (fm.map->'status'->>'id', pi."status_opt"),
   (fm.map->'priority'->>'id', pi."priority_opt"),
   (fm.map->'team'->>'id', pi."team_opt"),
-  (fm.map->'platform'->>'id', pi."platform_opt")
+  (fm.map->'platform'->>'id', pi."platform_opt"),
+  (fm.map->'release'->>'id', pi."release_iter")
 ) AS m("field_id", "opt")
 WHERE m."field_id" IS NOT NULL AND m."opt" IS NOT NULL
 ON CONFLICT DO NOTHING;--> statement-breakpoint

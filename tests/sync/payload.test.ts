@@ -14,7 +14,7 @@ describe("ETags on the data APIs", () => {
     const first = await data(req("http://x/api/data"));
     expect(first.status).toBe(200);
     const etag = first.headers.get("etag")!;
-    expect(etag).toMatch(/^".+-r-\d{4}-\d{2}-\d{2}(-[a-z]+)?"$/); // no viewer in it (v5 3.7)
+    expect(etag).toMatch(/^".+-r-\d{4}-\d{2}-\d{2}(-[a-z0-9]+)?"$/); // no viewer in it (v5 3.7)
     expect(first.headers.get("cache-control")).toBe("private, no-cache");
     const second = await data(req("http://x/api/data", etag));
     expect(second.status).toBe(304);

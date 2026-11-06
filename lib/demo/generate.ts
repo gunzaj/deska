@@ -6,7 +6,7 @@
 import type { FullSnapshot, SnapshotIssue, SnapshotProjectItem, SnapshotPullRequest } from "@/lib/sync/types";
 import { fixtureSnapshot, projectItem } from "./fixtures";
 
-const ITEM_FIELDS = { status: "PVTSSF_acme_status", priority: "PVTSSF_acme_priority" };
+const ITEM_FIELDS = { status: "PVTSSF_acme_status", priority: "PVTSSF_acme_priority", sprint: "PVTIF_acme_release" };
 const TEAM_FIELD = "PVTSSF_acme_team";
 const PLATFORM_FIELD = "PVTSSF_acme_platform";
 

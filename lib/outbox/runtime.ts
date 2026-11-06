@@ -3,6 +3,7 @@ import { GitHubWriteClient } from "@/lib/github/write-client";
 import { importFull } from "@/lib/sync/import";
 import type { ProjectFieldMap } from "@/lib/sync/field-map";
 import { currentFieldMap } from "@/lib/sync/runtime";
+import { requireTarget } from "@/lib/settings";
 import { GitHubSource } from "@/lib/sync/source-github";
 import type { ReadModel } from "@/lib/sync/read-model";
 import { PostgresStore } from "@/lib/sync/store-postgres";
@@ -30,14 +31,14 @@ export function doneStatusOption(store: ReadModel, raw = process.env.STATUS_DONE
  */
 export async function refreshIssue(token: string, issueNodeId: string): Promise<void> {
   const store = new PostgresStore();
-  const source = new GitHubSource(token, store, await currentFieldMap(store));
+  const source = new GitHubSource(token, store, await currentFieldMap(store), await requireTarget());
   const node = (await source.fetchNodes([issueNodeId])).get(issueNodeId);
   if (!node || node.kind !== "issue") return;
   const item = await source.fetchProjectItem(issueNodeId);
   await importFull(partialSnapshot({ issues: [node.issue], projectItems: item ? [item] : [] }), store, { source: "deska" });
 }
 
-/** What the outbox needs to write as this user. */
-export function depsFor(token: string, doneStatusOptionId: string, fields: ProjectFieldMap): ProcessDeps {
-  return { client: new GitHubWriteClient(token, fields), doneStatusOptionId, refresh: (id) => refreshIssue(token, id) };
+/** What the outbox needs to write as this user: the stored project (§2.4), its node ID pinned. */
+export async function depsFor(token: string, doneStatusOptionId: string, fields: ProjectFieldMap): Promise<ProcessDeps> {
+  return { client: new GitHubWriteClient(token, fields, await requireTarget()), doneStatusOptionId, refresh: (id) => refreshIssue(token, id) };
 }

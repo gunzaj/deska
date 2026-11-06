@@ -9,16 +9,19 @@
 import { inArray } from "drizzle-orm";
 import { dbDir, getDb } from "@/db";
 import { syncState } from "@/db/schema";
-import { ConfigError, githubApiBase, githubTarget } from "./config";
+import { githubApiBase } from "./config";
 import { desktopGuard } from "./desktop/guard";
 import { checkToken, previewStatus, missingStatus, type CheckTarget, type ConnectionStatus } from "./github/connection";
 import { localToken, tokenState } from "./github/local-token";
+import { currentTarget, settingsVersion } from "./settings";
 
 const OK_TTL_MS = 10 * 60_000;
 const ERROR_TTL_MS = 60_000;
 
 type Cache = {
   generation: number;
+  /** settingsVersion() the answer was for: a newly chosen project is checked again. */
+  settings?: number;
   at: number;
   status: ConnectionStatus | null;
   inflight: Promise<ConnectionStatus> | null;
@@ -36,15 +39,14 @@ export function resetConnectionCache(): void {
   (globalThis as Record<symbol, unknown>)[CACHE] = undefined;
 }
 
-/** The repository and project to check against, while they still come from env (D4 moves them to settings). */
-function checkTarget(): CheckTarget | null {
-  try {
-    const t = githubTarget();
-    return { owner: t.owner, repo: t.repo, org: t.org, projectNumber: t.projectNumber };
-  } catch (e) {
-    if (e instanceof ConfigError) return null;
-    throw e;
-  }
+/**
+ * The repository and project to check against: the ones chosen in onboarding
+ * step 2 (lib/settings.ts), else the env vars tests and dev set. Before either
+ * exists only `GET /user` is checked and the permissions show "not checked yet".
+ */
+async function checkTarget(): Promise<CheckTarget | null> {
+  const t = await currentTarget();
+  return t ? { owner: t.owner, repo: t.repo, org: t.org, projectNumber: t.projectNumber } : null;
 }
 
 function ttl(s: ConnectionStatus): number {
@@ -68,11 +70,12 @@ export async function connectionStatus({ refresh = false }: { refresh?: boolean 
   if (!token) return missingStatus();
   const c = cache();
   const { generation } = tokenState();
-  if (c.generation !== generation) Object.assign(c, { generation, at: 0, status: null, inflight: null });
+  const settings = settingsVersion();
+  if (c.generation !== generation || c.settings !== settings) Object.assign(c, { generation, settings, at: 0, status: null, inflight: null });
   if (!refresh && c.status && Date.now() - c.at < ttl(c.status)) return c.status;
   if (c.inflight) return c.inflight;
   const run = (async () => {
-    const status = await checkToken(token, checkTarget(), { apiBase: githubApiBase() });
+    const status = await checkToken(token, await checkTarget(), { apiBase: githubApiBase() });
     // A token change while the check ran: this answer belongs to the old one.
     if (cache().generation !== generation) return status;
     Object.assign(cache(), { status, at: Date.now() });

@@ -111,7 +111,7 @@ export async function importItemPage(tx: Tx, page: SnapshotProjectItem[], ctx: C
     add(stats, tallyUpsert(group.length, ret));
     for (const r of ret) if (r.itemId) written.add(r.itemId);
   }
-  // Single-select values by field ID (§4.1): diffed, so an unchanged item writes nothing.
+  // Single-select and iteration values by field ID (§4.1): diffed, so an unchanged item writes nothing.
   const rowIds = await tx
     .select({ id: projectItems.id, itemId: projectItems.ghItemId, updatedAt: projectItems.updatedAt })
     .from(projectItems)

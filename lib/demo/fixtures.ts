@@ -6,21 +6,22 @@ import type { FullSnapshot, SnapshotProjectItem, SnapshotPullRequest } from "@/l
 
 /**
  * A project item as GitHub's scan reports it: the mapped Status, Priority and
- * Sprint values, and every single-select value by field ID in `dims`.
+ * Sprint values, and every single-select and iteration value by field ID in `dims`.
  */
 export function projectItem(
   p: Pick<SnapshotProjectItem, "itemId" | "issueNodeId" | "statusOpt" | "priorityOpt" | "releaseIter">,
-  fields: { status: string; priority: string },
+  fields: { status: string; priority: string; sprint?: string },
   extra: Record<string, string | null> = {},
 ): SnapshotProjectItem {
   const dims: Record<string, string> = {};
   if (p.statusOpt) dims[fields.status] = p.statusOpt;
   if (p.priorityOpt) dims[fields.priority] = p.priorityOpt;
+  if (p.releaseIter && fields.sprint) dims[fields.sprint] = p.releaseIter;
   for (const [fieldId, opt] of Object.entries(extra)) if (opt) dims[fieldId] = opt;
   return { ...p, ...(Object.keys(dims).length ? { dims } : {}) };
 }
 
-const FIELDS = { status: "PVTSSF_acme_status", priority: "PVTSSF_acme_priority" };
+const FIELDS = { status: "PVTSSF_acme_status", priority: "PVTSSF_acme_priority", sprint: "PVTIF_acme_release" };
 const TEAM = "PVTSSF_acme_team";
 
 const DAY = 86_400_000;

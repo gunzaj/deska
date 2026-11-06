@@ -1,12 +1,75 @@
 "use client";
 
-// Onboarding step 1 (SPEC D3): paste a fine-grained token, see who it belongs
-// to and what it can read, continue to the issues.
+// Onboarding (SPEC D3, D4). Step 1: paste a fine-grained token, see who it
+// belongs to and what it can read. Step 2: the repository and org project,
+// and which project field is Status, Priority, Sprint and the dimensions.
 import { useEffect, useState } from "react";
 import type { ConnectionStatus } from "@/lib/github/token-states";
+import type { SetupState } from "@/lib/server/project-setup";
 import { Logo } from "../icons";
 import { fetchConnection } from "../app/connection";
+import { loadSetup, ProjectPicker } from "./mapping";
 import { hasBridge, TokenForm, TokenGuide, TokenSummary } from "./token";
+
+/** Step 2: pick the project and map its fields; the app opens once both are stored. */
+function ProjectStep({ onBack }: { onBack: () => void }) {
+  const [setup, setSetup] = useState<SetupState | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [changing, setChanging] = useState(false);
+  useEffect(() => {
+    loadSetup().then(setSetup, (e: unknown) => setError(e instanceof Error ? e.message : String(e)));
+  }, []);
+  return (
+    <main className="min-h-dvh overflow-auto p-6">
+      <div className="mx-auto w-full max-w-xl rounded-2xl border border-line bg-surface p-8 shadow-modal">
+        <Logo size={36} />
+        <p className="mt-5 text-[12px] font-medium uppercase tracking-wide text-faint">Step 2 of 2 · Project and fields</p>
+        <h1 className="mt-1 text-[22px] font-medium tracking-tight">Choose your project</h1>
+        <p className="mt-1.5 text-[13.5px] text-muted">
+          The repository Deska reads issues from, and the organization project that plans them. Then tell Deska which project field is which: it keeps the
+          mapping by field ID, so renaming a field on GitHub changes nothing here.
+        </p>
+        {error && (
+          <p role="alert" className="mt-6 text-[12.5px] font-medium text-critical">
+            {error}
+          </p>
+        )}
+        {setup && !setup.canDiscover && (
+          <div className="mt-6 space-y-3">
+            <p role="status" className="rounded-md border border-line bg-hover p-3 text-[12.5px]">
+              Choosing a project needs a connected token, in the Deska desktop app. This preview runs on sample data.
+            </p>
+            <button type="button" onClick={() => window.location.assign("/issues")} className="inline-flex h-9 items-center rounded-md bg-brand px-4 font-semibold text-brand-on hover:bg-brand-hover">
+              Continue
+            </button>
+          </div>
+        )}
+        {setup?.canDiscover && setup.target?.source === "settings" && setup.mapping && !changing ? (
+          <div className="mt-6 space-y-3 text-[12.5px]">
+            <p>
+              Reading <strong className="font-semibold">{setup.target.repo}</strong> and “{setup.target.projectTitle}” ({setup.target.org} #{setup.target.projectNumber}).
+            </p>
+            <div className="flex flex-wrap items-center gap-3">
+              <button type="button" onClick={() => window.location.assign("/issues")} className="inline-flex h-9 items-center rounded-md bg-brand px-4 font-semibold text-brand-on hover:bg-brand-hover">
+                Continue
+              </button>
+              <button type="button" onClick={() => setChanging(true)} className="font-medium text-brand-text hover:underline">
+                Choose another project
+              </button>
+            </div>
+          </div>
+        ) : setup?.canDiscover ? (
+          <div className="mt-6">
+            <ProjectPicker initial={setup.target} saveLabel="Save and open Deska" onDone={() => window.location.assign("/issues")} />
+          </div>
+        ) : null}
+        <button type="button" onClick={onBack} className="mt-6 text-[12.5px] font-medium text-brand-text hover:underline">
+          Back to the token
+        </button>
+      </div>
+    </main>
+  );
+}
 
 /** A token GitHub accepted: the app can open (problems show as banners there). */
 const usable = (s: ConnectionStatus | null) => !!s?.login && s.state !== "invalid";
@@ -15,13 +78,17 @@ export function Onboarding() {
   const [status, setStatus] = useState<ConnectionStatus | null>(null);
   const [desktop, setDesktop] = useState<boolean | null>(null);
   const [replacing, setReplacing] = useState(false);
+  const [step, setStep] = useState<1 | 2>(1);
 
   useEffect(() => {
     setDesktop(hasBridge());
+    // `/onboarding?step=2`: the app sends a connected user here until a project is chosen.
+    if (new URLSearchParams(window.location.search).get("step") === "2") setStep(2);
     void fetchConnection().then(setStatus);
   }, []);
 
   const connected = usable(status) && !replacing;
+  if (step === 2 && connected) return <ProjectStep onBack={() => setStep(1)} />;
 
   return (
     <main className="min-h-dvh overflow-auto p-6">
@@ -49,7 +116,7 @@ export function Onboarding() {
             <div className="flex flex-wrap items-center gap-3">
               <button
                 type="button"
-                onClick={() => window.location.assign("/issues")}
+                onClick={() => setStep(2)}
                 className="inline-flex h-9 items-center rounded-md bg-brand px-4 font-semibold text-brand-on hover:bg-brand-hover"
               >
                 Continue

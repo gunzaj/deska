@@ -110,6 +110,13 @@ function envTarget(): GithubTarget | null {
 
 export type ResolvedTarget = GithubTarget & { projectId: string | null; source: "settings" | "env" };
 
+/** The target, or a ConfigError when neither settings nor env name one (sync and writes need it). */
+export async function requireTarget(): Promise<ResolvedTarget> {
+  const t = await currentTarget();
+  if (!t) throw new ConfigError("No repository and project chosen yet");
+  return t;
+}
+
 /**
  * The repository and project Deska reads: the stored settings, else the
  * `GITHUB_REPO` / `GITHUB_ORG` / `GITHUB_PROJECT_NUMBER` env vars (tests and

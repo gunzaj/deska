@@ -135,7 +135,7 @@ export async function submitEdit(args: {
     // Namespaced per user: one user's key can never return another's edit.
     idempotencyKey: `${args.viewer.toLowerCase()}:${body.idempotencyKey ?? randomUUID()}`,
   });
-  const deps = args.deps ? args.deps(done) : depsFor(args.token, done, store.projectFieldMap());
+  const deps = args.deps ? args.deps(done) : await depsFor(args.token, done, store.projectFieldMap());
   const after = (await processEdit(entry.id, deps)) ?? entry;
   const code = after.status === "done" ? 200 : after.status === "conflict" ? 409 : after.status === "failed" ? 502 : 202;
   return { status: code, body: { entry: after } };

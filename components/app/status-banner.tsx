@@ -1,6 +1,8 @@
 "use client";
 
+import Link from "next/link";
 import { useSessionExpired } from "@/lib/client/session";
+import { MISSING_FIELD } from "@/lib/sync/field-map";
 import { useAppData, useAppSync } from "./provider";
 
 const time = (ms: number) => new Date(ms).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
@@ -14,7 +16,8 @@ const time = (ms: number) => new Date(ms).toLocaleTimeString([], { hour: "2-digi
 export function StatusBanners() {
   const expired = useSessionExpired();
   const { staleSince } = useAppSync();
-  const { refresh } = useAppData();
+  const { refresh, data } = useAppData();
+  const missing = data.meta.mapping.missing;
 
   if (expired) {
     return (
@@ -34,13 +37,27 @@ export function StatusBanners() {
     );
   }
 
-  if (staleSince === null) return null;
   return (
-    <div role="status" className="flex shrink-0 items-center gap-2 border-b border-line bg-warning-soft px-4 py-1.5 text-[12.5px]">
-      <span className="min-w-0 flex-1">Couldn&apos;t refresh, showing data from {time(staleSince)}.</span>
-      <button type="button" onClick={() => void refresh()} className="rounded-md px-2 py-0.5 font-medium hover:bg-hover">
-        Retry
-      </button>
-    </div>
+    <>
+      {missing.length > 0 && (
+        // A mapped field was deleted on GitHub (§4.1): say so instead of showing blank values.
+        <div role="status" data-missing-banner className="flex shrink-0 items-center gap-2 border-b border-line bg-warning-soft px-4 py-1.5 text-[12.5px]">
+          <span className="min-w-0 flex-1">
+            {MISSING_FIELD}: {missing.map((m) => `“${m.name}”`).join(", ")} {missing.length === 1 ? "is" : "are"} no longer in the project.
+          </span>
+          <Link href="/settings#mapping" className="rounded-md px-2 py-0.5 font-medium hover:bg-hover">
+            Field mapping
+          </Link>
+        </div>
+      )}
+      {staleSince !== null && (
+        <div role="status" className="flex shrink-0 items-center gap-2 border-b border-line bg-warning-soft px-4 py-1.5 text-[12.5px]">
+          <span className="min-w-0 flex-1">Couldn&apos;t refresh, showing data from {time(staleSince)}.</span>
+          <button type="button" onClick={() => void refresh()} className="rounded-md px-2 py-0.5 font-medium hover:bg-hover">
+            Retry
+          </button>
+        </div>
+      )}
+    </>
   );
 }

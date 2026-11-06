@@ -65,7 +65,7 @@ export function altFields(opts: { sprint?: boolean; now?: Date } = {}): Snapshot
 /** The fixture issues on the Ops Board project. */
 export function altFixtureSnapshot(opts: { sprint?: boolean; now?: Date } = {}): FullSnapshot {
   const base = fixtureSnapshot(opts.now);
-  const fields = { status: ALT.stage, priority: ALT.urgency };
+  const fields = { status: ALT.stage, priority: ALT.urgency, sprint: ALT.cycle };
   const sprint = opts.sprint !== false;
   return {
     ...base,

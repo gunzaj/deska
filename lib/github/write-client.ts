@@ -33,7 +33,10 @@ export class GitHubWriteClient implements WriteClient {
   private items = new Map<string, string>();
 
   /** `fields` is the discovered logical-key -> field-ID map; fields resolve by ID, never by name (v5 1.3). */
-  constructor(token: string, private fieldMap: ProjectFieldMap, target: GithubTarget = githubTarget()) {
+  /** The pinned project node ID: the stored one (onboarding), else `GITHUB_PROJECT_ID`. */
+  private pinned: string | null;
+
+  constructor(token: string, private fieldMap: ProjectFieldMap, target: GithubTarget & { projectId?: string | null } = githubTarget()) {
     // Defence in depth (AGENTS.md): the routes check WRITE_MODE too, but no
     // code path may hold a write client while writes are off.
     if (!writeEnabled()) throw new Error("GitHub writes are disabled (WRITE_MODE is not on)");
@@ -45,6 +48,7 @@ export class GitHubWriteClient implements WriteClient {
     this.repo = target.repo;
     this.org = target.org;
     this.projectNumber = target.projectNumber;
+    this.pinned = target.projectId ?? pinnedProjectId();
   }
 
   private loadMeta(): Promise<Meta> {
@@ -78,11 +82,9 @@ export class GitHubWriteClient implements WriteClient {
           if (!page?.hasNextPage) break;
           after = page.endCursor;
         }
-        const pinned = pinnedProjectId();
+        const pinned = this.pinned;
         if (pinned && project!.id !== pinned) {
-          throw new NonRetryableError(
-            `GITHUB_PROJECT_NUMBER ${this.projectNumber} resolves to a different project than GITHUB_PROJECT_ID; refusing to write`,
-          );
+          throw new NonRetryableError(`project ${this.projectNumber} resolves to a different project than the pinned one; refusing to write`);
         }
         const fields = new Map<string, FieldMeta>();
         for (const f of nodes) {
