@@ -19,10 +19,8 @@ Repeat until you reach a stop point (§0.4):
 6. Commit (small commits are fine), push the branch, open a PR titled `D<N>: <milestone name>`. The PR body lists each acceptance criterion with how you checked it.
 7. Wait for CI. If it fails, fix and push again.
 8. When CI is green and every acceptance criterion is checked: **squash-merge the PR yourself** and delete the branch. [Default]
-9. Update `docs/PROGRESS.md` (status, decisions you took, anything for the maintainer) in the next milestone's first commit, or in a small follow-up commit on `main` if it was the last one.
-10. Go to 1.
-
-If you can't finish a milestone in one session, push the branch, open the PR as a draft, write where you stopped in `docs/PROGRESS.md` on that branch, and end. The next session continues from there.
+9. Update `docs/PROGRESS.md` (status, decisions you took, anything for the maintainer) in a small commit on `main`.
+10. **End the session with the handoff message (§0.6).** One milestone per session. Don't start the next milestone in the same session.
 
 ## 0.2 Rules that are never broken
 
@@ -61,6 +59,8 @@ From D2 on, also `pnpm desktop:build` must succeed. CI runs the same checks; D0 
 
 | When | Why | What you do |
 |---|---|---|
+| A milestone is merged | One milestone per session keeps your context fresh | Handoff message (§0.6), end the session |
+| Your context was summarized/compacted during this milestone, or the milestone clearly won't fit in this session | Quality drops in very long sessions | Finish the current step, push the branch, open or update the PR as a **draft**, write exactly where you stopped in `docs/PROGRESS.md` on that branch, handoff message (§0.6), end |
 | A milestone needs a real GitHub token, an Apple account, or any other credential | You don't have them | Build and test everything with mocks, add the step to "Maintainer to-do" in `PROGRESS.md`, **keep going** with the next milestone. Not a real stop. |
 | D14 is merged | The read-only v1.0 is done | Create the GitHub Release as a **draft**, write the summary in `PROGRESS.md`, stop. The maintainer publishes it. |
 | Phase C (W0–W3) | Writes need the maintainer's explicit go | Start only when the maintainer says so in chat. |
@@ -88,6 +88,32 @@ Anything else (an unclear detail, a design choice, a missing default): pick the 
 ```
 
 `PROGRESS.md` is public: same hygiene rules as code.
+
+## 0.6 Session handoff
+
+Every session ends with this message to the maintainer, filled in. Nothing after it.
+
+```
+✅ <D<N> merged: PR link>   — or —   ⏸ D<N> paused: <where you stopped>, draft PR <link>
+
+Next: <milestone> — <name>
+Start a new session in this folder with model: <model from the table below>
+Paste this:
+  Read docs/SPEC.md and follow it, starting with Part 0.
+
+Needs you: <"nothing" | the open Maintainer to-do items, one line each>
+```
+
+The paste text is always the same: `PROGRESS.md` tells the next session where to continue.
+
+Recommended model per milestone:
+
+| Model | Milestones | Why |
+|---|---|---|
+| Claude Opus 5.5 | D0, D2, D3, D4, D5, D9, D10, D12, W0, W1, W2, W3 | Risky or cross-cutting: scrubbing private data, the desktop shell, token security, the field model, sync, writes |
+| Claude Sonnet 5.5 | D1, D6, D7, D8, D11, D13, D14 | Well-bounded: removals, local data features, filters, packaging |
+
+When resuming a paused milestone, use that milestone's model.
 
 ---
 
