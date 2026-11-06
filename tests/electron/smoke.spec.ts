@@ -132,7 +132,7 @@ async function launch(userData: string, github: MockGitHub, opts: { seed?: strin
 /** Onboarding step 2 through the UI: repository, find projects, pick one; `beforeSave` may change the suggested mapping. */
 async function chooseProject(win: Page, origin: string, title: string, beforeSave?: () => Promise<void>) {
   await expect(win.getByRole("heading", { name: "Choose your project" })).toBeVisible({ timeout: 60_000 });
-  await win.getByLabel("Repository").fill("acme/widgets");
+  await win.getByLabel("Repository", { exact: true }).fill("acme/widgets");
   await win.getByRole("button", { name: "Find projects" }).click();
   await win.getByRole("radio", { name: new RegExp(`^${title}`) }).check();
   await expect(win.locator("[data-mapping-form]")).toBeVisible({ timeout: 30_000 });
@@ -278,7 +278,7 @@ test.describe("desktop shell", () => {
       await expect(win.locator('[data-permission="projects"]')).toContainText("Missing");
       await win.getByRole("button", { name: "Continue" }).click();
       // Step 2 can't list the projects either: it names the permission, never an empty list.
-      await win.getByLabel("Repository").fill("acme/widgets");
+      await win.getByLabel("Repository", { exact: true }).fill("acme/widgets");
       await win.getByRole("button", { name: "Find projects" }).click();
       await expect(win.getByRole("alert").filter({ hasText: "This token is missing a permission: Organization → Projects: Read" })).toBeVisible({ timeout: 30_000 });
       await expect(win.getByRole("radio")).toHaveCount(0);
@@ -443,8 +443,8 @@ test.describe("desktop shell", () => {
       expect(meta.mapping).toMatchObject({ status: { name: "Stage" }, priority: { name: "Urgency" }, sprint: null, doneStatusIds: ["f0000003"] });
       expect(meta.dimensions.map((d: { name: string }) => d.name)).toEqual(["Squad", "Surface"]);
       await expect(win.getByRole("link", { name: "All issues" }).first()).toBeVisible();
-      await expect(win.getByRole("link", { name: "Releases" })).toHaveCount(0);
-      await expect(win.getByRole("link", { name: "Backlog" })).toHaveCount(0);
+      await expect(win.getByRole("link", { name: "Releases", exact: true })).toHaveCount(0);
+      await expect(win.getByRole("link", { name: /^Backlog/ })).toHaveCount(0);
       await win.goto(`${origin}/releases`);
       await expect(win.getByText("No Sprint field mapped")).toBeVisible({ timeout: 60_000 });
       const squad = Buffer.from(JSON.stringify({ filters: [{ field: "dim:PVTSSF_acme_squad", op: "in", values: ["h0000001"] }], sort: [{ field: "priority", dir: "desc" }], groupBy: "dim:PVTSSF_acme_squad", layout: "list" })).toString("base64url");
@@ -464,7 +464,7 @@ test.describe("desktop shell", () => {
       await expect(win.locator("[data-priority-preview]")).toContainText("P2 › P1 › P0");
       await win.getByRole("button", { name: "Save mapping" }).click();
       await expect(win.getByText("Saved", { exact: true })).toBeVisible({ timeout: 30_000 });
-      await expect(win.getByRole("link", { name: "Releases" })).toBeVisible({ timeout: 30_000 });
+      await expect(win.getByRole("link", { name: "Releases", exact: true })).toBeVisible({ timeout: 30_000 });
       const remapped = (await data()).meta;
       expect(remapped.mapping.sprint.name).toBe("Cycle");
       expect(remapped.releases.length).toBeGreaterThan(0);

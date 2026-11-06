@@ -107,6 +107,11 @@ test("onboarding: paste a token → bridge → check → read-only token reaches
   expect(await page.evaluate(() => JSON.stringify({ ...localStorage }) + JSON.stringify({ ...sessionStorage }) + document.cookie)).not.toContain(TOKEN);
 
   await page.getByRole("button", { name: "Continue" }).click();
+  // Step 2 (D4): choosing a project needs the server to hold the token, which
+  // only the desktop app does (tests/electron covers it); here it says so.
+  await expect(page.getByRole("heading", { name: "Choose your project" })).toBeVisible();
+  await expect(page.getByText("Choosing a project needs a connected token")).toBeVisible();
+  await page.getByRole("button", { name: "Continue" }).click();
   await expect(page).toHaveURL(/\/issues$/);
   await expect(page.getByText("Bug: crash on start")).toBeVisible({ timeout: 20_000 });
   await context.close();

@@ -123,7 +123,7 @@ describe("GitHubWriteClient", () => {
   it("refuses to write when the project is not the pinned GITHUB_PROJECT_ID (v5 1.2)", async () => {
     process.env.GITHUB_PROJECT_ID = "PVT_some_other_project";
     try {
-      await expect(client().applyField("I_1", "status", "opt_todo")).rejects.toThrow(/GITHUB_PROJECT_ID/);
+      await expect(client().applyField("I_1", "status", "opt_todo")).rejects.toThrow(/different project than the pinned one/);
       expect(mutations).toHaveLength(0);
       process.env.GITHUB_PROJECT_ID = PROJECT;
       await client().applyField("I_1", "status", "opt_todo");
@@ -146,6 +146,15 @@ describe("GitHubWriteClient", () => {
     expect(mutations[0]!.query).toContain("updateProjectV2ItemFieldValue");
     expect(mutations[0]!.query).toContain(`${key}:$value`);
     expect(mutations[0]!.variables).toEqual({ project: PROJECT, item: "PVTI_existing", field: fieldId, value });
+  });
+
+  it("refuses to write when the project is not the node ID pinned in onboarding (D4)", async () => {
+    const pinned = (projectId: string) =>
+      new GitHubWriteClient(`ghp_write_client_test_token_${++n}_000000000000`, suggestFieldMap(FIELDS, {}), { repoFull: "acme/widgets", owner: "acme", repo: "widgets", org: "acme", projectNumber: 7, projectId });
+    await expect(pinned("PVT_some_other_project").applyField("I_1", "status", "opt_todo")).rejects.toThrow(/different project than the pinned one/);
+    expect(mutations).toHaveLength(0);
+    await pinned(PROJECT).applyField("I_1", "status", "opt_todo");
+    expect(mutations).toHaveLength(1);
   });
 
   it("refuses a dimension that isn't mapped", async () => {

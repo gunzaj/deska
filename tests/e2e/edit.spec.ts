@@ -109,7 +109,8 @@ test("with writes off every picker is disabled with the tooltip and nothing is s
   const sent = await editRoute(page, done);
   const panel = await openBug(page);
   const pickers = panel.getByRole("button", { name: /: change$/ });
-  await expect(pickers).toHaveCount(9);
+  // Status, Priority, Assignees, Release, the one mapped dimension (Team), Type, Milestone, Labels.
+  await expect(pickers).toHaveCount(8);
   for (const b of await pickers.all()) {
     await expect(b).toHaveAttribute("aria-disabled", "true");
     await expect(b).toHaveAttribute("title", "Editing is off for this deployment");

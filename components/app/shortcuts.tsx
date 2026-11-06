@@ -43,7 +43,7 @@ const GROUPS: { title: string; keys: [string[], string][] }[] = [
     title: "Triage mode",
     keys: [
       [["1", "–", "4"], "Set Priority (1 is the highest)"],
-      [["T"], "Team"],
+      [["T"], "First mapped dimension (e.g. a team field)"],
       [["R"], "Release"],
       [["A"], "Assign"],
       [["S"], "Skip to the next issue"],

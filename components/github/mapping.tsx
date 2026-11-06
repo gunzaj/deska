@@ -214,7 +214,10 @@ export function ProjectPicker({ initial, saveLabel, onDone }: { initial: SetupSt
     try {
       const r = await api<{ projects: OrgProject[] }>(`/api/settings/projects?org=${encodeURIComponent(o)}`);
       setProjects(r.projects);
-      if (r.projects.length === 1) await pick(r.projects[0]!.number, o);
+      // The project already chosen (Settings, or the env target in dev), or the only one: load its fields.
+      const preselect = r.projects.find((p) => p.number === number) ?? (r.projects.length === 1 ? r.projects[0] : undefined);
+      if (preselect) await pick(preselect.number, o);
+      else setNumber(null);
     } catch (err) {
       setProjects(null);
       setError(err instanceof Error ? err.message : String(err));

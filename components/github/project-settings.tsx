@@ -22,9 +22,10 @@ export function ProjectSettings() {
     loadSetup().then(setState, (e: unknown) => setError(e instanceof Error ? e.message : String(e)));
   }, []);
 
-  const apply = async (s: SetupState) => {
+  /** New state from the server; `restart` starts the form over (new fields), a plain save keeps it. */
+  const apply = async (s: SetupState, restart = true) => {
     setState(s);
-    setVersion((v) => v + 1);
+    if (restart) setVersion((v) => v + 1);
     await refresh();
   };
 
@@ -120,7 +121,7 @@ export function ProjectSettings() {
                     const res = await fetch("/api/settings/mapping", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(mapping) });
                     const body = await res.json();
                     if (!res.ok) throw new Error(body?.error ?? `Request failed (${res.status})`);
-                    await apply(body as SetupState);
+                    await apply(body as SetupState, false);
                   }}
                 />
               )}

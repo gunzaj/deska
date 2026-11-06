@@ -79,7 +79,8 @@ function startServerProcess(port: number, secret: string): Server {
     env: {
       // Until in-process sync (D5): the fictional demo dataset fills an empty
       // database, under a "Sample data" banner.
-      DESKA_DEMO_SEED: process.env.DESKA_DEMO_SEED === "fixtures" ? "fixtures" : "demo",
+      // Tests pick the small fixture sets (D4 adds the differently named project).
+      DESKA_DEMO_SEED: ["fixtures", "alt", "alt-no-sprint"].includes(process.env.DESKA_DEMO_SEED ?? "") ? process.env.DESKA_DEMO_SEED! : "demo",
       // Automated tests point GitHub at a mock on 127.0.0.1; nothing else is
       // passed on (the server ignores any other value too, lib/config.ts).
       ...(LOOPBACK_API.test(process.env.DESKA_GITHUB_API_URL ?? "") ? { DESKA_GITHUB_API_URL: process.env.DESKA_GITHUB_API_URL! } : {}),
