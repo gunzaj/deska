@@ -7,7 +7,7 @@
 | D2 | done | [#3](https://github.com/gunzaj/deska/pull/3) | Electron shell, §2.2 hardening, PGlite, unsigned universal .dmg |
 | D3 | done | [#4](https://github.com/gunzaj/deska/pull/4) | Auth server removed; PAT owner is the local user; onboarding step 1, Settings, §3.3 token states |
 | D4 | done | [#5](https://github.com/gunzaj/deska/pull/5) | Onboarding step 2, Settings remap, mapping by field ID, dimensions (`dim:<fieldId>`) everywhere |
-| D5 | done | [#9](https://github.com/gunzaj/deska/pull/9) | In-process sync, first import with resume, `/importing` |
+| D5 | done | [#10](https://github.com/gunzaj/deska/pull/10) | In-process sync, first import with resume, `/importing` |
 | D6 | todo | | |
 | D7 | todo | | |
 | D8 | todo | | |
