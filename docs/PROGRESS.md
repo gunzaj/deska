@@ -7,7 +7,7 @@
 | D2 | done | [#3](https://github.com/gunzaj/deska/pull/3) | Electron shell, §2.2 hardening, PGlite, unsigned universal .dmg |
 | D3 | done | [#4](https://github.com/gunzaj/deska/pull/4) | Auth server removed; PAT owner is the local user; onboarding step 1, Settings, §3.3 token states |
 | D4 | done | [#5](https://github.com/gunzaj/deska/pull/5) | Onboarding step 2, Settings remap, mapping by field ID, dimensions (`dim:<fieldId>`) everywhere |
-| D5 | todo | | |
+| D5 | done | [#9](https://github.com/gunzaj/deska/pull/9) | In-process sync, first import with resume, `/importing` |
 | D6 | todo | | |
 | D7 | todo | | |
 | D8 | todo | | |
@@ -67,6 +67,13 @@
 - D4: "Status options that also count as done" are stored in the mapping and sent as `meta.mapping.doneStatusIds`; nothing counts them yet (D10's sprint header will).
 - D4: Fixture project "Ops Board" (`lib/demo/fixtures-alt.ts`, IDs added to the node-ID allowlist) with differently named fields; `DESKA_DEMO_SEED` / `DEMO_DATASET` accept `alt` and `alt-no-sprint`, and Electron main passes those through. The Electron smoke test now goes through step 2 against a mock that lists projects and serves their fields.
 - D4: Locally, electron-builder must run with TMPDIR in a folder with no `pnpm-workspace.yaml` above it (a fresh dir under the system temp folder is not enough because the temp folder itself has stray pnpm files); the session scratchpad worked.
+
+- D5: The sync runs in this process (`lib/sync/service.ts` on `globalThis`, started by `instrumentation-node.ts`): a run on launch, on an interval, on wake (main forwards `powerMonitor` over IPC), when a token arrives, after step 2 picks a project, and on "Sync now". No cron, no worker, no external scheduler.
+- D5: The first import is checkpointed per page (`import.*` keys in `sync_state`): metadata, open issues, recently closed issues, project items. Quitting between pages resumes from the checkpoint on the next launch instead of starting over; the sync cursors are set last, so `/importing` stays up until the cache is whole and the issue list never shows half a repo.
+- D5: `/importing`'s four gates live in `lib/import-destination.ts` as one pure function over thunks, in their load-bearing order (signed in → desktop guard → project set up → import pending). The screen's three states, four step rows and count line come from `lib/import-view.ts`, with every string in `IMPORT_COPY`: the screen renders that and adds no judgement, so the Electron-only screen still has a Vitest gate.
+- D5: `failure` on `/api/sync-status` is the last *completed* run's failure, cleared only when a run succeeds, so a retry still reports what it is retrying. It is never read without `running`: `importView()` turns `failure && !running` into the failed state and a running retry into `resumed`, which is what keeps a live Retry button off an import that is already going.
+- D5: A resumed import draws its current step still (`active-idle`) and everything before it `done`; only a fresh start pulses. A relaunch reads as a continuation, not a restart.
+- D5: The Electron smoke grew the mock's sync routes (`DeskaSyncFields`, `DeskaSyncIssueTypes`, `DeskaIssueExtras`, paged `DeskaSyncItems`, and paged REST issues/labels/milestones/assignees behind a real `link` header) and one empty-seed test that walks onboarding → `/importing` → `/issues` on a 120-issue repo, so the import is proven to page rather than to stop at page one. It launches with `seed: ""` and `envTarget: false`: a seeded cache sets `issues.since` and redirects past the screen, and an env target imports while the UI gates on stored settings.
 
 ## Maintainer to-do
 - [ ] Create a **read-only** fine-grained PAT: resource owner = the org, repository access = only the one repo; Repository → Metadata: Read, Repository → Issues: Read, Organization → Projects: Read, Organization → Issue types: Read (optional); nothing else. Then run the probe (report lands in `private/findings/`):
