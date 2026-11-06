@@ -3,7 +3,7 @@
 | Milestone | Status | PR | Notes |
 |---|---|---|---|
 | D0 | done | [#1](https://github.com/gunzaj/deska/pull/1) | Predecessor imported and scrubbed |
-| D1 | in progress | | Token probe + security doc |
+| D1 | done | [#2](https://github.com/gunzaj/deska/pull/2) | Token probe + security doc |
 | D2 | todo | | |
 | D3 | todo | | |
 | D4 | todo | | |
