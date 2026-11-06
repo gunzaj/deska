@@ -49,6 +49,8 @@ export type ServerMessage =
     }
   /** `id` is echoed in a `token-ack` once the server holds the token. */
   | { type: "token"; token: string | null; source: "launch" | "user"; id: number }
+  /** Run a sync now: the Mac woke from sleep (powerMonitor "resume"). */
+  | { type: "sync"; reason: "wake" }
   | { type: "stop" };
 
 /** Messages from the server process to main. */

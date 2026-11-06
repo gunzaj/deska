@@ -13,7 +13,8 @@ import { bumpGeneration } from "../sync/generation";
 import { importFull } from "../sync/import";
 import { followRenames, missingFields, ROLES, sameFieldMap, suggestMapping, validateMapping, type FieldMapping, type MissingField } from "../sync/field-map";
 import type { ReadModel } from "../sync/read-model";
-import { withLockedSyncKv } from "../sync/runtime";
+import { initialImportDone, withLockedSyncKv } from "../sync/runtime";
+import { syncService } from "../sync/service";
 import { PostgresStore } from "../sync/store-postgres";
 import { partialSnapshot, type SnapshotField } from "../sync/types";
 import { sql } from "drizzle-orm";
@@ -164,6 +165,8 @@ export async function chooseProject(input: { repo: string; org: string; projectN
   await importFields(project.id, project.fields);
   await saveTarget({ repo: input.repo, org: input.org, projectNumber: project.number, projectId: project.id, projectTitle: project.title });
   await storeMapping(input.mapping, project.fields);
+  // First connect: the import starts now; the app shows its progress (D5).
+  if (localToken()) void syncService().request("project");
   return setupState();
 }
 
@@ -187,6 +190,11 @@ export async function reloadFields(): Promise<SetupState> {
   if (project.id !== target.projectId) throw new HttpError(409, `Project ${target.projectNumber} in "${target.org}" is no longer the project Deska pinned. Choose the project again.`);
   await importFields(project.id, project.fields);
   return setupState();
+}
+
+/** Whether the desktop app shows the first import's progress instead of the (still empty or partial) cache. */
+export async function needsFirstImport(): Promise<boolean> {
+  return dbDir() !== null && !(await initialImportDone());
 }
 
 /** Whether the app still needs step 2: in the desktop app, until a project and a mapping are stored. */

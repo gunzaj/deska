@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 // The desktop app (SPEC §2, D2).
 //
-//   pnpm desktop:dev     Electron + `next dev` (hot reload) on the demo dataset
+//   pnpm desktop:dev     Electron + `next dev` (hot reload); it imports from GitHub
+//                        after onboarding, or set DESKA_DEMO_SEED=demo for sample data
 //   pnpm desktop:stage   build the Next standalone server and the Electron code
 //                        into desktop/build (enough to run `electron .`)
 //   pnpm desktop:build   stage, then package an unsigned universal .dmg in release/

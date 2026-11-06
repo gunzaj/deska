@@ -148,6 +148,6 @@ describe("nightly reconcile (Postgres)", async () => {
     const kv = new MapKv();
     expect((await runNightly(fakeSource(), new PostgresStore(), kv, { now: NOW })).ran).toBe(true);
     expect(await runNightly(fakeSource(), new PostgresStore(), kv, { now: new Date(NOW.getTime() + 3600_000) })).toEqual({ ran: false, reason: "not-due" });
-    expect((await runNightly(fakeSource(), new PostgresStore(), kv, { now: new Date(NOW.getTime() + 21 * 3600_000) })).ran).toBe(true);
+    expect((await runNightly(fakeSource(), new PostgresStore(), kv, { now: new Date(NOW.getTime() + 25 * 3600_000) })).ran).toBe(true);
   });
 });

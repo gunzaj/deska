@@ -47,7 +47,7 @@ export function consecutiveFailures(kv: Kv): number {
  * Run one cycle and record it: `sync.lastAttemptAt` at the start, then success
  * (clears the error, resets the counter) or failure (stores the redacted
  * error, counts it). `failure` reports a cycle that returned but had a failed
- * step (the worker keeps going after one). Logs one JSON line per cycle for
+ * step. Logs one JSON line per cycle for
  * log search. A thrown error is rethrown.
  */
 export async function recordCycle<T extends object>(
@@ -62,6 +62,8 @@ export async function recordCycle<T extends object>(
   try {
     result = await fn();
   } catch (e) {
+    // Quitting mid-import isn't a failure: the next launch resumes.
+    if ((e as Error | null)?.name === "SyncStopped") throw e;
     markFailure(kv, e);
     log(JSON.stringify({ kind: "sync", ok: false, durationMs: Date.now() - started, error: redactError(e) }));
     throw e;
@@ -71,4 +73,31 @@ export async function recordCycle<T extends object>(
   else markSuccess(kv);
   log(JSON.stringify({ kind: "sync", ok: !failed, durationMs: Date.now() - started, ...result, error: failed ? redactError(failed) : null }));
   return result;
+}
+
+/** What a failed cycle means for the connection (SPEC §3.3). */
+export type SyncFailure = "invalid" | "offline" | "rate-limited" | "forbidden" | "other";
+
+/**
+ * Tell a failed cycle's cause from Octokit's errors: 401 is a bad token; a
+ * network error, a timeout (Octokit reports both as status 500) or a 5xx means
+ * GitHub can't be reached; a 403 or a GraphQL FORBIDDEN is a refused
+ * permission unless it is a rate limit.
+ */
+export function syncFailure(e: unknown): SyncFailure {
+  const err = e as { status?: unknown; errors?: { type?: string }[]; message?: unknown; headers?: Record<string, string | undefined>; response?: { headers?: Record<string, string | undefined> } } | null;
+  const status = typeof err?.status === "number" ? err.status : null;
+  const gql = Array.isArray(err?.errors) ? err.errors.map((x) => x?.type) : [];
+  if (gql.includes("RATE_LIMITED") || status === 429) return "rate-limited";
+  if (status === 401) return "invalid";
+  if (status === 403) {
+    const h = err?.response?.headers ?? err?.headers ?? {};
+    if (h["x-ratelimit-remaining"] === "0" || h["retry-after"] || /rate limit/i.test(String(err?.message ?? ""))) return "rate-limited";
+    return "forbidden";
+  }
+  if (gql.includes("FORBIDDEN")) return "forbidden";
+  if (status !== null && status >= 500) return "offline";
+  // fetch itself failed (no HTTP answer at all).
+  if (status === null && (e instanceof TypeError || /fetch failed|ECONNREFUSED|ENOTFOUND|ETIMEDOUT|ECONNRESET|network/i.test(String(err?.message ?? "")))) return "offline";
+  return "other";
 }

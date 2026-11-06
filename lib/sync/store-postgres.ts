@@ -73,6 +73,27 @@ export class PostgresStore implements ImportStore, IdResolver {
     return stats;
   }
 
+  async linkParents(pairs: { child: string; parent: string }[]): Promise<{ child: string; parent: string }[]> {
+    if (!pairs.length) return [];
+    const unresolved: { child: string; parent: string }[] = [];
+    await this.tx(async (tx) => {
+      const ids = await pgWrite.uuidsOf(tx, [...new Set(pairs.map((p) => p.child))]);
+      const parents = await pgWrite.uuidsOf(tx, [...new Set(pairs.map((p) => p.parent))]);
+      const ready = pairs.filter((p) => {
+        const ok = ids.has(p.child) && parents.has(p.parent);
+        if (!ok) unresolved.push(p);
+        return ok;
+      });
+      return pgWrite.setParents(
+        tx,
+        ready.map((p) => ({ nodeId: p.child, parentNodeId: p.parent }) as SnapshotIssue),
+        ids,
+        parents,
+      );
+    });
+    return unresolved;
+  }
+
   /** One transaction; bumps the sync generation when it changed anything (S5). */
   private tx(fn: (tx: Tx) => Promise<StoreStats>): Promise<StoreStats> {
     return writeTx(getDb(), fn);

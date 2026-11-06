@@ -11,7 +11,7 @@ import { dbDir, getDb } from "@/db";
 import { syncState } from "@/db/schema";
 import { githubApiBase } from "./config";
 import { desktopGuard } from "./desktop/guard";
-import { checkToken, previewStatus, missingStatus, type CheckTarget, type ConnectionStatus } from "./github/connection";
+import { checkToken, previewStatus, missingStatus, MESSAGES, type CheckTarget, type ConnectionStatus } from "./github/connection";
 import { localToken, tokenState } from "./github/local-token";
 import { currentTarget, settingsVersion } from "./settings";
 
@@ -25,6 +25,10 @@ type Cache = {
   at: number;
   status: ConnectionStatus | null;
   inflight: Promise<ConnectionStatus> | null;
+  /** The owner a check of this token confirmed: a later 401 or outage keeps `me` known. */
+  owner?: Identity | null;
+  /** The status came from a failed sync cycle, not from a check. */
+  fromSync?: boolean;
 };
 
 const CACHE = Symbol.for("deska.connectionCache");
@@ -71,14 +75,16 @@ export async function connectionStatus({ refresh = false }: { refresh?: boolean 
   const c = cache();
   const { generation } = tokenState();
   const settings = settingsVersion();
-  if (c.generation !== generation || c.settings !== settings) Object.assign(c, { generation, settings, at: 0, status: null, inflight: null });
+  if (c.generation !== generation) Object.assign(c, { generation, settings, at: 0, status: null, inflight: null, owner: null, fromSync: false });
+  else if (c.settings !== settings) Object.assign(c, { settings, at: 0, status: null, inflight: null, fromSync: false });
   if (!refresh && c.status && Date.now() - c.at < ttl(c.status)) return c.status;
   if (c.inflight) return c.inflight;
   const run = (async () => {
     const status = await checkToken(token, await checkTarget(), { apiBase: githubApiBase() });
     // A token change while the check ran: this answer belongs to the old one.
     if (cache().generation !== generation) return status;
-    Object.assign(cache(), { status, at: Date.now() });
+    Object.assign(cache(), { status, at: Date.now(), fromSync: false });
+    if (status.login) cache().owner = { login: status.login, name: status.name, avatarUrl: status.avatarUrl };
     if (status.login) await saveIdentity(status).catch((e) => console.error(`could not save the GitHub identity: ${e instanceof Error ? e.message : String(e)}`));
     return status;
   })().finally(() => {
@@ -86,6 +92,40 @@ export async function connectionStatus({ refresh = false }: { refresh?: boolean 
   });
   c.inflight = run;
   return run;
+}
+
+/**
+ * A sync cycle failed with a 401 or couldn't reach GitHub (SPEC §3.3): show
+ * that state now, without waiting for the next check, so the banner says
+ * "Your GitHub token is invalid or expired" or "Can't reach GitHub" over the
+ * cached data. The token's owner stays known, so the app keeps its user and
+ * its data instead of falling back to an empty list.
+ */
+export function noteSyncProblem(state: "invalid" | "offline"): void {
+  const c = cache();
+  const { generation } = tokenState();
+  if (c.generation !== generation) Object.assign(c, { generation, settings: settingsVersion(), owner: null });
+  const prev = c.status;
+  if (prev?.state === state) return;
+  const base = prev ?? missingStatus();
+  const owner = c.owner;
+  const status: ConnectionStatus = {
+    ...base,
+    state,
+    message: state === "invalid" ? MESSAGES.invalid : MESSAGES.offline,
+    login: base.login ?? owner?.login ?? null,
+    name: base.name ?? owner?.name ?? null,
+    avatarUrl: base.avatarUrl ?? owner?.avatarUrl ?? null,
+    rateLimitedUntil: null,
+    checkedAt: new Date().toISOString(),
+  };
+  Object.assign(c, { status, at: Date.now(), fromSync: true });
+}
+
+/** A sync cycle reached GitHub again: a problem it reported is checked again on the next read. */
+export function noteSyncOk(): void {
+  const c = cache();
+  if (c.fromSync && c.generation === tokenState().generation) Object.assign(c, { at: 0, fromSync: false });
 }
 
 // --- identity ------------------------------------------------------------------
@@ -122,6 +162,12 @@ export async function localLogin(): Promise<string | null> {
   if (!localToken()) return null;
   const cached = cachedConnection();
   if (cached?.login) return cached.login;
+  // This token's owner was confirmed earlier in this run; a 401 or an outage since keeps it.
+  const c = cache();
+  if (c.generation === tokenState().generation && c.owner) {
+    if (!c.inflight && Date.now() - c.at >= ERROR_TTL_MS) void connectionStatus().catch(() => undefined);
+    return c.owner.login;
+  }
   if (!tokenState().changedByUser) {
     const saved = await savedIdentity().catch(() => null);
     if (saved) {

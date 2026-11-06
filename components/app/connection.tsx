@@ -21,7 +21,9 @@ const Ctx = createContext<ConnectionCtx>({ status: null, checking: false, rechec
 export const useConnection = () => useContext(Ctx);
 
 const REFETCH_AFTER_MS = 60_000;
-const POLL_MS = 5 * 60_000;
+// The server answers from its cache (a failed sync updates it at once, D5),
+// so this asks GitHub only when that cache is due.
+const POLL_MS = 15_000;
 
 export async function fetchConnection(refresh = false): Promise<ConnectionStatus | null> {
   try {

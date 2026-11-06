@@ -15,8 +15,8 @@ import { isRateLimited, type Kv } from "./poll";
 import type { FetchedNode } from "./source-github";
 import { partialSnapshot, type FullSnapshot } from "./types";
 
-/** Run at most this often (the worker checks every round, the cron daily). */
-export const RECONCILE_INTERVAL_MS = 20 * 3600_000;
+/** Run at most this often: the sync service checks on launch and on every cycle. */
+export const RECONCILE_INTERVAL_MS = 24 * 3600_000;
 
 export interface ReconcileSource {
   /** Project fields with options and iterations, issue types, labels, milestones. */

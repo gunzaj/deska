@@ -27,7 +27,7 @@ describe("triggerSync", () => {
     (await getSyncKv()).set("sync.lastAttemptAt", "");
   });
 
-  it("Sync now twice within 30 s calls the source once", async () => {
+  it("Sync now twice within 5 s calls the source once", async () => {
     const source = fakeSource();
     const store = new MemoryStore();
     const first = await triggerSync(source, store, { manual: true });
@@ -55,7 +55,7 @@ describe("triggerSync", () => {
     expect(source.scanOpenPullRequests).toHaveBeenCalledTimes(1);
   });
 
-  it("does not throttle the cron", async () => {
+  it("does not throttle the sync loop", async () => {
     const source = fakeSource();
     const store = new MemoryStore();
     await triggerSync(source, store, { manual: false });
@@ -78,11 +78,11 @@ describe("triggerSync", () => {
     expect((await running).kind).toBe("ran");
   });
 
-  it("parses SYNC_NOW_MIN_INTERVAL_MS with a 30 s default", () => {
-    expect(syncNowMinIntervalMs(undefined)).toBe(30_000);
-    expect(syncNowMinIntervalMs("")).toBe(30_000);
-    expect(syncNowMinIntervalMs("abc")).toBe(30_000);
-    expect(syncNowMinIntervalMs("5000")).toBe(5_000);
+  it("parses SYNC_NOW_MIN_INTERVAL_MS with a 5 s default (one local user, D5)", () => {
+    expect(syncNowMinIntervalMs(undefined)).toBe(5_000);
+    expect(syncNowMinIntervalMs("")).toBe(5_000);
+    expect(syncNowMinIntervalMs("abc")).toBe(5_000);
+    expect(syncNowMinIntervalMs("30000")).toBe(30_000);
   });
 
   it("attemptedWithin ignores a missing or corrupt timestamp", () => {

@@ -39,6 +39,13 @@ export interface ImportStore {
    * removes items from the project itself.
    */
   pruneUnseenProjectItems(scanId: string, startedAt?: string): MaybePromise<number>;
+  /**
+   * Point each child at its parent where both are cached (by node ID); returns
+   * the pairs whose child or parent isn't cached yet. The first import uses it
+   * for parents that arrive on a later page. A store that keeps parents by
+   * node ID (MemoryStore) doesn't need it.
+   */
+  linkParents?(pairs: { child: string; parent: string }[]): Promise<{ child: string; parent: string }[]>;
   /** The discovered project fields (ID, name, type), for resolving the field map (v5 1.3). */
   listFields?(): MaybePromise<{ id: string; name: string; dataType: string }[]>;
 }

@@ -1,7 +1,9 @@
 // Opens the local database when the server starts (instrumentation-node.ts):
-// applies pending migrations and, until in-process sync lands (D5), seeds the
-// fictional demo dataset into an empty database when DESKA_DEMO_SEED asks for
-// it, so the app has something to show.
+// applies pending migrations and, for tests, dev and the preview only, seeds
+// a fictional sample dataset into an empty database when DESKA_DEMO_SEED asks
+// for it. The desktop app itself never sets it (D5): its cache is filled by the
+// first import from GitHub, and a database seeded with sample data is never
+// synced (lib/sync/service.ts), so the two never mix.
 import { sql } from "drizzle-orm";
 import { dbDir, ensureMigrated, getDb } from "@/db";
 import { demoSnapshot } from "./demo/generate";
