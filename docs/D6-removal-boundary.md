@@ -84,3 +84,61 @@ DROP TABLE pull_requests;
 `/pulls`, `Pull requests`, `pullRequests`, `pull_requests`, `PrStateIcon` or
 `usePrs` token left in `app/`, `components/` or `lib/`. A grep-shaped test is the only
 gate that keeps the removal from growing back, and it costs a second to run.
+
+## §13 — What the screens look like after the deletion
+
+A `rm` leaves holes, and a hole is a design decision someone makes in a diff at
+2am. These are the four surfaces PR code occupies. None of them needs new UI; each
+needs the existing UI to not show a gap, a dead control or an empty card.
+
+**1. Sidebar — the section goes, the order does not shift.**
+
+`pulls` leaves `SIDEBAR_SECTIONS` (`lib/tasks/model.ts:264`), `SECTION_LABELS`
+(`sidebar-customize.tsx:14`), the `blocks` map entry (`sidebar.tsx:221`) and the
+`prNav` array (`:173-177`). Nothing replaces it: Tasks → Projects → Labels is the
+after-shape, and `resolveSidebar()` already drops unknown ids, so a stored layout
+that names `pulls` (`{order:[...,"pulls"],hidden:[]}`) resolves to the surviving
+seven sections without a migration and without a warning. Do not add a
+placeholder section and do not renumber.
+
+**2. ⌘K — three entries go, `G P` goes with them.**
+
+`nav:prreview`, `nav:prmine`, `nav:prs` (`palette.tsx:133-135`), the
+`section: "Pull requests"` result group (`:250-262`), the `searchPrs` import, the
+`?pr=N` deep link (`:99` reads `PR_PARAM`, which leaves with `open-pr.ts`), and
+`p: "/pulls/review"` in the `G` chord table (`shortcuts.tsx:82`). After the
+deletion `G P` must fall through untouched — the chord table only consumes a
+second key when `dest[k]` is a real destination, so removing the line is the whole
+fix; leave `P` unbound rather than reassigning it, because `P` means pull request
+to anyone who used this app and repointing it to a different screen is worse than
+an inert key. The palette's empty state stays "No results" — it is not a PR-only
+message.
+
+**3. Insights — the card goes, the grid closes over it.**
+
+`ReviewWait` (`insights.tsx:222-267`) and its `lg:col-span-2` section are one card
+in a `grid gap-4 lg:grid-cols-2`. Delete the card and the component, not the page:
+age, triage, flow, by-dimension, by-priority, by-type, by-assignee and by-label
+all stay, and the two-column grid re-flows with no empty cell because every card
+is a single grid child. The `days` URL param and `parseWaitDays`/`WAIT_DAYS`
+(`lib/client/insights.ts:85-91`) existed only for this card, so they go too —
+`/insights?days=10` then lands on the plain page, which is the same degradation
+`?scope=` already has (`missingView` note at `:322`). **`tests/e2e/insights.spec.ts:31`
+("the N-days picker is in the URL") is deleted with the card**, not rewritten: it
+asserts a control that no longer exists, and it is the flake in issue #6's sample,
+so its disappearance should not be read as a regression.
+
+**4. Task links and quick add — no empty row, no dead suggestion.**
+
+`links.tsx` keeps `IssueLinkChip` and loses `PrLinkChip`; the `LinkChip`
+dispatcher becomes the issue chip outright rather than a ternary with one branch.
+The migration deletes stored `pr` links, so no row renders against a target that
+is gone — that is the whole reason for the `DELETE`. `compose.tsx`'s suggest list
+keeps `issueHits` and drops `prHits`, so typing `#12` offers issue 12 or nothing;
+the `#123` chip it inserts is built from `byNumber` only
+(`compose.tsx:200` loses its `prByNumber` lookup). `TaskLink.kind` narrows to
+`"issue"` in `lib/tasks/model.ts:26` — the column keeps its `issue | pr` comment
+per item 3, the type does not.
+
+**What does not change:** the row, the side panel, the board, the list, saved
+views and the triage queues. D6 removes a source of rows, not a row.
