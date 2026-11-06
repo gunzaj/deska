@@ -2,7 +2,7 @@
 
 | Milestone | Status | PR | Notes |
 |---|---|---|---|
-| D0 | in progress | | Predecessor imported and scrubbed |
+| D0 | done | [#1](https://github.com/gunzaj/deska/pull/1) | Predecessor imported and scrubbed |
 | D1 | todo | | |
 | D2 | todo | | |
 | D3 | todo | | |
