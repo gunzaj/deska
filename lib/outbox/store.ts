@@ -4,8 +4,8 @@
 //
 // - enqueue inserts a row keyed by its idempotency key (one per user action);
 //   a repeat of the same action returns the existing row;
-// - the edit request processes its own row right away (fast path);
-// - the worker loop and the cron drain leftovers;
+// - the edit request processes its own row right away (fast path), and the
+//   in-process worker loop drains what is left;
 // - a row is claimed by leasing it (`next_attempt_at`), so two drains never take
 //   the same row and a crashed process's lease expires and the row is retried;
 // - the GitHub read and write happen OUTSIDE any transaction: the claim and the
@@ -347,7 +347,7 @@ async function drain(
     const userId = claimed.userId ?? "";
     // A user's rows run one after another inside this loop, so no two of their
     // writes go out together; skipping the user until the next drain made a
-    // backlog take one cron tick per row (v5 2.3).
+    // backlog take one tick per row (v5 2.3).
     const deps = await depsFor(userId);
     if (!deps) {
       const row = await db.transaction(async (tx) => {

@@ -1,6 +1,7 @@
-// Postgres-backed ImportStore + IdResolver: the shared sync cache that makes
-// `pnpm worker` and the web app see the same state. The in-memory store stays
-// the read model (see readCache()) so the view engine is unchanged.
+// Postgres-backed ImportStore + IdResolver: the sync cache the sync loop writes
+// and the pages read, in the app's own PGlite database (SPEC §2.1). The
+// in-memory store stays the read model (see readCache()) so the view engine is
+// unchanged.
 import { and, eq, getTableColumns, inArray, isNotNull, isNull, lt, sql } from "drizzle-orm";
 import { getDb } from "@/db";
 import {
