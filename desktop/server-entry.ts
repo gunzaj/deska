@@ -29,7 +29,19 @@ function reply(msg: ServerReply) {
 const TOKEN = Symbol.for("deska.githubToken");
 const TOKEN_STATE = Symbol.for("deska.githubTokenState");
 const DB = Symbol.for("deska.db");
+// lib/sync/service.ts, registered when the Next server starts.
+const SYNC = Symbol.for("deska.syncService");
 let started = false;
+
+type SyncHandle = { request(reason: string): Promise<unknown>; stop(): Promise<void> };
+const syncHandle = () => (globalThis as Record<symbol, SyncHandle | undefined>)[SYNC];
+
+/** Ask the sync service for a run, if it is up (it runs one on start anyway). */
+function requestSync(reason: "wake" | "token") {
+  syncHandle()
+    ?.request(reason)
+    .catch((e: unknown) => console.error(`deska: sync request failed: ${e instanceof Error ? e.message : String(e)}`));
+}
 
 function setToken(token: string | null, source: "launch" | "user") {
   const g = globalThis as Record<symbol, unknown>;
@@ -39,6 +51,13 @@ function setToken(token: string | null, source: "launch" | "user") {
 }
 
 async function stop() {
+  // A running import stops after the page it is writing; its checkpoint is
+  // where the next launch resumes.
+  try {
+    await syncHandle()?.stop();
+  } catch {
+    /* quitting anyway */
+  }
   // PGlite flushes and releases its data directory on close.
   const db = (globalThis as Record<symbol, { pg?: { close(): Promise<void>; closed?: boolean } } | undefined>)[DB];
   try {
@@ -97,5 +116,7 @@ onMessage((msg) => {
   else if (msg.type === "token") {
     setToken(msg.token, msg.source);
     reply({ type: "token-ack", id: msg.id });
-  } else if (msg.type === "stop") void stop();
+    if (msg.token) requestSync("token");
+  } else if (msg.type === "sync") requestSync(msg.reason);
+  else if (msg.type === "stop") void stop();
 });

@@ -4,7 +4,10 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vites
 import { sql } from "drizzle-orm";
 import { NextRequest } from "next/server";
 
-const calls = vi.hoisted(() => ({ checkChanges: 0, scan: 0 }));
+// Anything that slipped past the fakes hits a closed local port, never GitHub.
+process.env.DESKA_GITHUB_API_URL = "http://127.0.0.1:10";
+
+const calls = vi.hoisted(() => ({ checkChanges: 0, scan: 0, imported: 0 }));
 // The POST route checks the session (defense-in-depth); supply a viewer.
 vi.mock("@/lib/session", () => ({ getViewerLogin: async () => "alice" }));
 vi.mock("@/lib/sync/source-github", async (orig) => {
@@ -51,11 +54,38 @@ vi.mock("@/lib/sync/source-github", async (orig) => {
   }
   return { ...real, GitHubSource: FakeGitHubSource };
 });
+vi.mock("@/lib/sync/live", async (orig) => {
+  const real = await orig<typeof import("@/lib/sync/live")>();
+  // The first import, from a fake GitHub with no issues.
+  class FakeImportSource {
+    async fetchMetadata() {
+      calls.imported++;
+      return { projectId: "PVT_acme_widgets_roadmap", fields: [], issueTypes: [], labels: [], milestones: [] };
+    }
+    async listAssignableUsers() {
+      return [];
+    }
+    async issuesPage() {
+      return { issues: [], users: [], full: false, maxUpdatedAt: null };
+    }
+    async scanProjectItems() {
+      return { items: [], nextCursor: null, total: 0 };
+    }
+  }
+  const reconcileSource = () => ({
+    fetchMetadata: async () => ({ projectId: "PVT_acme_widgets_roadmap", fields: [], issueTypes: [], labels: [], milestones: [] }),
+    listOpenNodeIds: async () => ({ issues: [], pullRequests: [] }),
+    fetchNodes: async () => new Map(),
+    repoName: "acme/widgets",
+  });
+  return { ...real, GitHubImportSource: FakeImportSource, githubReconcileSource: reconcileSource };
+});
 
 describe("/api/sync-now (Postgres, fake GitHub)", async () => {
   const { getDb } = await import("@/db");
   const { POST } = await import("@/app/api/sync-now/route");
   const { setLocalToken } = await import("@/lib/github/local-token");
+  const { resetSyncService } = await import("@/lib/sync/service");
   const post = () => POST(new NextRequest("http://x/api/sync-now", { method: "POST" }));
 
   beforeAll(() => {
@@ -65,8 +95,10 @@ describe("/api/sync-now (Postgres, fake GitHub)", async () => {
   beforeEach(async () => {
     calls.checkChanges = 0;
     calls.scan = 0;
+    calls.imported = 0;
+    await resetSyncService();
     await getDb().execute(sql`TRUNCATE issues, project_items, project_scan_seen, sync_state RESTART IDENTITY CASCADE`);
-    await getDb().execute(sql`INSERT INTO sync_state (key, value) VALUES ('issues.since', '2026-10-01T00:00:00Z')`);
+    await getDb().execute(sql`INSERT INTO sync_state (key, value) VALUES ('issues.since', '2026-10-01T00:00:00Z'), ('reconcile.lastRun', ${new Date().toISOString()})`);
   });
   afterAll(() => {
     setLocalToken(null, "launch");
@@ -98,11 +130,13 @@ describe("/api/sync-now (Postgres, fake GitHub)", async () => {
     }
   });
 
-  it("no cursor: 503 asking for the initial import, GitHub untouched", async () => {
+  it("no cursor yet: Sync now runs the first import, not a poll of the whole history", async () => {
     await getDb().execute(sql`TRUNCATE sync_state`);
     const res = await post();
-    expect(res.status).toBe(503);
-    expect(await res.json()).toMatchObject({ error: "needs initial import" });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ imported: { resumed: false } });
+    expect(calls.imported).toBe(1);
     expect(calls.checkChanges).toBe(0);
+    expect((await getDb().execute(sql`SELECT value FROM sync_state WHERE key = 'issues.since'`)).rows[0]).toBeTruthy();
   });
 });

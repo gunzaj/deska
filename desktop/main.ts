@@ -9,13 +9,17 @@ import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node
 import http from "node:http";
 import net from "node:net";
 import path from "node:path";
-import { app, BrowserWindow, dialog, ipcMain, Notification, safeStorage, session, shell, utilityProcess, type IpcMainInvokeEvent, type UtilityProcess, type WebContents } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, Notification, powerMonitor, safeStorage, session, shell, utilityProcess, type IpcMainInvokeEvent, type UtilityProcess, type WebContents } from "electron";
 import { CHANNELS, FINE_GRAINED_TOKEN, type ServerMessage, type ServerReply, type TokenStatus } from "./bridge";
 import { classifyUrl, requestAllowed } from "./navigation";
 
 const LAUNCH_COOKIE = "deska_launch"; // lib/desktop/guard.ts
 const LOOPBACK_API = /^http:\/\/127\.0\.0\.1:\d{2,5}$/; // lib/config.ts
 const DEV = process.env.DESKA_DESKTOP_DEV === "1";
+/** Sample data for tests and dev only (D5): the app itself fills its cache from GitHub. */
+const SAMPLE_SEEDS = ["demo", "fixtures", "alt", "alt-no-sprint"];
+/** After a wake the network may need a moment before the sync can reach GitHub. */
+const WAKE_SYNC_DELAY_MS = 3_000;
 
 app.setName("Deska");
 // Tests run the app against a throwaway profile.
@@ -77,10 +81,10 @@ function startServerProcess(port: number, secret: string): Server {
     secret,
     dbDir,
     env: {
-      // Until in-process sync (D5): the fictional demo dataset fills an empty
-      // database, under a "Sample data" banner.
-      // Tests pick the small fixture sets (D4 adds the differently named project).
-      DESKA_DEMO_SEED: ["fixtures", "alt", "alt-no-sprint"].includes(process.env.DESKA_DEMO_SEED ?? "") ? process.env.DESKA_DEMO_SEED! : "demo",
+      // Tests and dev may fill an empty database with a fictional sample
+      // dataset (under a "Sample data" banner, and never synced). The app
+      // itself imports from GitHub after onboarding (D5).
+      ...(SAMPLE_SEEDS.includes(process.env.DESKA_DEMO_SEED ?? "") ? { DESKA_DEMO_SEED: process.env.DESKA_DEMO_SEED! } : {}),
       // Automated tests point GitHub at a mock on 127.0.0.1; nothing else is
       // passed on (the server ignores any other value too, lib/config.ts).
       ...(LOOPBACK_API.test(process.env.DESKA_GITHUB_API_URL ?? "") ? { DESKA_GITHUB_API_URL: process.env.DESKA_GITHUB_API_URL! } : {}),
@@ -295,6 +299,11 @@ async function boot() {
   createWindow(s.origin);
 }
 
+// Back from sleep: sync now (SPEC D5), once the network had a moment.
+function onResume() {
+  setTimeout(() => server?.send({ type: "sync", reason: "wake" }), WAKE_SYNC_DELAY_MS);
+}
+
 app.on("web-contents-created", (_e, contents) => {
   contents.on("will-attach-webview", (e) => e.preventDefault());
 });
@@ -333,6 +342,7 @@ app.on("before-quit", (e) => {
 
 void app.whenReady().then(async () => {
   registerIpc();
+  powerMonitor.on("resume", onResume);
   try {
     await boot();
   } catch (e) {

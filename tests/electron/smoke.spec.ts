@@ -1,7 +1,18 @@
 // Desktop smoke test (SPEC D2 and D3 acceptance, §2.2, §2.3). Launches the
-// built app (the packaged .app when release/ has one, else `electron .` on the
-// staged build) against a throwaway profile seeded with the fixture dataset,
-// and a mock GitHub API on 127.0.0.1: nothing here talks to real GitHub.
+// built app against a throwaway profile and a mock GitHub API on 127.0.0.1:
+// nothing here talks to real GitHub.
+//
+// Three launch options decide what a test actually sees, and each one is a trap
+// when it is left at its default:
+//
+// - `seed: ""` — the default seeds the fixture dataset, and seeding also writes
+//   the poll cursor (`lib/sync/initial.ts`), so a seeded launch is never asked to
+//   import and `/importing` is unreachable. Only the empty-seed test reaches it.
+// - `envTarget: false` — otherwise GITHUB_REPO/_ORG/_PROJECT_NUMBER are set and
+//   the app has a target before onboarding step 2 stores one, which hides a save
+//   that did not persist.
+// - `DESKA_SMOKE_TARGET=staged` — otherwise `packagedApp()` prefers any build
+//   under `release/`, so a stale packaged app runs instead of the code under test.
 //
 // `--use-mock-keychain` keeps safeStorage off the real macOS keychain (no
 // prompts, nothing left behind); it still encrypts.
@@ -39,22 +50,55 @@ type MockGitHub = {
   projects: "ok" | "forbidden";
   /** The org's projects, fields included; a test renames or deletes fields here. */
   orgProjects: MockProject[];
+  /** Per-request latency on the issue pages, so a first import's progress can be observed. */
+  delayMs: number;
   close(): Promise<void>;
 };
 
+const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+
+/** More than one REST page of 100, so the first import really pages. */
+const ISSUE_COUNT = 120;
+/** Also more than one page: the metadata import must follow `link`. */
+const LABEL_COUNT = 120;
+
+function mockIssue(number: number, state: "open" | "closed") {
+  // A minute apart, so the checkpoint (`since`) moves forward page by page.
+  const at = new Date(Date.UTC(2026, 9, 1) + (number - 100) * 60_000).toISOString();
+  return {
+    node_id: `I_${number}`,
+    number,
+    title: number === 102 ? "Bug: crash on start" : `Issue ${number}`,
+    body: `Body of ${number}`,
+    state,
+    state_reason: null,
+    user: { login: number % 2 ? "bob" : "alice", id: number % 2 ? 2 : 1, avatar_url: null },
+    html_url: `https://github.com/acme/widgets/issues/${number}`,
+    created_at: at,
+    updated_at: at,
+    closed_at: state === "closed" ? at : null,
+    labels: [],
+    assignees: number % 3 ? [] : [{ id: 1, login: "alice", avatar_url: null }],
+    milestone: null,
+  };
+}
+
 async function mockGitHub(): Promise<MockGitHub> {
+  const snapshot = fixtureSnapshot();
+  const issues = [...Array.from({ length: ISSUE_COUNT }, (_, i) => mockIssue(100 + i, "open")), mockIssue(900, "closed"), mockIssue(901, "closed")];
   const mock = {
     requests: [] as MockGitHub["requests"],
     projects: "ok" as MockGitHub["projects"],
+    delayMs: 0,
     orgProjects: [
-      { id: "PVT_acme_widgets_roadmap", number: 7, title: "Widgets Roadmap", closed: false, fields: fixtureSnapshot().fields },
+      { id: "PVT_acme_widgets_roadmap", number: 7, title: "Widgets Roadmap", closed: false, fields: snapshot.fields },
       { id: "PVT_acme_ops_board", number: 3, title: "Ops Board", closed: false, fields: altFields() },
     ] as MockProject[],
   };
   const server = http.createServer((req, res) => {
     let body = "";
     req.on("data", (c) => (body += c));
-    req.on("end", () => {
+    req.on("end", () => void (async () => {
       const url = new URL(req.url ?? "/", "http://mock");
       const auth = req.headers.authorization ?? null;
       const gql = (JSON.parse(body || "{}") as { query?: string; variables?: Record<string, unknown> }) ?? {};
@@ -63,12 +107,46 @@ async function mockGitHub(): Promise<MockGitHub> {
         res.writeHead(status, { "content-type": "application/json", ...headers });
         res.end(JSON.stringify(data));
       };
-      if (auth?.replace(/^bearer /i, "") !== TOKEN) return json(401, { message: "Bad credentials" });
+      // Paging as GitHub does it: `page`/`per_page`, and a `link` header the
+      // metadata reads follow. A list that fits on one page has no next link.
+      const paged = <T,>(rows: T[]) => {
+        const perPage = Number(url.searchParams.get("per_page") ?? "30");
+        const page = Math.max(1, Number(url.searchParams.get("page") ?? "1"));
+        const start = (page - 1) * perPage;
+        const headers: Record<string, string> = {};
+        if (start + perPage < rows.length) {
+          const next = new URL(url.toString());
+          next.searchParams.set("page", String(page + 1));
+          headers.link = `<http://${req.headers.host}${next.pathname}${next.search}>; rel="next"`;
+        }
+        return json(200, rows.slice(start, start + perPage), headers);
+      };
+      // Octokit sends `bearer …` from GraphQL and `token …` from REST.
+      if (auth?.replace(/^(bearer|token) /i, "") !== TOKEN) return json(401, { message: "Bad credentials" });
       if (req.method === "GET" && url.pathname === "/user") {
         return json(200, { login: "alice", name: "Alice", avatar_url: null }, { "github-authentication-token-expiration": "2027-03-01 00:00:00 UTC" });
       }
       if (req.method === "GET" && url.pathname === "/repos/acme/widgets") return json(200, { full_name: "acme/widgets", private: true });
-      if (req.method === "GET" && url.pathname === "/repos/acme/widgets/issues") return json(200, []);
+      if (req.method === "GET" && url.pathname === "/repos/acme/widgets/issues") {
+        if (mock.delayMs) await sleep(mock.delayMs);
+        const state = url.searchParams.get("state") ?? "open";
+        const since = url.searchParams.get("since");
+        // `since` is inclusive on updated_at: it is what stops the import re-reading a page it wrote.
+        const rows = issues.filter((i) => (state === "all" || i.state === state) && (!since || i.updated_at >= since));
+        return paged(rows);
+      }
+      if (req.method === "GET" && url.pathname === "/repos/acme/widgets/labels") {
+        return paged(Array.from({ length: LABEL_COUNT }, (_, i) => ({ id: 1000 + i, name: `label-${i}`, color: "blue", description: "" })));
+      }
+      if (req.method === "GET" && url.pathname === "/repos/acme/widgets/milestones") {
+        return paged([{ number: 12, title: "Sprint 23", state: "open", due_on: null }]);
+      }
+      if (req.method === "GET" && url.pathname === "/repos/acme/widgets/assignees") {
+        return paged([
+          { id: 1, login: "alice", avatar_url: null },
+          { id: 2, login: "bob", avatar_url: null },
+        ]);
+      }
       if (req.method === "POST" && url.pathname === "/graphql") {
         const query = String(gql.query ?? "");
         const forbidden = { data: { organization: null }, errors: [{ type: "FORBIDDEN", message: "Resource not accessible by personal access token" }] };
@@ -83,6 +161,41 @@ async function mockGitHub(): Promise<MockGitHub> {
           const nodes = p.fields.map((f) => ({ id: f.id, name: f.name, dataType: f.dataType, ...(f.options ? { options: f.options } : {}), ...(f.iterations ? { configuration: { iterations: f.iterations, completedIterations: [] } } : {}) }));
           return json(200, { data: { organization: { projectV2: { id: p.id, number: p.number, title: p.title, fields: { pageInfo: { hasNextPage: false, endCursor: null }, nodes } } } } });
         }
+        // The sync's own reads (D5): the first import's metadata, native issue
+        // types and parents, and the project items, in their paged shapes.
+        if (query.includes("DeskaSyncFields")) {
+          if (mock.projects === "forbidden") return json(200, forbidden);
+          const p = mock.orgProjects.find((x) => x.number === Number(gql.variables?.num));
+          if (!p) return json(200, { data: { organization: { projectV2: null } }, errors: [{ type: "NOT_FOUND", message: "Could not resolve to a ProjectV2" }] });
+          const nodes = p.fields.map((f) => ({ id: f.id, name: f.name, dataType: f.dataType, ...(f.options ? { options: f.options } : {}), ...(f.iterations ? { configuration: { iterations: f.iterations, completedIterations: [] } } : {}) }));
+          return json(200, { data: { organization: { projectV2: { id: p.id, fields: { nodes } } } } });
+        }
+        if (query.includes("DeskaSyncIssueTypes") || query.includes("DeskaIssueTypesCheck")) {
+          return json(200, { data: { organization: { issueTypes: { totalCount: snapshot.issueTypes.length, nodes: snapshot.issueTypes } } } });
+        }
+        if (query.includes("DeskaIssueExtras")) {
+          const ids = (gql.variables?.ids ?? []) as string[];
+          const nodes = ids.map((id) => ({ id, issueType: { id: id === "I_102" ? "IT_acme_bug" : "IT_acme_task" }, parent: null }));
+          return json(200, { data: { nodes } });
+        }
+        if (query.includes("DeskaSyncItems")) {
+          const rows = [100, 101, 102].map((n, i) => ({
+            id: `PVTI_${n}`,
+            updatedAt: new Date(Date.UTC(2026, 9, 1) + i * 60_000).toISOString(),
+            content: { id: `I_${n}` },
+            fieldValues: {
+              nodes: [
+                { optionId: i === 0 ? "a0000001" : "a0000002", field: { id: "PVTSSF_acme_status", name: "Status" } },
+                { optionId: i === 0 ? "b0000003" : "b0000002", field: { id: "PVTSSF_acme_priority", name: "Priority" } },
+                { iterationId: "e0000023", field: { id: "PVTIF_acme_release", name: "Release" } },
+              ],
+            },
+          }));
+          // The paged shape even though it fits one page: the import must finish
+          // on `hasNextPage: false`, not on a count.
+          const after = (gql.variables?.after as string | null) ?? null;
+          return json(200, { data: { organization: { projectV2: { items: { totalCount: rows.length, pageInfo: { hasNextPage: false, endCursor: null }, nodes: after ? [] : rows } } } } });
+        }
         if (query.includes("projectV2")) {
           if (mock.projects === "forbidden") return json(200, { data: { organization: { projectV2: null } }, errors: [{ type: "FORBIDDEN", message: "Resource not accessible by personal access token" }] });
           return json(200, { data: { organization: { projectV2: { id: "PVT_acme_widgets_roadmap" } } } });
@@ -90,7 +203,7 @@ async function mockGitHub(): Promise<MockGitHub> {
         return json(200, { data: { organization: { issueTypes: { totalCount: 3 } } } });
       }
       return json(404, { message: "Not Found" });
-    });
+    })());
   });
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
   const port = (server.address() as { port: number }).port;
@@ -363,6 +476,60 @@ test.describe("desktop shell", () => {
       expect(await win.evaluate(() => window.deska!.openExternal("https://example.com/"))).toBe(false);
       expect(await win.evaluate(() => window.deska!.openExternal("https://github.com/acme/widgets"))).toBe(true);
       expect(await opened()).toHaveLength(3);
+    } finally {
+      await app.close();
+    }
+  });
+
+  test("D5: an empty cache imports from GitHub with progress, then opens the issue list", async () => {
+    // Each issue page is slow enough that the progress screen is observably on
+    // screen before the import finishes; the import itself is real.
+    github.delayMs = 3_000;
+    // No seed and no env target: an empty cache and a project chosen in step 2,
+    // exactly as a user's first launch.
+    const { app, win, origin } = await launch(userData, github, { seed: "", envTarget: false });
+    try {
+      await win.waitForURL(`${origin}/onboarding`);
+      await win.getByLabel("Fine-grained personal access token").fill(TOKEN);
+      await win.getByRole("button", { name: "Connect" }).click();
+      await expect(win.getByText("Connected as")).toContainText("@alice", { timeout: 30_000 });
+      await win.getByRole("button", { name: "Continue" }).click();
+      await expect(win.getByRole("heading", { name: "Choose your project" })).toBeVisible({ timeout: 60_000 });
+      await win.getByLabel("Repository", { exact: true }).fill("acme/widgets");
+      await win.getByRole("button", { name: "Find projects" }).click();
+      await win.getByRole("radio", { name: /^Widgets Roadmap/ }).check();
+      await expect(win.locator("[data-mapping-form]")).toBeVisible({ timeout: 30_000 });
+      await win.getByRole("button", { name: "Save and open Deska" }).click();
+
+      // The progress screen, never a half-filled issue list (D5).
+      await win.waitForURL(`${origin}/importing`, { timeout: 60_000 });
+      await expect(win.getByRole("heading", { name: "Importing from GitHub" })).toBeVisible();
+      await expect(win.locator("[data-import-steps] li[data-step]")).toHaveCount(4);
+      // Every row's label comes from the one copy map the screen renders.
+      for (const label of ["Project fields, labels and milestones", "Open issues", "Recently closed issues", "Project items"]) {
+        await expect(win.getByText(label, { exact: true })).toBeVisible();
+      }
+      // The import pages: 120 open issues at 100 a page needs a second request.
+      const issuePages = () => github.requests.filter((r) => r.path === "/repos/acme/widgets/issues").length;
+      await expect.poll(issuePages, { timeout: 120_000 }).toBeGreaterThan(1);
+      await expect(win.locator("[data-import-progress]")).toBeVisible();
+
+      // When it finishes, the app opens on the issue list with GitHub's issues in it.
+      await win.waitForURL(`${origin}/issues`, { timeout: 180_000 });
+      // The list is virtualized: assert the rows that are on screen, not a
+      // title that may be scrolled out of the window.
+      await expect(win.locator("[data-row-id]").first()).toBeVisible({ timeout: 60_000 });
+      const data = await win.evaluate(() => fetch("/api/data").then((r) => r.json()));
+      expect(data.issues.length).toBeGreaterThan(100);
+      // Wire rows are compact: `n` is the issue number.
+      expect(data.issues.map((i: { n: number }) => i.n)).toContain(102);
+      // The metadata followed its `link` header instead of stopping at page 1.
+      expect(data.meta.labels.length).toBe(120);
+      // Reads only, all along.
+      for (const r of github.requests) {
+        expect(r.method === "GET" || (r.method === "POST" && r.path === "/graphql"), `${r.method} ${r.path}`).toBe(true);
+        expect(r.query).not.toMatch(/\bmutation\b/);
+      }
     } finally {
       await app.close();
     }

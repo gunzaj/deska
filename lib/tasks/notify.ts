@@ -1,5 +1,5 @@
 // Reminders and notifications (SPEC §12.6). Reminders become `notifications`
-// rows lazily: when a user's client polls, and on every cron/worker cycle.
+// rows lazily: when the viewer's client polls (app/api/notifications).
 // The dedupe key makes each reminder occurrence fire exactly once.
 import { addDays, zonedToUtc } from "./dates";
 import type { NotificationKind, TaskCore } from "./model";
@@ -38,7 +38,8 @@ export function reminderTimes(t: TaskCore): { key: string; at: Date }[] {
 
 /**
  * Turn due reminders into notifications. With `login`, only that user's
- * (the polling client's); without, everyone's (cron). Returns how many fired.
+ * (the polling client's); without, everyone's (the CLI tools and tests).
+ * Returns how many fired.
  */
 export async function fireReminders(now = new Date(), login?: string): Promise<number> {
   const repo = taskRepo();

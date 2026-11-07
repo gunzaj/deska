@@ -8,7 +8,7 @@ export type SyncState = {
   lastSync: string | null;
   rateLimited: boolean;
   rateLimitedUntil: string | null;
-  /** No sync cursor yet: run `pnpm sync:full --live --db` (S2). */
+  /** The first import from GitHub hasn't finished (D5). */
   needsInitialImport: boolean;
   /** S3: the last cycle start, the last (redacted) error, failures in a row. */
   lastAttemptAt: string | null;
@@ -74,12 +74,11 @@ export function useSyncStatus(refresh: () => Promise<void>) {
       const res = await fetch("/api/sync-now", { method: "POST" });
       if (isUnauthorized(res)) return setSync((s) => ({ ...s, busy: false }));
       const body = await res.json().catch(() => null);
-      // The chip already says "Initial import needed" (from sync-status).
-      if (res.status === 503 && body?.error === "needs initial import") error = null;
-      else if (!res.ok) error = body?.error ?? `Sync failed (HTTP ${res.status})`;
+      if (!res.ok) error = body?.error ?? `Sync failed (HTTP ${res.status})`;
       // Another cycle is running, or one just ran: not an error.
       else if (body?.skipped === "sync-in-progress") notice = "Sync already running";
       else if (body?.skipped === "too-soon") notice = "Synced just now";
+      else if (body?.skipped === "sample-data") notice = "Sample data is not synced";
     } catch {
       error = "Sync request failed — check your connection.";
     }

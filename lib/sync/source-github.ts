@@ -199,7 +199,7 @@ export class GitHubSource implements SyncSource {
     for (let i = 0; i < nodeIds.length; i += 100) {
       const ids = nodeIds.slice(i, i + 100);
       const res = await this.gql(
-        `query($ids:[ID!]!) { nodes(ids:$ids) { ... on Issue { id issueType { id } parent { id } } } }`,
+        `query DeskaIssueExtras($ids:[ID!]!) { nodes(ids:$ids) { ... on Issue { id issueType { id } parent { id } } } }`,
         { ids },
       );
       for (const n of (res?.nodes ?? []) as ({ id?: string; issueType?: { id: string } | null; parent?: { id: string } | null } | null)[]) {
@@ -326,7 +326,7 @@ export class GitHubSource implements SyncSource {
     let after: string | null = null;
     for (;;) {
       const res: { repository: { pullRequests: { pageInfo: { hasNextPage: boolean; endCursor: string }; nodes: GqlPr[] } } } = await this.gql(
-        `query($owner:String!, $name:String!, $after:String, $states:[PullRequestState!]) {
+        `query DeskaPullRequests($owner:String!, $name:String!, $after:String, $states:[PullRequestState!]) {
           repository(owner:$owner, name:$name) {
             pullRequests(first:100, after:$after, states:$states, orderBy:{field:UPDATED_AT, direction:DESC}) {
               pageInfo { hasNextPage endCursor } nodes { ${PR_FIELDS} }
@@ -502,7 +502,7 @@ export class GitHubSource implements SyncSource {
    */
   async scanProjectItems(cursor: string | null): Promise<{ items: SnapshotProjectItem[]; nextCursor: string | null; total: number }> {
     const res = await this.gql(
-      `query($org:String!, $num:Int!, $after:String) {
+      `query DeskaSyncItems($org:String!, $num:Int!, $after:String) {
         organization(login:$org) { projectV2(number:$num) {
           items(first:100, after:$after) {
             totalCount

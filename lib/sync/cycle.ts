@@ -1,12 +1,11 @@
-// One sync cycle, run by "Sync now" (and, from D5, the in-process loop):
+// One sync cycle, run by the in-process sync service (lib/sync/service.ts):
 // the cheap issue change check every time, plus the project scan when it
 // is due. Project field edits (Status, Priority, Release…) may not bump the
 // issue's updated_at, so without the scan they never reach the cache — which
-// is what happened on Vercel, where only the issue poll ran.
+// is what happened to the hosted predecessor, where only the issue poll ran.
 import { randomUUID } from "node:crypto";
 import type { ProjectFieldMap } from "./field-map";
 import { importFull, type ImportStore } from "./import";
-import { redactError } from "./health";
 import { currentFieldMap } from "./runtime";
 import { isRateLimited, pollOnce, type Kv, type PollResult, type SyncSource } from "./poll";
 import { isRateLimitError, retryAfterMs, type GitHubSource } from "./source-github";
@@ -39,12 +38,9 @@ export async function refreshSourceFields(source: { useFields?(map: ProjectField
 }
 
 export type CycleResult = {
-  /** `reason: "error"`: the poll threw and the cycle went on (`continueOnError`). */
-  issues: PollResult | { applied: false; reason: "error" };
+  issues: PollResult;
   project: Awaited<ReturnType<typeof scanProject>> | null;
   prs: Awaited<ReturnType<typeof scanPullRequests>> | null;
-  /** Redacted failures of steps the cycle carried on past; always empty without `continueOnError`. */
-  errors: string[];
 };
 
 /** Whether the scan stored under `key` is at least `minAgeMs` old (or never ran). */
@@ -72,6 +68,21 @@ export async function scanPullRequests(
   return { prs: prs.length, updated: stats.updated, inserted: stats.inserted };
 }
 
+/** Thrown between pages when the app quits; the checkpoint makes the next run resume. */
+export class SyncStopped extends Error {
+  constructor() {
+    super("sync stopped: the app is quitting");
+    this.name = "SyncStopped";
+  }
+}
+
+export type ScanOptions = {
+  /** After each page is written, before the checkpoint is flushed: items on the page, the project's item count. */
+  onPage?: (items: number, total: number | null) => void | Promise<void>;
+  /** Stop between pages (the app is quitting). */
+  signal?: AbortSignal;
+};
+
 /** Due when the interval has passed, or a scan was cut off and should resume. */
 export function projectScanDue(kv: Kv, nowMs = Date.now()): boolean {
   return !!kv.get("project.scanCursor") || scanOlderThan(kv, "project.lastScan", PROJECT_SCAN_MS, nowMs);
@@ -90,6 +101,7 @@ export async function scanProject(
   store: ImportStore,
   kv: Kv,
   nowIso: string,
+  opts: ScanOptions = {},
 ): Promise<{ items: number; updated: number; inserted: number; removed: number; pages: number; resumed: boolean }> {
   let cursor = kv.get("project.scanCursor") || null;
   let scanId = kv.get("project.scanId") || "";
@@ -117,10 +129,13 @@ export async function scanProject(
     updated += stats.updated;
     inserted += stats.inserted;
     pages += 1;
+    await opts.onPage?.(page.items.length, page.total);
     if (!page.nextCursor) break;
     cursor = page.nextCursor;
     kv.set("project.scanCursor", cursor);
     await kv.flush?.();
+    // Quitting: the checkpoint above is where the next launch resumes.
+    if (opts.signal?.aborted) throw new SyncStopped();
   }
   // A complete scan is the whole project, so a cached item it never saw was
   // removed from the project. Kept, it pinned the old Status/Priority to the issue,
@@ -145,52 +160,34 @@ export async function scanProject(
 
 /**
  * One cycle: field map, issue poll, project scan (when due), PR scan (when
- * due). The only orchestrator: "Sync now" runs it (D5 adds the in-process loop).
+ * due). The only orchestrator: the in-process sync service (lib/sync/service.ts)
+ * runs it on an interval, on launch, on wake and on "Sync now".
  * Callers hold the sync lock (withLockedSyncKv); two cycles at once race on
  * inserts and on project-item pruning.
- *
- * By default a failing step throws. With `continueOnError` (a long-running
- * loop, which must outlive a GitHub 5xx) a failing step is logged, collected in `errors`
- * (redacted) and the remaining steps still run.
+ * A failing step throws; the service records it and tries again next cycle.
  */
 export async function runSyncCycle(
   source: CycleSource,
   store: ImportStore,
   kv: Kv,
-  opts: { forceProjectScan?: boolean; continueOnError?: boolean } = {},
+  opts: { forceProjectScan?: boolean } = {},
 ): Promise<CycleResult> {
   const nowIso = new Date().toISOString();
   const nowMs = Date.parse(nowIso);
-  const errors: string[] = [];
-  const step = async <T>(name: string, run: () => Promise<T>): Promise<T | null> => {
-    if (!opts.continueOnError) return run();
-    try {
-      return await run();
-    } catch (e) {
-      console.error(`${name} failed: ${redactError(e)}`);
-      errors.push(`${name}: ${redactError(e)}`);
-      return null;
-    }
-  };
 
-  await step("field map", () => refreshSourceFields(source, store, kv));
-  const issues = (await step("issues cycle", () => pollOnce(source, store, kv, nowIso))) ?? { applied: false as const, reason: "error" as const };
+  await refreshSourceFields(source, store, kv);
+  const issues = await pollOnce(source, store, kv, nowIso);
   // The scans only update issues the cache already holds; before the initial
   // import there are none.
-  if (!issues.applied && issues.reason === "needs-initial-import") return { issues, project: null, prs: null, errors };
+  if (!issues.applied && issues.reason === "needs-initial-import") return { issues, project: null, prs: null };
   // While GitHub says we are rate limited, the GraphQL scans would only fail.
   const ok = () => !isRateLimited(kv);
   const forced = (key: "project.lastScan" | "prs.lastScan") =>
     !!opts.forceProjectScan && scanOlderThan(kv, key, FORCED_SCAN_MIN_AGE_MS, nowMs);
   const project =
-    ok() && (forced("project.lastScan") || projectScanDue(kv, nowMs))
-      ? await step("project scan", () => rateLimitAware(kv, () => scanProject(source, store, kv, nowIso)))
-      : null;
-  const prs =
-    ok() && (forced("prs.lastScan") || prScanDue(kv, nowMs))
-      ? await step("PR scan", () => rateLimitAware(kv, () => scanPullRequests(source, store, kv, nowIso)))
-      : null;
-  return { issues, project, prs, errors };
+    ok() && (forced("project.lastScan") || projectScanDue(kv, nowMs)) ? await rateLimitAware(kv, () => scanProject(source, store, kv, nowIso)) : null;
+  const prs = ok() && (forced("prs.lastScan") || prScanDue(kv, nowMs)) ? await rateLimitAware(kv, () => scanPullRequests(source, store, kv, nowIso)) : null;
+  return { issues, project, prs };
 }
 
 /**

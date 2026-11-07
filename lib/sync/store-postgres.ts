@@ -1,6 +1,7 @@
-// Postgres-backed ImportStore + IdResolver: the shared sync cache that makes
-// `pnpm worker` and the web app see the same state. The in-memory store stays
-// the read model (see readCache()) so the view engine is unchanged.
+// Postgres-backed ImportStore + IdResolver: the sync cache the sync loop writes
+// and the pages read, in the app's own PGlite database (SPEC §2.1). The
+// in-memory store stays the read model (see readCache()) so the view engine is
+// unchanged.
 import { and, eq, getTableColumns, inArray, isNotNull, isNull, lt, sql } from "drizzle-orm";
 import { getDb } from "@/db";
 import {
@@ -71,6 +72,27 @@ export class PostgresStore implements ImportStore, IdResolver {
     // above, so clear the resolver cache here too (a rename must not be stale).
     this.idCache.clear();
     return stats;
+  }
+
+  async linkParents(pairs: { child: string; parent: string }[]): Promise<{ child: string; parent: string }[]> {
+    if (!pairs.length) return [];
+    const unresolved: { child: string; parent: string }[] = [];
+    await this.tx(async (tx) => {
+      const ids = await pgWrite.uuidsOf(tx, [...new Set(pairs.map((p) => p.child))]);
+      const parents = await pgWrite.uuidsOf(tx, [...new Set(pairs.map((p) => p.parent))]);
+      const ready = pairs.filter((p) => {
+        const ok = ids.has(p.child) && parents.has(p.parent);
+        if (!ok) unresolved.push(p);
+        return ok;
+      });
+      return pgWrite.setParents(
+        tx,
+        ready.map((p) => ({ nodeId: p.child, parentNodeId: p.parent }) as SnapshotIssue),
+        ids,
+        parents,
+      );
+    });
+    return unresolved;
   }
 
   /** One transaction; bumps the sync generation when it changed anything (S5). */

@@ -3,12 +3,13 @@
 // assignable users, the initial issue window (all open + closed in the last
 // IMPORT_CLOSED_MONTHS), and every project item. No writes to GitHub.
 import { restClient, gqlClient } from "../github/client";
-import { githubRepo, githubTarget } from "../config";
+import { githubTarget, type GithubTarget } from "../config";
 import type { IdResolver } from "./poll";
 import type { ReconcileSource } from "./reconcile";
 import { effectiveMapping, type ProjectFieldMap } from "./field-map";
 import { readMapping } from "../settings";
 import { GitHubSource } from "./source-github";
+import type { ImportSource, IssuePage } from "./first-import";
 import type {
   FullSnapshot,
   SnapshotField,
@@ -53,17 +54,13 @@ async function fetchMetadata(
 ): Promise<{ projectId: string; fields: SnapshotField[]; issueTypes: SnapshotIssueType[] }> {
   const gql = gqlClient(token);
   const fieldsRes = await gql(
-    `query($org:String!, $num:Int!) { organization(login:$org) { projectV2(number:$num) {
+    `query DeskaSyncFields($org:String!, $num:Int!) { organization(login:$org) { projectV2(number:$num) {
       id fields(first:40) { nodes {
         ... on ProjectV2Field { id name dataType }
         ... on ProjectV2SingleSelectField { id name dataType options { id name color } }
         ... on ProjectV2IterationField { id name dataType configuration { duration iterations { id title startDate duration } completedIterations { id title startDate duration } } }
       } } } } }`,
     { org, num },
-  );
-  const typesRes = await gql(
-    `query($org:String!) { organization(login:$org) { issueTypes(first:20) { nodes { id name color description } } } }`,
-    { org },
   );
   const fieldNodes = fieldsRes.organization.projectV2.fields.nodes;
   return {
@@ -77,8 +74,24 @@ async function fetchMetadata(
         ? [...(f.configuration.iterations ?? []), ...(f.configuration.completedIterations ?? [])]
         : undefined,
     })),
-    issueTypes: typesRes.organization.issueTypes.nodes,
+    issueTypes: await fetchIssueTypes(token, org),
   };
+}
+
+/** The org's issue types. */
+async function fetchIssueTypes(token: string, org: string): Promise<SnapshotIssueType[]> {
+  try {
+    const res = await gqlClient(token)(
+      `query DeskaSyncIssueTypes($org:String!) { organization(login:$org) { issueTypes(first:20) { nodes { id name color description } } } }`,
+      { org },
+    );
+    return res?.organization?.issueTypes?.nodes ?? [];
+  } catch (e) {
+    // Optional permission (§3.2): refused, Type shows as unavailable.
+    const errors = (e as { errors?: { type?: string }[] } | null)?.errors;
+    if (Array.isArray(errors) && errors.some((x) => x?.type === "FORBIDDEN" || x?.type === "NOT_FOUND")) return [];
+    throw e;
+  }
 }
 
 /** Closed issues older than this stay out of the import and age out (S6). */
@@ -93,9 +106,10 @@ export function importClosedCutoff(now = Date.now()): string {
  */
 export async function fetchRepoMetadata(
   token: string,
+  target: GithubTarget = githubTarget(),
 ): Promise<Pick<FullSnapshot, "projectId" | "fields" | "issueTypes" | "labels" | "milestones">> {
   const rest = restClient(token);
-  const { owner, repo, org, projectNumber: num } = githubTarget();
+  const { owner, repo, org, projectNumber: num } = target;
   const { projectId, fields, issueTypes } = await fetchMetadata(token, org, num);
 
   const labelRows = (await rest.paginate(rest.issues.listLabelsForRepo, {
@@ -126,36 +140,17 @@ export async function fetchRepoMetadata(
   return { projectId, fields, issueTypes, labels, milestones };
 }
 
-export async function fetchLiveSnapshot(token: string): Promise<FullSnapshot> {
-  const rest = restClient(token);
-  const { owner, repo } = githubRepo();
-  const cutoff = importClosedCutoff();
+type GhUser = FullSnapshot["ghUsers"][number];
 
-  const { projectId, fields, issueTypes, labels, milestones } = await fetchRepoMetadata(token);
-  const typeIdByName = new Map(issueTypes.map((t) => [t.name, t.id]));
+const restUser = (u: RestUser): GhUser | null => (u.id != null && u.login ? { githubId: String(u.id), login: u.login, avatarUrl: u.avatar_url ?? null } : null);
 
-  const userRows = (await rest.paginate(rest.issues.listAssignees, {
-    owner,
-    repo,
-    per_page: 100,
-  })) as RestUser[];
-  const ghUsers = userRows.map((u) => ({
-    githubId: String(u.id),
-    login: u.login ?? "",
-    avatarUrl: u.avatar_url ?? null,
-  }));
-
-  // Initial import window: all open issues, plus closed issues updated since the
-  // cutoff (a superset of closed-at cutoff, and bounded by updated_at so a huge
-  // repo does not page through its entire history).
-  const extraAssignees = new Map<string, { githubId: string; login: string; avatarUrl: string | null }>();
-  const toSnapshot = (i: RestIssue): SnapshotIssue => {
-    for (const a of i.assignees ?? []) {
-      if (a.id != null && a.login) {
-        extraAssignees.set(String(a.id), { githubId: String(a.id), login: a.login, avatarUrl: a.avatar_url ?? null });
-      }
-    }
-    return {
+/**
+ * One REST issue as a snapshot row, with REST IDs for labels, assignees and the
+ * milestone (the IDs the metadata import stores). `parentNodeId` stays
+ * undefined until `issueExtras` fills it in.
+ */
+function restIssue(i: RestIssue, typeIdByName: Map<string, string>): SnapshotIssue {
+  return {
     nodeId: i.node_id,
     number: i.number,
     title: i.title,
@@ -173,9 +168,116 @@ export async function fetchLiveSnapshot(token: string): Promise<FullSnapshot> {
     labelIds: (i.labels ?? []).map((l) => String(typeof l === "string" ? l : l.id)),
     // A missing REST id becomes the string "undefined" and can never match a login.
     assigneeIds: (i.assignees ?? []).flatMap((a) => (a.id != null ? [String(a.id)] : [])),
-    };
   };
+}
 
+/** Native type and parent link (GraphQL), which REST doesn't carry. */
+async function addExtras(source: GitHubSource, issues: SnapshotIssue[]): Promise<void> {
+  const extras = await source.issueExtras(issues.map((i) => i.nodeId));
+  for (const i of issues) {
+    const e = extras.get(i.nodeId);
+    i.parentNodeId = e ? e.parentNodeId : null;
+    if (e) i.typeId = e.typeId;
+  }
+}
+
+/**
+ * The first import's view of GitHub (lib/sync/first-import.ts), read-only:
+ * metadata, assignable users, issues one REST page at a time (oldest update
+ * first, so a `since` checkpoint resumes it), and project item pages.
+ */
+export class GitHubImportSource implements ImportSource {
+  private rest: ReturnType<typeof restClient>;
+  private items: GitHubSource;
+  private typeIdByName: Map<string, string> | null = null;
+
+  constructor(
+    private token: string,
+    private target: GithubTarget,
+    fields: ProjectFieldMap,
+  ) {
+    this.rest = restClient(token);
+    // Issues are mapped here with REST IDs; the item scan needs only the field map.
+    this.items = new GitHubSource(token, undefined, fields, target);
+  }
+
+  async fetchMetadata() {
+    return fetchRepoMetadata(this.token, this.target);
+  }
+
+  async listAssignableUsers(): Promise<GhUser[]> {
+    const rows = (await this.rest.paginate(this.rest.issues.listAssignees, { owner: this.target.owner, repo: this.target.repo, per_page: 100 })) as RestUser[];
+    return rows.flatMap((u) => restUser(u) ?? []);
+  }
+
+  /** Issue types by name (REST names the type; the cache keys it by ID). */
+  private async types(): Promise<Map<string, string>> {
+    if (!this.typeIdByName) {
+      const types = await fetchIssueTypes(this.token, this.target.org);
+      this.typeIdByName = new Map(types.map((t) => [t.name, t.id]));
+    }
+    return this.typeIdByName;
+  }
+
+  async issuesPage(state: "open" | "closed", since: string | null, page: number): Promise<IssuePage> {
+    const res = await this.rest.issues.listForRepo({
+      owner: this.target.owner,
+      repo: this.target.repo,
+      state,
+      sort: "updated",
+      direction: "asc",
+      per_page: 100,
+      page,
+      ...(since ? { since } : {}),
+    });
+    const raw = res.data as unknown as RestIssue[];
+    const typeIdByName = await this.types();
+    const issues: SnapshotIssue[] = [];
+    const users = new Map<string, GhUser>();
+    for (const i of raw) {
+      // The issues endpoint lists PRs too.
+      if (i.pull_request) continue;
+      issues.push(restIssue(i, typeIdByName));
+      // Assignees who are no longer assignable still appear on issues.
+      for (const a of i.assignees ?? []) {
+        const u = restUser(a);
+        if (u) users.set(u.githubId, u);
+      }
+    }
+    await addExtras(this.items, issues);
+    const maxUpdatedAt = raw.reduce<string | null>((m, i) => (i.updated_at && (!m || i.updated_at > m) ? i.updated_at : m), null);
+    return { issues, users: [...users.values()], full: raw.length >= 100, maxUpdatedAt };
+  }
+
+  scanProjectItems(cursor: string | null) {
+    return this.items.scanProjectItems(cursor);
+  }
+}
+
+/**
+ * Everything at once, for the maintainer's `pnpm sync:full --live` (env
+ * target). The app imports with GitHubImportSource instead, page by page.
+ */
+export async function fetchLiveSnapshot(token: string): Promise<FullSnapshot> {
+  const rest = restClient(token);
+  const target = githubTarget();
+  const { owner, repo } = target;
+  const cutoff = importClosedCutoff();
+
+  const { projectId, fields, issueTypes, labels, milestones } = await fetchRepoMetadata(token, target);
+  const typeIdByName = new Map(issueTypes.map((t) => [t.name, t.id]));
+
+  const userRows = (await rest.paginate(rest.issues.listAssignees, {
+    owner,
+    repo,
+    per_page: 100,
+  })) as RestUser[];
+  const ghUsers = userRows.flatMap((u) => restUser(u) ?? []);
+
+  // Initial import window: all open issues, plus closed issues updated since the
+  // cutoff (a superset of closed-at cutoff, and bounded by updated_at so a huge
+  // repo does not page through its entire history).
+  const extraAssignees = new Map<string, GhUser>();
   const issues: SnapshotIssue[] = [];
   const seen = new Set<string>();
   for (const state of ["open", "closed"] as const) {
@@ -192,7 +294,11 @@ export async function fetchLiveSnapshot(token: string): Promise<FullSnapshot> {
       for (const i of page.data as RestIssue[]) {
         if (i.pull_request || seen.has(i.node_id)) continue;
         seen.add(i.node_id);
-        issues.push(toSnapshot(i));
+        for (const a of i.assignees ?? []) {
+          const u = restUser(a);
+          if (u) extraAssignees.set(u.githubId, u);
+        }
+        issues.push(restIssue(i, typeIdByName));
       }
     }
   }
@@ -211,16 +317,12 @@ export async function fetchLiveSnapshot(token: string): Promise<FullSnapshot> {
     // The confirmed mapping (by field ID), or the suggestion from the fields
     // just discovered: never a literal (AGENTS).
     effectiveMapping(await readMapping(), fields),
+    target,
   );
 
   // REST carries neither the parent link nor the type ID. Without this the
   // initial import stored no sub-issue relationships at all.
-  const extras = await source.issueExtras(issues.map((i) => i.nodeId));
-  for (const i of issues) {
-    const e = extras.get(i.nodeId);
-    i.parentNodeId = e ? e.parentNodeId : null;
-    if (e) i.typeId = e.typeId;
-  }
+  await addExtras(source, issues);
 
   // Assignees who are no longer assignable (ex-members, outside collaborators)
   // still appear on issues; without a user row they rendered as numeric IDs.
@@ -264,10 +366,10 @@ export async function fetchLiveSnapshot(token: string): Promise<FullSnapshot> {
 }
 
 /** The nightly reconcile's view of GitHub (S6). Read-only. */
-export function githubReconcileSource(token: string, ids: IdResolver, fields: ProjectFieldMap): ReconcileSource {
-  const gh = new GitHubSource(token, ids, fields);
+export function githubReconcileSource(token: string, ids: IdResolver, fields: ProjectFieldMap, target: GithubTarget = githubTarget()): ReconcileSource {
+  const gh = new GitHubSource(token, ids, fields, target);
   return {
-    fetchMetadata: () => fetchRepoMetadata(token),
+    fetchMetadata: () => fetchRepoMetadata(token, target),
     listOpenNodeIds: () => gh.listOpenNodeIds(),
     fetchNodes: (nodeIds) => gh.fetchNodes(nodeIds),
     repoName: gh.repoName,

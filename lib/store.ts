@@ -43,8 +43,8 @@ async function check(): Promise<Cached> {
  * The store pages read, with the sync generation it was built from (the data
  * APIs put it in their ETag).
  *
- * Production reads the shared Postgres cache that `pnpm worker` writes, so the
- * web app and the worker finally see the same state. The fixture-backed demo
+ * The Postgres cache the sync loop writes is what pages read (the desktop app's
+ * embedded database, SPEC §2.1). The fixture-backed demo
  * store is only ever returned when explicitly opted into — previously a cold
  * or empty sync store silently served synthetic issues to real users.
  */

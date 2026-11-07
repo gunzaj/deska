@@ -23,6 +23,7 @@ import { NotificationBell, useToday } from "../tasks/notifications";
 import { usePrs } from "../prs/store";
 import { PALETTE_EVENT } from "./palette";
 import { useAppData, useAppSync, useAppViews } from "./provider";
+import { useConnection } from "./connection";
 import { CUSTOMIZE_SIDEBAR_EVENT, CustomizeSidebarDialog, useSidebarLayout } from "./sidebar-customize";
 
 type NavItem = { href: string; label: string; icon: IconName; count?: number; match?: (p: string) => boolean; drop?: DropTarget };
@@ -118,6 +119,9 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
   const sprints = sprintOn(meta);
   const dim = primaryDimension(meta);
   const syncWarn = meta.demo || sync.needsInitialImport ? null : syncWarning(sync);
+  // Offline or a refused token: the rows are the cached ones, as of the last sync (§3.3).
+  const connectionState = useConnection().status?.state;
+  const stale = !meta.demo && (connectionState === "offline" || connectionState === "invalid");
 
   const counts = useMemo(() => {
     const me = viewer.toLowerCase();
@@ -361,17 +365,20 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
             sync.error ??
             sync.notice ??
             (sync.needsInitialImport && !meta.demo
-              ? "No sync cursor yet: run pnpm sync:full --live --db once"
-              : syncWarn
+              ? "The first import from GitHub hasn't finished"
+              : stale
+                ? `Showing cached data from ${sync.lastSync ? new Date(sync.lastSync).toLocaleString([], { dateStyle: "short", timeStyle: "short" }) : "the last sync"}`
+                : syncWarn
                 ? syncWarningTitle(sync)
                 : "Sync now")
           }
+          data-sync-stale={stale ? "" : undefined}
           className="flex h-7 w-full items-center gap-2 rounded-md px-2 text-left text-[12px] text-muted hover:bg-hover"
         >
           <span
             aria-hidden
             className={`size-1.5 shrink-0 rounded-full ${
-              sync.error ? "bg-critical" : sync.rateLimited || syncWarn ? "bg-warning" : sync.lastSync || meta.demo ? "bg-brand-border" : "bg-faint"
+              sync.error ? "bg-critical" : sync.rateLimited || syncWarn || stale ? "bg-warning" : sync.lastSync || meta.demo ? "bg-brand-border" : "bg-faint"
             }`}
           />
           <span className="min-w-0 flex-1 truncate">
@@ -386,7 +393,9 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
                     : meta.demo
                       ? "Demo data"
                       : sync.needsInitialImport
-                        ? "Initial import needed"
+                        ? "Importing…"
+                        : stale
+                          ? `Stale · synced ${longAgo(sync.lastSync)}`
                         : syncWarn === "failing"
                           ? "Sync failing"
                           : `Synced ${longAgo(sync.lastSync)}`}

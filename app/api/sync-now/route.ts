@@ -1,47 +1,37 @@
 import { NextResponse } from "next/server";
-import { dbDir } from "@/db";
-import { localToken } from "@/lib/github/local-token";
+import { MESSAGES } from "@/lib/github/token-states";
 import { route } from "@/lib/server/route";
-import { currentTarget } from "@/lib/settings";
-import { GitHubSource } from "@/lib/sync/source-github";
-import { PostgresStore } from "@/lib/sync/store-postgres";
-import { redactError } from "@/lib/sync/health";
-import { currentFieldMap } from "@/lib/sync/runtime";
-import { triggerSync } from "@/lib/sync/trigger";
-import { invalidateReadCache } from "@/lib/store";
+import { syncService } from "@/lib/sync/service";
 
 /**
- * "Sync now": one issue change-check cycle against GitHub with the local
- * user's token, written to the local cache. Only one cycle runs at a time
- * (lib/sync/lock.ts). A skipped cycle is a 200 with `skipped`, not an error:
- * the UI shows "Sync already running" or "Synced just now". "Sync now"
- * rescans the project when the last scan is over a minute old, so a field
- * just changed on GitHub shows up.
+ * "Sync now": one run of the in-process sync service (lib/sync/service.ts)
+ * with the local user's token: the first import while the cache has none, else
+ * a cycle that rescans the project when the last scan is over a minute old, so
+ * a field just changed on GitHub shows up. Only one run at a time. A skipped
+ * run is a 200 with `skipped`, not an error: the UI shows "Sync already
+ * running" or "Synced just now".
  */
 export const POST = route({ auth: "viewer" }, async () => {
-  const token = localToken();
-  if (!token) return NextResponse.json({ error: "GitHub is not connected" }, { status: 503 });
-  if (!dbDir()) {
-    return NextResponse.json({ error: "DESKA_DB_DIR not configured — nothing to sync into" }, { status: 503 });
-  }
-  const store = new PostgresStore();
-  try {
-    // Inside the try: reading sync_state is the first DB call, and a database
-    // outage used to escape as an unhandled 500 instead of this JSON error.
-    const target = await currentTarget();
-    if (!target) return NextResponse.json({ error: "Choose a repository and project first" }, { status: 409 });
-    const out = await triggerSync(new GitHubSource(token, store, await currentFieldMap(store), target), store, { manual: true });
-    if (out.kind === "skipped") return NextResponse.json({ skipped: out.skipped, lastSync: out.lastSync });
-    // No cursor yet: the poll refused to page the whole repo history (S2).
-    if (!out.result.issues.applied && out.result.issues.reason === "needs-initial-import") {
-      return NextResponse.json({ error: "needs initial import", hint: "run pnpm sync:full --live --db" }, { status: 503 });
-    }
-    invalidateReadCache();
-    return NextResponse.json({ ...out.result, source: "postgres" });
-  } catch (e) {
-    // The detail (SQL text, hostnames) goes to the log and to the status chip's
-    // lastError, not to whoever pressed the button (v5 2.9).
-    console.error(`sync failed: ${redactError(e)}`);
-    return NextResponse.json({ error: "sync failed" }, { status: 502 });
+  const out = await syncService().request("manual");
+  switch (out.kind) {
+    case "idle":
+      if (out.reason === "no-token") return NextResponse.json({ error: "GitHub is not connected" }, { status: 503 });
+      if (out.reason === "no-project") return NextResponse.json({ error: "Choose a repository and project first" }, { status: 409 });
+      if (out.reason === "no-database") return NextResponse.json({ error: "DESKA_DB_DIR not configured — nothing to sync into" }, { status: 503 });
+      // Sample data is never synced; quitting: nothing to do.
+      return NextResponse.json({ skipped: out.reason, lastSync: null });
+    case "skipped":
+      return NextResponse.json({ skipped: out.skipped, lastSync: out.lastSync });
+    case "failed":
+      // The detail (SQL text, hostnames) goes to the log and to the status
+      // chip's lastError; the button gets the §3.3 words (v5 2.9).
+      return NextResponse.json(
+        { error: out.failure === "invalid" ? MESSAGES.invalid : out.failure === "offline" ? MESSAGES.offline : "sync failed", failure: out.failure },
+        { status: 502 },
+      );
+    case "imported":
+      return NextResponse.json({ imported: out.result, source: "postgres" });
+    case "ran":
+      return NextResponse.json({ ...out.result, nightly: out.nightly?.ran ?? false, source: "postgres" });
   }
 });
