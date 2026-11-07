@@ -55,6 +55,7 @@ export function hydrate(data: WireData): ClientData {
       title: w.t,
       state: w.o ? "open" : "closed",
       stateReason: w.sr ?? null,
+      inProject: w.ip === 1,
       statusId: w.st ?? null,
       statusName: o(w.st)?.name ?? null,
       statusRank: o(w.st)?.rank ?? null,

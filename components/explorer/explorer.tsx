@@ -10,6 +10,7 @@ import {
   applyState,
   boardColumns,
   decodeState,
+  describeFilter,
   encodeState,
   groupIssues,
   runExplorer,
@@ -19,7 +20,7 @@ import {
   type ExplorerState,
 } from "@/lib/client/explorer";
 import dynamic from "next/dynamic";
-import { plainName, pluralize } from "@/lib/client/format";
+import { pluralize } from "@/lib/client/format";
 import { withDefaultScope } from "@/lib/client/team-scope";
 import { ISSUE_LIST_KEYS } from "@/lib/client/shortcuts";
 import { toggleSortKey } from "@/lib/client/sort";
@@ -29,7 +30,7 @@ import { viewSchema, type Filter, type View } from "@/lib/views/view";
 import Link from "next/link";
 import { Page } from "../app/shell";
 import { connectionProblem, problemHint, useConnection } from "../app/connection";
-import { useAppData, useAppViews } from "../app/provider";
+import { useAppData, useAppSync, useAppViews } from "../app/provider";
 import { peekedIssue, useOpenIssue } from "../app/open-issue";
 import { Icon } from "../icons";
 import { EmptyHint, Kbd } from "../props";
@@ -46,6 +47,7 @@ const BoardLayout = dynamic(() => import("./board").then((m) => m.BoardLayout), 
 import { BulkBar } from "./bulk";
 import { ListLayout, TableLayout, type RowSelection } from "./layouts";
 import { rangeIds } from "@/lib/client/bulk";
+import { DefaultScopeChip, useDefaultScopeApplies } from "../app/default-scope-chip";
 import { useDefaultScope } from "../app/team-scope";
 import { useNarrow } from "../app/use-narrow";
 import { openPicker } from "../issue/field-picker";
@@ -97,6 +99,7 @@ export function Explorer({
 }) {
   const { data } = useAppData();
   const { status: connection } = useConnection();
+  const { sync } = useAppSync();
   const { upsertView } = useAppViews();
   const { toast } = useToast();
   const { openCompose } = useTasks();
@@ -132,6 +135,13 @@ export function Explorer({
     const r = runExplorer(pool, filters, state.sort.length ? state.sort : [{ field: "updated", dir: "desc" }], data.meta);
     return onlyIds ? r.filter((i) => onlyIds.has(i.nodeId)) : r;
   }, [pool, state.filters, state.sort, data.meta, onlyIds, base, teamScope.scope]);
+  // Everything the user can still remove to see more: their filters and the "My default" value (§4.2).
+  const defaultApplies = useDefaultScopeApplies(state.filters, base);
+  const clearAll = () => {
+    setQ("");
+    setState({ ...state, filters: [] });
+    if (defaultApplies && !teamScope.off) teamScope.setOff(true);
+  };
   // Below md a table falls back to the list: a display fallback, the URL state keeps "table" (U4).
   const narrow = useNarrow();
   const layout = state.layout === "table" && narrow ? "list" : state.layout;
@@ -323,31 +333,12 @@ export function Explorer({
           <Icon name="x" size={12} />
         </button>
       )}
-      {teamScope.defaultScope && withDefaultScope([], base, teamScope.defaultScope).length > 0 && !state.filters.some((f) => f.field === teamScope.defaultScope!.dimension.key) && (
-        <button
-          type="button"
-          data-team-scope-chip
-          aria-pressed={!teamScope.off}
-          onClick={() => teamScope.setOff(!teamScope.off)}
-          title={teamScope.off ? `Filter by your default ${teamScope.defaultScope.dimension.name} again` : `Showing your default ${teamScope.defaultScope.dimension.name} only. Click to show all.`}
-          className={`flex h-7 items-center gap-1.5 rounded-md border px-2 text-[12px] font-medium ${teamScope.off ? "border-line text-faint hover:text-fg" : "border-brand-border bg-brand-soft text-brand-text"}`}
-        >
-          {teamScope.off ? `All: ${teamScope.defaultScope.dimension.name}` : `${teamScope.defaultScope.dimension.name}: ${plainName(teamScope.defaultScope.name) || teamScope.defaultScope.name}`}
-          <Icon name={teamScope.off ? "plus" : "x"} size={12} />
-        </button>
-      )}
+      <DefaultScopeChip filters={state.filters} base={base} />
       <FilterChips filters={state.filters} onChange={(f) => setState({ ...state, filters: f })} pool={pool} />
       <AddFilter filters={state.filters} onChange={(f) => setState({ ...state, filters: f })} pool={pool} />
-      {state.filters.some((f) => f.field !== "state") && (
-        <button
-          type="button"
-          onClick={() => {
-            setQ("");
-            setState({ ...state, filters: state.filters.filter((f) => f.field === "state") });
-          }}
-          className="h-7 rounded-md px-2 text-[12px] text-faint hover:text-fg"
-        >
-          Clear
+      {state.filters.length > 0 && (
+        <button type="button" onClick={clearAll} className="h-7 rounded-md px-2 text-[12px] text-faint hover:text-fg" data-clear-all>
+          Clear all ({state.filters.length})
         </button>
       )}
       <span className="ml-auto flex items-center gap-2">
@@ -373,22 +364,42 @@ export function Explorer({
       <div ref={scrollRef} className="absolute inset-0 overflow-auto">
         {rows.length === 0 && connectionProblem(connection) ? (
           // An error is never an empty list (SPEC §3.3).
-          <EmptyHint
-            icon="alert"
-            title={connection!.message ?? "Can't load issues from GitHub"}
-            hint={problemHint(connection!) ?? undefined}
-            action={
-              <Link href="/settings" className="inline-flex h-8 items-center rounded-md border border-line px-3 font-medium hover:bg-hover">
-                Open Settings
-              </Link>
-            }
-          />
+          <div data-list-state="error">
+            <EmptyHint
+              icon="alert"
+              title={connection!.message ?? "Can't load issues from GitHub"}
+              hint={problemHint(connection!) ?? undefined}
+              action={
+                <Link href="/settings" className="inline-flex h-8 items-center rounded-md border border-line px-3 font-medium hover:bg-hover">
+                  Open Settings
+                </Link>
+              }
+            />
+          </div>
+        ) : rows.length === 0 && data.issues.length === 0 && sync.needsInitialImport ? (
+          // Nothing is cached yet because the first import is still running: not "no issues".
+          <div data-list-state="loading" role="status">
+            <EmptyHint icon="clock" title="Importing issues from GitHub…" hint="They appear here as soon as the first import finishes." />
+          </div>
         ) : rows.length === 0 ? (
-          <EmptyHint
-            icon="search"
-            title={state.filters.length ? "No issues match these filters" : emptyTitle}
-            hint={emptyHint ?? (state.filters.length ? "Try removing a filter or showing closed issues." : undefined)}
-          />
+          <div data-list-state="empty">
+            <EmptyHint
+              icon="search"
+              title={state.filters.length || defaultApplies ? "No issues match these filters" : emptyTitle}
+              hint={
+                state.filters.length || (defaultApplies && !teamScope.off)
+                  ? `Active: ${[...(defaultApplies && !teamScope.off && teamScope.defaultScope ? [`Default: ${teamScope.defaultScope.name}`] : []), ...state.filters.map((f) => describeFilter(f, data.meta, data.issues))].join(" · ")}.`
+                  : emptyHint
+              }
+              action={
+                state.filters.length || (defaultApplies && !teamScope.off) ? (
+                  <button type="button" onClick={clearAll} className="inline-flex h-8 items-center rounded-md border border-line px-3 font-medium hover:bg-hover" data-clear-filters>
+                    Clear filters
+                  </button>
+                ) : undefined
+              }
+            />
+          </div>
         ) : layout === "board" ? (
           <BoardLayout rows={rows} field={state.boardColumnsField ?? "status"} props={props} focusedId={focusedId} onFocus={setFocusedId} onOpen={open} dropRelease={dropRelease} />
         ) : layout === "table" ? (

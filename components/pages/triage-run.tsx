@@ -21,6 +21,7 @@ import { openPicker } from "../issue/field-picker";
 import { useIssueEdits } from "../issue/edits";
 import { IssueDetailView } from "../issue/detail";
 import { EmptyHint, Kbd } from "../props";
+import { DefaultScopeChip } from "../app/default-scope-chip";
 import { useSnoozes } from "../triage/snoozes";
 import { Dialog } from "../ui/dialog";
 import { btn } from "../ui/popover";
@@ -150,6 +151,7 @@ export function TriageRunPage() {
       icon={<Icon name="inbox" size={15} />}
       actions={
         <>
+          <DefaultScopeChip base={tab.base} fixed />
           <button type="button" className={btn.icon} aria-label="Previous issue" disabled={index === 0} onClick={() => go(-1)}>
             <Icon name="chevronLeft" size={15} />
           </button>

@@ -1,6 +1,6 @@
 import { dimFieldId, isDimKey } from "../sync/field-map";
 import type { ReadModel } from "../sync/read-model";
-import { progressKey } from "../client/progress";
+import { progressKey, subProgress } from "../client/progress";
 import { resolveRelease, type ViewRow } from "./rows";
 import type { Filter, View } from "./view";
 
@@ -49,9 +49,35 @@ function fieldValues(row: ViewRow, field: string): (string | null)[] {
       return [row.state];
     case "parent":
       return [row.parentNodeId];
+    case "author":
+      return [row.authorLogin];
+    case "inProject":
+      return [row.inProject ? "yes" : "no"];
+    case "closedReason":
+      return [closedReason(row)];
+    case "subProgress":
+      return [subProgressBucket(row)];
     default:
       return [];
   }
+}
+
+/** Why a closed issue was closed: `not_planned` also holds "duplicate"; an open issue has no reason. */
+export function closedReason(row: Pick<ViewRow, "state" | "stateReason">): "completed" | "not_planned" | null {
+  if (row.state.toLowerCase() !== "closed") return null;
+  const r = (row.stateReason ?? "").toLowerCase();
+  return r === "not_planned" || r === "duplicate" ? "not_planned" : "completed";
+}
+
+/**
+ * GitHub's sub-issue progress as a bucket (§4.4). A parent whose counts haven't
+ * been read yet matches none of them, so it never shows up as "not started".
+ */
+export function subProgressBucket(row: Pick<ViewRow, "subTotal" | "subCompleted" | "hasSubIssues">): "none" | "not_started" | "in_progress" | "done" | null {
+  const p = subProgress(row);
+  if (p.kind === "unloaded") return null;
+  if (p.kind === "none") return "none";
+  return p.done === 0 ? "not_started" : p.done >= p.total ? "done" : "in_progress";
 }
 
 /**
@@ -89,13 +115,13 @@ export function compileFilter(f: Filter, ctx: ViewContext): RowTest {
   let values: (string | null | undefined)[] | undefined;
   if (field === "release") {
     values = releaseValues((f as { values?: string[] }).values, ctx);
-  } else if (field === "assignee") {
+  } else if (field === "assignee" || field === "author") {
     values = ((f as { values?: string[] }).values ?? []).map((v) => (v === "me" ? ctx.viewerLogin : v));
   } else {
     values = (f as { values?: string[] }).values;
   }
   // Logins are case-insensitive on GitHub; "me" comes from the session.
-  const lower = field === "assignee";
+  const lower = field === "assignee" || field === "author";
   const set = new Set((lower ? values?.map((v) => v?.toLowerCase()) : values) ?? []);
   if (op === "empty") return (row) => fieldValues(row, field).every((a) => a == null);
   const hits = (row: ViewRow) => {
@@ -196,6 +222,8 @@ function sortKey(row: ViewRow, field: string): string | number | null {
       return row.milestoneName;
     case "assignee":
       return row.assignees.length ? row.assignees.join(", ") : null;
+    case "author":
+      return row.authorLogin;
     case "parent":
       return row.parentNumber;
     case "progress":

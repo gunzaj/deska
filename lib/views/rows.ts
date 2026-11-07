@@ -10,6 +10,11 @@ export type ViewRow = {
   number: number;
   title: string;
   state: string;
+  /** GitHub's close reason (`completed`, `not_planned`, `duplicate`); null while open or unknown. */
+  stateReason: string | null;
+  authorLogin: string;
+  /** The issue has an item in the pinned project (its fields may all be empty). */
+  inProject: boolean;
   statusId: string | null;
   statusName: string | null;
   statusRank: number | null;
@@ -79,6 +84,9 @@ export function buildViewRows(store: ReadModel, onlyNodeId?: string): ViewRow[] 
       number: i.number,
       title: i.title,
       state: i.state,
+      stateReason: i.stateReason,
+      authorLogin: i.authorLogin,
+      inProject: piv != null,
       statusId,
       statusName: statusId ? (status.get(statusId)?.name ?? null) : null,
       statusRank: statusId ? (status.get(statusId)?.rank ?? null) : null,

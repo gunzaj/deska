@@ -15,9 +15,6 @@ export type ClientRelease = {
 
 export type ClientIssue = ViewRow & {
   url: string;
-  authorLogin: string;
-  closedAt: string | null;
-  stateReason: string | null;
 };
 
 /** The single-select roles (§4.1). Dimensions are keyed `dim:<fieldId>`. */
@@ -89,6 +86,7 @@ export type WireIssue = {
   t: string;
   o: 0 | 1; // 1 = open
   sr?: string; // state reason
+  ip?: 1; // 1 = the issue has an item in the pinned project
   st?: string;
   pr?: string;
   /** Dimension values: field ID -> option ID. */
