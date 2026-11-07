@@ -9,7 +9,7 @@
 | D4 | done | [#5](https://github.com/gunzaj/deska/pull/5) | Onboarding step 2, Settings remap, mapping by field ID, dimensions (`dim:<fieldId>`) everywhere |
 | D5 | done | [#10](https://github.com/gunzaj/deska/pull/10) | In-process sync, first import with resume, `/importing` |
 | D6 | done | [#13](https://github.com/gunzaj/deska/pull/13) | PR sync, tables, UI and links removed; migration 0003 |
-| D7 | todo | | |
+| D7 | done | [#14](https://github.com/gunzaj/deska/pull/14) | Single-user tasks and views; `LOCAL_OWNER`; Copy/Import view; migration 0004 |
 | D8 | todo | | |
 | D9 | todo | | |
 | D10 | todo | | |
@@ -81,6 +81,12 @@
 - D6: Release risk is down to two rules (top priority without assignee, scope added); the "no open PR" rule had no issue-only equivalent. Release notes list one line per issue.
 - D6: "Sync makes no PR calls" is a Vitest request log over the real GitHub clients with a stubbed `fetch` (`tests/sync/no-pr-calls.test.ts`), plus the same assertion on the Electron smoke's mock-GitHub log.
 - D6: Local e2e, `desktop:build` and `test:desktop` needed the agent sandbox off (it blocks binding local ports). Some e2e specs (tasks, mobile, smoke, user-menu) and the onboarding desktop test failed once on timing and passed on rerun.
+- D7: Every local record is keyed by `LOCAL_OWNER` (`"local"`), not a GitHub login: tasks, projects, labels, comments, snoozes, watches, notifications, prefs. The `*_login` / `owner_login` columns keep their names and always hold it. `me` in issue filters is still the PAT owner (`route()` gives handlers `viewer` for that and `owner` for local data).
+- D7: Task `creator`, `completedBy` and comment `author` stay in the model and always hold `local`; dropping them would only be cosmetic.
+- D7: Migration 0004 collapses multi-user data: same-name projects/labels get an ID suffix, one placement per task (the creator's), newest snooze and oldest watch last-seen kept, the connected account's prefs kept, notification kinds other than reminder/digest deleted. `users` table, `views.owner_id`/`visibility`, `tasks.assignee_login`, `notifications.actor_login` dropped.
+- D7: Import view is a paste box on the Views page (the window grants clipboard write only, §2.2). The view string is `{"kind":"deska-view","v":1,"view":{…}}` without an ID, checked by the strict view schema.
+- D7: The per-person e2e specs for watches and snoozes were rewritten: both now belong to the install. The test-only `x-e2e-login` identity stays, as the stand-in for "a different GitHub account".
+- D7: Local `desktop:build` again needed TMPDIR in the session scratchpad (D4 note), and e2e/desktop tests needed the agent sandbox off.
 
 ## Maintainer to-do
 - [ ] Create a **read-only** fine-grained PAT: resource owner = the org, repository access = only the one repo; Repository → Metadata: Read, Repository → Issues: Read, Organization → Projects: Read, Organization → Issue types: Read (optional); nothing else. Then run the probe (report lands in `private/findings/`):
