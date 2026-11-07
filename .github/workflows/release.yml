@@ -1,0 +1,37 @@
+name: release
+
+# A `v*` tag builds the unsigned universal .dmg and attaches it to a DRAFT
+# release. Nothing is published: the maintainer reviews and publishes it.
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  dmg:
+    runs-on: macos-latest
+    timeout-minutes: 40
+    env:
+      # The v1.0 build refuses GitHub writes (SPEC §3.4).
+      DESKA_WRITES: "off"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: node scripts/leak-guard.mjs --all
+      - run: pnpm install --frozen-lockfile
+      - name: The tag matches package.json
+        run: test "v$(node -p "require('./package.json').version")" = "$GITHUB_REF_NAME"
+      - run: pnpm desktop:build
+      - name: Draft release with the .dmg
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          notes="docs/release-notes-${GITHUB_REF_NAME}.md"
+          [ -f "$notes" ] || notes=docs/release-notes.md
+          gh release create "$GITHUB_REF_NAME" release/*.dmg --draft --verify-tag --title "Deska ${GITHUB_REF_NAME#v}" --notes-file "$notes"

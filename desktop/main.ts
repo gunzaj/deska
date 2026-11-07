@@ -9,8 +9,9 @@ import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node
 import http from "node:http";
 import net from "node:net";
 import path from "node:path";
-import { app, BrowserWindow, dialog, globalShortcut, ipcMain, Notification, powerMonitor, safeStorage, session, shell, utilityProcess, type IpcMainInvokeEvent, type UtilityProcess, type WebContents } from "electron";
+import { app, BrowserWindow, dialog, globalShortcut, ipcMain, Menu, Notification, powerMonitor, safeStorage, session, shell, utilityProcess, type IpcMainInvokeEvent, type UtilityProcess, type WebContents } from "electron";
 import { CHANNELS, DEFAULT_DESKTOP_PREFS, FINE_GRAINED_TOKEN, type DesktopPrefs, type DesktopState, type ReminderAction, type ReminderItem, type ServerMessage, type ServerReply, type TokenStatus } from "./bridge";
+import { aboutDetails, parseBuildInfo, RELEASES_URL, type BuildInfo } from "./about";
 import { classifyUrl, requestAllowed } from "./navigation";
 import { parseDesktopPrefs, parsePrefsPatch } from "./prefs";
 import { actionAt, actionRequest, reminderOptions } from "./reminder-notification";
@@ -61,6 +62,40 @@ function freePort(): Promise<number> {
 }
 
 /** Where the server code lives: the packaged resources, a staged build, or the repo in dev. */
+/** What the build was stamped with (desktop.mjs writes build-info.json next to main.js); anything unreadable means writes off. */
+let stamped: BuildInfo | null = null;
+function buildInfo(): BuildInfo {
+  if (!stamped) {
+    let raw: unknown = null;
+    try {
+      raw = JSON.parse(readFileSync(path.join(__dirname, "build-info.json"), "utf8"));
+    } catch {
+      // Unstamped (dev, tests): writes stay off.
+    }
+    stamped = parseBuildInfo(raw);
+  }
+  return stamped;
+}
+
+function showAbout() {
+  const d = aboutDetails(app.getVersion(), buildInfo());
+  const opts = { type: "info" as const, title: d.title, message: d.message, detail: d.detail, buttons: [d.releasesButton, "OK"], defaultId: 1, cancelId: 1, noLink: true };
+  void (mainWindow ? dialog.showMessageBox(mainWindow, opts) : dialog.showMessageBox(opts)).then((r) => {
+    if (r.response === 0) void shell.openExternal(RELEASES_URL);
+  });
+}
+
+function installMenu() {
+  Menu.setApplicationMenu(
+    Menu.buildFromTemplate([
+      { label: app.name, submenu: [{ label: `About ${app.name}`, click: showAbout }, { type: "separator" }, { role: "hide" }, { role: "hideOthers" }, { role: "unhide" }, { type: "separator" }, { role: "quit" }] },
+      { role: "editMenu" },
+      { role: "viewMenu" },
+      { role: "windowMenu" },
+    ]),
+  );
+}
+
 function serverLocation(): { mode: "production" | "development"; serverDir: string } {
   const repoRoot = path.resolve(__dirname, "..", "..");
   if (DEV) return { mode: "development", serverDir: repoRoot };
@@ -84,6 +119,9 @@ function startServerProcess(port: number, secret: string): Server {
     secret,
     dbDir,
     env: {
+      // The build's write switch (SPEC §3.4): "off" refuses writes whatever
+      // the other two gates say. Never read from the user's environment.
+      DESKA_WRITES: buildInfo().writes,
       // Daily, pre-migration and pre-reset backups of the local data (D8).
       DESKA_BACKUP_DIR: path.join(userData, DEV ? "backups-dev" : "backups"),
       // Tests and dev may fill an empty database with a fictional sample
@@ -589,6 +627,7 @@ app.on("will-quit", () => globalShortcut.unregisterAll());
 
 void app.whenReady().then(async () => {
   prefs = loadPrefs();
+  installMenu();
   registerIpc();
   powerMonitor.on("resume", onResume);
   try {

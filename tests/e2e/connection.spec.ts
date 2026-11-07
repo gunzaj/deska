@@ -50,7 +50,7 @@ async function fakeBridge(page: Page) {
     const w = window as unknown as { deska: unknown; __bridgeSet(t: string): Promise<void>; __bridgeClear(): Promise<void> };
     const ok = { stored: true, encryptionAvailable: true };
     w.deska = {
-      appInfo: async () => ({ name: "Deska", version: "0.0.0", platform: "darwin" }),
+      appInfo: async () => ({ name: "Deska", version: "1.0.0", platform: "darwin" }),
       openExternal: async () => true,
       notify: async () => undefined,
       token: {
