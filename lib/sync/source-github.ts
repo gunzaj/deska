@@ -362,7 +362,7 @@ export class GitHubSource implements SyncSource {
   async scanProjectItems(cursor: string | null): Promise<{ items: SnapshotProjectItem[]; nextCursor: string | null; total: number }> {
     const res = await this.gql(
       `query DeskaSyncItems($org:String!, $num:Int!, $after:String) {
-        organization(login:$org) { projectV2(number:$num) {
+        organization: repositoryOwner(login:$org) { ... on ProjectV2Owner { projectV2(number:$num) {
           items(first:100, after:$after) {
             totalCount
             pageInfo { hasNextPage endCursor }
@@ -372,7 +372,7 @@ export class GitHubSource implements SyncSource {
                 ... on ProjectV2ItemFieldIterationValue { iterationId field { ... on ProjectV2FieldCommon { id name } } }
               } }
           }
-        } }
+        } } }
       } }`,
       { org: this.org, num: this.projectNumber, after: cursor },
     );

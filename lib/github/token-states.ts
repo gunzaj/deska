@@ -58,6 +58,8 @@ export type ConnectionStatus = {
   expiresAt: string | null;
   /** Set when the token expires within 14 days. */
   expiryWarning: string | null;
+  /** Classic tokens only: set when the token's scopes allow writing (anything but read-only scopes). */
+  scopeWarning: string | null;
   /** True when the token has no write permissions (every token until writes land, Phase C). */
   readOnly: boolean;
   readOnlyMessage: string | null;
@@ -81,6 +83,7 @@ export const MESSAGES = {
   rateLimited: (hhmm: string) => `Rate limited until ${hhmm}`,
   expiring: (date: string) => `Your GitHub token expires on ${date}`,
   readOnly: "Read-only token",
+  writeScopes: (scopes: string[]) => `This classic token can also write (${scopes.join(", ")}). Deska only reads, but a token with only read:project is safer.`,
 } as const;
 
 /** `HH:MM` in the Mac's own time zone (the server runs on it). */

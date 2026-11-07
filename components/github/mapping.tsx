@@ -241,14 +241,14 @@ export function ProjectPicker({ initial, saveLabel, onDone }: { initial: SetupSt
 
   return (
     <div className="space-y-5">
-      <form onSubmit={(e) => void find(e)} className="grid gap-2 text-[12.5px] sm:grid-cols-[1fr_1fr_auto] sm:items-end" aria-label="Repository and organization">
+      <form onSubmit={(e) => void find(e)} className="grid gap-2 text-[12.5px] sm:grid-cols-[1fr_1fr_auto] sm:items-end" aria-label="Repository and organization or user">
         <label className="grid gap-1">
           <span className="font-medium">Repository</span>
           <input value={repo} onChange={(e) => setRepo(e.target.value)} placeholder="owner/repo" spellCheck={false} autoCapitalize="off" className={input} aria-label="Repository" />
         </label>
         <label className="grid gap-1">
-          <span className="font-medium">Organization</span>
-          <input value={org} onChange={(e) => setOrg(e.target.value)} placeholder={repo.split("/")[0] || "org"} spellCheck={false} autoCapitalize="off" className={input} aria-label="Organization" />
+          <span className="font-medium">Organization or user</span>
+          <input value={org} onChange={(e) => setOrg(e.target.value)} placeholder={repo.split("/")[0] || "org or user"} spellCheck={false} autoCapitalize="off" className={input} aria-label="Organization or user" />
         </label>
         <button type="submit" disabled={busy || !repoOk} className={secondary}>
           <Icon name="search" size={13} />

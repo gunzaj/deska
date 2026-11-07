@@ -24,6 +24,7 @@ import { NotificationBell, useToday } from "../tasks/notifications";
 import { PALETTE_EVENT } from "./palette";
 import { useAppData, useAppSync, useAppViews } from "./provider";
 import { useConnection } from "./connection";
+import { useTasksOnly } from "./tasks-only";
 import { CUSTOMIZE_SIDEBAR_EVENT, CustomizeSidebarDialog, useSidebarLayout } from "./sidebar-customize";
 
 type NavItem = { href: string; label: string; icon: IconName; count?: number; match?: (p: string) => boolean; drop?: DropTarget };
@@ -110,7 +111,11 @@ function Section({ title, children, action }: { title: string; children: React.R
 }
 
 
+/** Sidebar blocks that need GitHub data; hidden in "tasks only" mode. */
+const GITHUB_SECTIONS: SidebarSection[] = ["workspace", "views", "teams"];
+
 export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
+  const tasksOnly = useTasksOnly();
   const { data, viewer } = useAppData();
   const { views } = useAppViews();
   const { sync, syncNow } = useAppSync();
@@ -300,9 +305,9 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
         <Logo size={22} />
         <div className="min-w-0 flex-1 leading-tight">
           <p className="text-[13.5px] font-semibold tracking-tight">Deska</p>
-          <p className="truncate text-[11px] text-faint">{meta.repo}</p>
+          <p className="truncate text-[11px] text-faint">{tasksOnly ? "Tasks" : meta.repo}</p>
         </div>
-        <a
+        {!tasksOnly && <a
           href={newIssueUrl(meta.repo)}
           target="_blank"
           rel="noopener noreferrer"
@@ -312,7 +317,7 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
           className="grid size-7 place-items-center rounded-md text-muted hover:bg-hover hover:text-fg"
         >
           <Icon name="plus" size={15} />
-        </a>
+        </a>}
         <NotificationBell />
       </div>
 
@@ -328,17 +333,23 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
 
       <nav aria-label="Main" className="mt-3 min-h-0 flex-1 overflow-y-auto pr-0.5">
         <div className="space-y-px">
-          {primary.map((n) => (
+          {!tasksOnly && primary.map((n) => (
             <NavLink key={n.href} item={n} onNavigate={onNavigate} />
           ))}
         </div>
 
-        {sections.filter((x) => !x.hidden).map((x) => blocks[x.id])}
+        {sections.filter((x) => !x.hidden && !(tasksOnly && GITHUB_SECTIONS.includes(x.id))).map((x) => blocks[x.id])}
         <ProjectDialog open={newProject} onClose={() => setNewProject(false)} />
         <CustomizeSidebarDialog open={customize} onClose={() => setCustomize(false)} />
       </nav>
 
       <div className="mt-2 space-y-1.5 border-t border-line pt-2.5">
+        {tasksOnly ? (
+          <Link href="/onboarding" onClick={onNavigate} className="flex h-7 w-full items-center gap-2 rounded-md px-2 text-left text-[12px] text-muted hover:bg-hover hover:text-fg">
+            <Icon name="plus" size={13} className="text-faint" />
+            <span className="min-w-0 flex-1 truncate">Connect GitHub</span>
+          </Link>
+        ) : (
         <button
           type="button"
           onClick={() => void syncNow()}
@@ -384,6 +395,7 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
           </span>
           <Icon name="refresh" size={13} className={`text-faint ${sync.busy ? "animate-spin" : ""}`} />
         </button>
+        )}
         <div className="flex gap-1">
           <button type="button" onClick={() => window.dispatchEvent(new CustomEvent(HELP_EVENT))} title="Keyboard shortcuts (?)" aria-label="Keyboard shortcuts" data-help-button className="flex h-7 min-w-0 flex-1 items-center gap-2 rounded-md px-2 text-[12px] text-muted hover:bg-hover hover:text-fg">
             <Icon name="keyboard" size={14} className="text-faint" />

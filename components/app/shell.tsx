@@ -19,6 +19,7 @@ import { GlobalShortcuts } from "./shortcuts";
 import { Sidebar } from "./sidebar";
 import { StatusBanners } from "./status-banner";
 import { ConnectionBanner, ConnectionProvider } from "./connection";
+import { useTasksOnly } from "./tasks-only";
 
 /**
  * Linear-style frame: a quiet sidebar on the page colour and the content in an
@@ -27,6 +28,7 @@ import { ConnectionBanner, ConnectionProvider } from "./connection";
 export function AppShell({ children }: { children: ReactNode }) {
   const [drawer, setDrawer] = useState(false);
   const path = usePathname();
+  const tasksOnly = useTasksOnly();
   useEffect(() => setDrawer(false), [path]);
 
   return (
@@ -58,8 +60,8 @@ export function AppShell({ children }: { children: ReactNode }) {
                 </div>
                 <main className="flex min-h-0 flex-1 flex-col overflow-hidden bg-surface md:rounded-xl md:border md:border-line md:shadow-raised">
                   <StatusBanners />
-                  <ConnectionBanner />
-                  <SampleBanner />
+                  {!tasksOnly && <ConnectionBanner />}
+                  {!tasksOnly && <SampleBanner />}
                   {children}
                 </main>
               </div>

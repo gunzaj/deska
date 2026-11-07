@@ -73,6 +73,14 @@ function rateLimitReset(res: ProbeResponse, now: Date): Date | null {
   return null;
 }
 
+/** Scopes of a classic token (`x-oauth-scopes`) that are not read-only. Fine-grained tokens send no such header. */
+const READ_ONLY_SCOPES = /^(?:read:[a-z_]+|user:email|user:follow|repo:status|repo_deployment|public_repo)$/;
+export function writeScopesWarning(header: string | null | undefined): string | null {
+  if (!header?.trim()) return null;
+  const writes = header.split(",").map((x) => x.trim()).filter((x) => x && !READ_ONLY_SCOPES.test(x));
+  return writes.length ? MESSAGES.writeScopes(writes) : null;
+}
+
 /** One response, classified. Exported for tests. */
 export function classify(res: ProbeResponse, now: Date): Outcome {
   const detail = redactSecrets(messageOf(res.data)).slice(0, 300);
@@ -125,11 +133,11 @@ export type CheckOptions = {
 };
 
 const PROJECT_QUERY = `query DeskaProjectCheck($org: String!, $number: Int!) {
-  organization(login: $org) { projectV2(number: $number) { id } }
+  organization: repositoryOwner(login: $org) { ... on ProjectV2Owner { projectV2(number: $number) { id } } }
 }`;
 
 const ISSUE_TYPES_QUERY = `query DeskaIssueTypesCheck($org: String!) {
-  organization(login: $org) { issueTypes(first: 1) { totalCount } }
+  organization: repositoryOwner(login: $org) { ... on Organization { issueTypes(first: 1) { totalCount } } }
 }`;
 
 function base(now: Date): ConnectionStatus {
@@ -141,6 +149,7 @@ function base(now: Date): ConnectionStatus {
     avatarUrl: null,
     expiresAt: null,
     expiryWarning: null,
+    scopeWarning: null,
     readOnly: false,
     readOnlyMessage: null,
     permissions: PERMISSIONS.map((p) => ({ key: p.key, label: p.label, level: p.level, required: p.required, status: "unchecked", detail: null })),
@@ -193,6 +202,7 @@ export async function checkToken(token: string | null, target: CheckTarget | nul
     expiresAt: expires?.toISOString() ?? null,
     expiryWarning:
       expires && expires.getTime() - now.getTime() < EXPIRY_WARNING_DAYS * 86_400_000 ? MESSAGES.expiring(expires.toISOString().slice(0, 10)) : null,
+    scopeWarning: writeScopesWarning(user.res?.headers["x-oauth-scopes"]),
     // Write permissions can't be read off a fine-grained token without trying
     // a write, and Deska is read-only until Phase C: every token counts as
     // read-only (decided in D3, revisited in W0).

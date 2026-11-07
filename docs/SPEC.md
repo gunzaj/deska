@@ -130,7 +130,7 @@ When resuming a paused milestone, use that milestone's model.
 
 **Deska** (Czech for "board") is a standalone **macOS desktop app** that:
 
-1. Reads one GitHub repository and one **org Project (v2)** directly from GitHub with the user's **fine-grained personal access token** (PAT). No backend, no hosting.
+1. Reads one GitHub repository and one **Project (v2)** owned by an organization or, **[changed after D14]**, by a user directly from GitHub with the user's **fine-grained personal access token** (PAT). No backend, no hosting.
 2. Gives better filtering, fast triage, **parent issue progress** and a **sprint view**.
 3. Has Todoist-like **personal tasks**, stored locally, linkable to GitHub issues.
 4. Is **read-only first**. Writes (planning edits, close/reopen, create issue) come in Phase C and work only with a token that has write permissions.
@@ -209,6 +209,8 @@ Stored locally: repo, org, project number + node ID (pinned after discovery), fi
 
 **[D4]** Settings live in the `app_settings` table (`github.target`, `project.mapping`), apart from the GitHub cache. The `GITHUB_REPO` / `GITHUB_ORG` / `GITHUB_PROJECT_NUMBER` env vars are only a fallback for tests, dev and the maintainer's CLI tools; the desktop app opens onboarding step 2 until a project and a mapping are stored.
 
+**[Changed after D14, at the maintainer's request]** **Tasks only.** Onboarding step 1 has "Skip, use tasks only". The `app.tasks-only` setting then skips the token, project and first-import gates, the local user is the stand-in `local`, the sidebar hides every GitHub block and shows "Connect GitHub", and nothing is sent to GitHub. Choosing a project in onboarding step 2 turns it off.
+
 ## 2.5 Removed with the server
 
 OAuth/Auth.js, allowlist and org-access mode, DB token encryption and its key, a shared server token, hosting config (Vercel, Docker), cron routes, the worker script, the health endpoint, and allowlist middleware (replaced by §2.2).
@@ -219,7 +221,7 @@ OAuth/Auth.js, allowlist and org-access mode, DB token encryption and its key, a
 
 ## 3.1 Token type
 
-A **fine-grained PAT**, resource owner = the org, repository access = **only the one repository** Deska reads. Classic PATs and OAuth are NOT supported.
+A **fine-grained PAT**, resource owner = the org, repository access = **only the one repository** Deska reads. **[Changed after D14, at the maintainer's request]** A **classic PAT** (`ghp_…`) is also accepted so the app works while an org has not approved a fine-grained token; use it with read-only scopes only (`read:project`, plus `read:org` if needed, for a public repository). Settings warns when its scopes can write (`x-oauth-scopes`). OAuth is NOT supported.
 
 ## 3.2 Permissions
 

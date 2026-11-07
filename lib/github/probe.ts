@@ -26,6 +26,7 @@ export type ProbeResponse = {
 const KEPT_HEADERS = [
   "github-authentication-token-expiration",
   "x-accepted-github-permissions",
+  "x-oauth-scopes",
   "x-ratelimit-remaining",
   "x-ratelimit-reset",
   "x-ratelimit-resource",
@@ -180,17 +181,17 @@ const ISSUE_DETAIL = `query($owner:String!, $repo:String!, $num:Int!) { reposito
     subIssuesSummary { total completed percentCompleted }
     subIssues(first:5) { totalCount nodes { id number state } } } } }`;
 
-const PROJECT_FIELDS = `query($org:String!, $num:Int!) { organization(login:$org) { projectV2(number:$num) {
+const PROJECT_FIELDS = `query($org:String!, $num:Int!) { organization: repositoryOwner(login:$org) { ... on ProjectV2Owner { projectV2(number:$num) {
   id fields(first:40) { nodes {
     ... on ProjectV2Field { id dataType }
     ... on ProjectV2SingleSelectField { id dataType options { id } }
     ... on ProjectV2IterationField { id dataType configuration { iterations { id } completedIterations { id } } }
-  } } } } }`;
+  } } } } } }`;
 
-const PROJECT_ITEMS = `query($org:String!, $num:Int!) { organization(login:$org) { projectV2(number:$num) {
-  items(first:5, query:"is:issue") { totalCount nodes { id content { ... on Issue { number } } } } } } }`;
+const PROJECT_ITEMS = `query($org:String!, $num:Int!) { organization: repositoryOwner(login:$org) { ... on ProjectV2Owner { projectV2(number:$num) {
+  items(first:5, query:"is:issue") { totalCount nodes { id content { ... on Issue { number } } } } } } } }`;
 
-const ISSUE_TYPES = `query($org:String!) { organization(login:$org) { issueTypes(first:20) { nodes { id } } } }`;
+const ISSUE_TYPES = `query($org:String!) { organization: repositoryOwner(login:$org) { ... on Organization { issueTypes(first:20) { nodes { id } } } } }`;
 
 const CHECKS: CheckDef[] = [
   {

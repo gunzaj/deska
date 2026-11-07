@@ -54,12 +54,12 @@ async function fetchMetadata(
 ): Promise<{ projectId: string; fields: SnapshotField[]; issueTypes: SnapshotIssueType[] }> {
   const gql = gqlClient(token);
   const fieldsRes = await gql(
-    `query DeskaSyncFields($org:String!, $num:Int!) { organization(login:$org) { projectV2(number:$num) {
+    `query DeskaSyncFields($org:String!, $num:Int!) { organization: repositoryOwner(login:$org) { ... on ProjectV2Owner { projectV2(number:$num) {
       id fields(first:40) { nodes {
         ... on ProjectV2Field { id name dataType }
         ... on ProjectV2SingleSelectField { id name dataType options { id name color } }
         ... on ProjectV2IterationField { id name dataType configuration { duration iterations { id title startDate duration } completedIterations { id title startDate duration } } }
-      } } } } }`,
+      } } } } } }`,
     { org, num },
   );
   const fieldNodes = fieldsRes.organization.projectV2.fields.nodes;
@@ -82,7 +82,7 @@ async function fetchMetadata(
 async function fetchIssueTypes(token: string, org: string): Promise<SnapshotIssueType[]> {
   try {
     const res = await gqlClient(token)(
-      `query DeskaSyncIssueTypes($org:String!) { organization(login:$org) { issueTypes(first:20) { nodes { id name color description } } } }`,
+      `query DeskaSyncIssueTypes($org:String!) { organization: repositoryOwner(login:$org) { ... on Organization { issueTypes(first:20) { nodes { id name color description } } } } }`,
       { org },
     );
     return res?.organization?.issueTypes?.nodes ?? [];

@@ -27,10 +27,11 @@ Renderer (BrowserWindow) loads http://127.0.0.1:<port>/ — the React UI
 
 ### Type
 
-A **fine-grained PAT** only:
+A **fine-grained PAT** (recommended):
 - Resource owner: the organization.
 - Repository access: **only the one repository** Deska reads.
-- Classic PATs and OAuth tokens are not supported.
+
+A **classic PAT** is also accepted, for when an org has not approved a fine-grained one. It cannot be limited to one repository, so use it only with read-only scopes: `read:project` (add `read:org` if the project isn't found) for a public repository, which needs no other scope. A private repository would need the `repo` scope, which can write; avoid that. Deska reads the token's scopes (`x-oauth-scopes`) and warns in Settings when one of them can write. OAuth tokens are not supported.
 
 ### Permissions
 
@@ -51,7 +52,7 @@ Facts worth knowing:
 ### Storage
 
 - The user pastes the token in onboarding or Settings. It goes through a minimal preload bridge to the Electron **main** process, never over HTTP. The input field is emptied as soon as the token is handed over, and the page never gets it back.
-- Main accepts only fine-grained tokens (`github_pat_…`), encrypts the token with Electron `safeStorage` (the key is held in the macOS Keychain) and stores only the ciphertext (`github-token.bin`) in the app data folder.
+- Main accepts only fine-grained (`github_pat_…`) and classic (`ghp_…`) tokens, encrypts the token with Electron `safeStorage` (the key is held in the macOS Keychain) and stores only the ciphertext (`github-token.bin`) in the app data folder.
 - Main hands the plaintext to the local server over IPC. The server keeps it **in memory only**.
 - The token is never in the renderer, environment variables, logs, error messages, API answers, the database, exports or backups. Every console line of the server process goes through redaction, which replaces `github_pat_…` strings (and the classic `gh?_…` shapes) and any value equal to the token; API errors are generic and their detail goes to the log only.
 - "Disconnect GitHub" in Settings deletes the stored token. The local GitHub cache and personal tasks stay.

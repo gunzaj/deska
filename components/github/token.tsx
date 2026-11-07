@@ -59,7 +59,7 @@ export function TokenForm({ submitLabel = "Connect", onChecked }: { submitLabel?
   return (
     <form onSubmit={(e) => void submit(e)} className="space-y-2" id="token">
       <label htmlFor="github-token" className="block text-[12.5px] font-medium">
-        Fine-grained personal access token
+        Personal access token
       </label>
       <div className="flex gap-2">
         <input
@@ -69,7 +69,7 @@ export function TokenForm({ submitLabel = "Connect", onChecked }: { submitLabel?
           autoComplete="off"
           spellCheck={false}
           autoCapitalize="off"
-          placeholder="github_pat_…"
+          placeholder="github_pat_… or ghp_…"
           value={value}
           onChange={(e) => setValue(e.target.value)}
           className="h-9 min-w-0 flex-1 rounded-md border border-line bg-field px-2.5 font-mono text-[12.5px] outline-none hover:border-line-field focus:border-focus"
@@ -114,6 +114,10 @@ export function TokenGuide() {
         </li>
         <li>Generate the token, copy it and paste it here. If your org approves tokens first, it works once an owner has approved it.</li>
       </ol>
+      <p className="text-muted">
+        <strong className="text-fg">Waiting for approval?</strong> If the repository is public, a classic token works right away: create one with only{" "}
+        <code>read:project</code> (add <code>read:org</code> if the project isn&apos;t found) and nothing else. Never tick <code>repo</code>; it can write.
+      </p>
       <table className="w-full border-collapse text-left">
         <thead>
           <tr className="border-b border-line text-faint">
@@ -168,6 +172,12 @@ export function TokenSummary({ status }: { status: ConnectionStatus }) {
         <p className="flex items-start gap-1.5 text-warning">
           <Icon name="clock" size={13} className="mt-0.5 shrink-0" />
           {status.expiryWarning}
+        </p>
+      )}
+      {status.scopeWarning && (
+        <p className="flex items-start gap-1.5 text-warning">
+          <Icon name="alert" size={13} className="mt-0.5 shrink-0" />
+          {status.scopeWarning}
         </p>
       )}
       {status.login && (

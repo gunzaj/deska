@@ -55,7 +55,7 @@ async function fakeBridge(page: Page) {
       notify: async () => undefined,
       token: {
         set: async (t: string) => {
-          if (!t.startsWith("github_pat_")) throw new Error("Error invoking remote method 'deska:token-set': Error: Deska needs a fine-grained personal access token. It starts with github_pat_.");
+          if (!t.startsWith("github_pat_") && !t.startsWith("ghp_")) throw new Error("Error invoking remote method 'deska:token-set': Error: Deska needs a GitHub personal access token. It starts with github_pat_ (fine-grained) or ghp_ (classic).");
           await w.__bridgeSet(t);
           return ok;
         },
@@ -92,12 +92,12 @@ test("onboarding: paste a token → bridge → check → read-only token reaches
   await page.goto("/onboarding");
   await expect(page.getByRole("heading", { name: "How to create it" })).toBeVisible();
 
-  // A classic token is refused by main with its own words.
-  await page.getByLabel("Fine-grained personal access token").fill("ghp_notfinegrained");
+  // A token of no known shape is refused by main with its own words.
+  await page.getByLabel("Personal access token").fill("notatoken");
   await page.getByRole("button", { name: "Connect" }).click();
-  await expect(page.getByText("Deska needs a fine-grained personal access token. It starts with github_pat_.")).toBeVisible();
+  await expect(page.getByText("Deska needs a GitHub personal access token. It starts with github_pat_ (fine-grained) or ghp_ (classic).")).toBeVisible();
 
-  await page.getByLabel("Fine-grained personal access token").fill(TOKEN);
+  await page.getByLabel("Personal access token").fill(TOKEN);
   await page.getByRole("button", { name: "Connect" }).click();
   await expect(page.getByText("Connected as")).toContainText("@alice");
   await expect(page.getByText("Read-only token")).toBeVisible();
@@ -126,7 +126,7 @@ test("onboarding: an invalid token gets its message and is deleted again", async
       : status({ state: "missing", message: "Connect GitHub to get started", login: null }),
   );
   await page.goto("/onboarding");
-  await page.getByLabel("Fine-grained personal access token").fill(TOKEN);
+  await page.getByLabel("Personal access token").fill(TOKEN);
   await page.getByRole("button", { name: "Connect" }).click();
   await expect(page.getByText("Your GitHub token is invalid or expired")).toBeVisible();
   await expect(page.getByRole("button", { name: "Continue" })).toHaveCount(0);

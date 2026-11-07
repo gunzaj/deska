@@ -12,7 +12,7 @@ export class ConfigError extends Error {
 }
 
 const repoFull = z.string().regex(/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/, "must look like owner/repo");
-const orgName = z.string().regex(/^[A-Za-z0-9_.-]+$/, "must be an organization login");
+const orgName = z.string().regex(/^[A-Za-z0-9_.-]+$/, "must be an organization or user login");
 const projectNumber = z.coerce.number().int().positive();
 
 export type GithubTarget = {
