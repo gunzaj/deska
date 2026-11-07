@@ -28,10 +28,10 @@ export const IMPORT_COPY = {
   resumed: (issues: number) => `Resuming · ${issues.toLocaleString()} issues already copied`,
   /**
    * A resume that has not re-read its first page yet (it quit during metadata), so
-   * there is no number to show. Still a resume, so it must not say "Starting…".
-   * Designer owns these words; this is a placeholder that is true, not a choice.
+   * there is no number to show. Still a resume, so it must not say "Starting…", and
+   * the same shape as `resumed(n)` so only the count clause changes (Designer, D5).
    */
-  resumedNoCount: "Resuming…",
+  resumedNoCount: "Resuming · no issues copied yet",
   /** The alert's headline when no more specific reason is available (§3.3). */
   failed: "The import stopped",
 } as const;
@@ -56,6 +56,28 @@ export type ImportViewState = "starting" | "importing" | "resumed" | "failed";
 /** Which count line to draw: nothing yet, issues only, or issues plus project items. */
 export type ImportProgressKind = "none" | "count" | "items";
 
+/**
+ * The one sentence the count line shows, decided here rather than in the screen.
+ *
+ * The component used to pick between `resumed(n)` and `resumedNoCount` with an
+ * `issues > 0` of its own, which no unit test could reach (no DOM tooling in the tree),
+ * so an inverted ternary shipped the count sentence on a run that copied nothing with
+ * the suite green (QA, D5). Moving the choice here fixed *which* sentence, not *which
+ * words*: the component still owned the `kind → IMPORT_COPY` mapping, so swapping its
+ * two resume branches was invisible too. So the sentence travels with the kind — the
+ * screen renders `copy` and maps nothing (Chief, D5).
+ *
+ * `count` has no `copy`: it is markup around three numbers, not a string.
+ *
+ * `progress` cannot carry any of this: it also drives the progress bar, and a resume
+ * that reaches the items phase must still draw the bar.
+ */
+export type ImportLine =
+  | { kind: "starting"; copy: string }
+  | { kind: "resume-none"; copy: string }
+  | { kind: "resume"; copy: string; issues: number }
+  | { kind: "count"; issues: number; items: number | null; itemsTotal: number | null };
+
 export type ImportViewInput = {
   needsInitialImport: boolean;
   running: boolean;
@@ -68,7 +90,7 @@ export type ImportViewInput = {
   failure: string | null;
 };
 
-export type ImportView = { state: ImportViewState; steps: ImportStepState[]; progress: ImportProgressKind };
+export type ImportView = { state: ImportViewState; steps: ImportStepState[]; progress: ImportProgressKind; line: ImportLine };
 
 export function importView(s: ImportViewInput): ImportView {
   // `failure` is the last *completed* run's failure and is cleared only when a run
@@ -92,5 +114,13 @@ export function importView(s: ImportViewInput): ImportView {
     return "todo";
   });
   const progress: ImportProgressKind = state === "starting" ? "none" : s.items > 0 || s.phase === "items" ? "items" : "count";
-  return { state, steps, progress };
+  const line: ImportLine =
+    state === "starting"
+      ? { kind: "starting", copy: IMPORT_COPY.starting }
+      : state === "resumed"
+        ? s.issues > 0
+          ? { kind: "resume", copy: IMPORT_COPY.resumed(s.issues), issues: s.issues }
+          : { kind: "resume-none", copy: IMPORT_COPY.resumedNoCount }
+        : { kind: "count", issues: s.issues, items: progress === "items" ? s.items : null, itemsTotal: progress === "items" ? s.itemsTotal : null };
+  return { state, steps, progress, line };
 }

@@ -121,26 +121,29 @@ export function ImportProgress() {
           })}
         </ol>
 
+        {/* The sentence travels in `line`: this renders `copy` and maps no kind to a
+            string, so swapping two branches here is a test failure, not a silent ship
+            (QA's finding, D5). Only `count` is markup around three numbers. */}
         <p role="status" aria-live="polite" className="mt-5 text-[13px]" data-import-progress>
-          {!view || view.progress === "none" ? (
-            // Before the first status arrives, and until anything is copied.
+          {!view ? (
+            // Before the first status arrives.
             IMPORT_COPY.starting
-          ) : view.state === "resumed" ? (
-            // A resume that has not re-read its first page has no number to show; it
-            // still says it is continuing rather than starting.
-            <span data-import-resumed>{p!.issues > 0 ? IMPORT_COPY.resumed(p!.issues) : IMPORT_COPY.resumedNoCount}</span>
+          ) : view.line.kind === "starting" ? (
+            view.line.copy
+          ) : view.line.kind === "resume-none" || view.line.kind === "resume" ? (
+            <span data-import-resumed>{view.line.copy}</span>
           ) : (
             <>
               <strong className="font-semibold" data-import-issues>
-                {p!.issues.toLocaleString()} {p!.issues === 1 ? "issue" : "issues"}
+                {view.line.issues.toLocaleString()} {view.line.issues === 1 ? "issue" : "issues"}
               </strong>{" "}
               imported
-              {view.progress === "items" ? (
+              {view.line.items != null ? (
                 <>
                   {" · "}
                   <span data-import-items>
-                    {p!.items.toLocaleString()}
-                    {p!.itemsTotal != null ? ` of ${p!.itemsTotal.toLocaleString()}` : ""} project items
+                    {view.line.items.toLocaleString()}
+                    {view.line.itemsTotal != null ? ` of ${view.line.itemsTotal.toLocaleString()}` : ""} project items
                   </span>
                 </>
               ) : null}
