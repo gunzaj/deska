@@ -9,6 +9,11 @@ import { isDimKey } from "../sync/field-map";
  */
 export const VIEW_LIMITS = { name: 120, filters: 50, anyFilters: 20, values: 200, value: 100, text: 200, sort: 10, columns: 40, key: 40, id: 100 } as const;
 
+export const IN_PROJECT_VALUES = ["yes", "no"] as const;
+/** `not_planned` also covers GitHub's "duplicate", as the sprint view does (§4.5). */
+export const CLOSED_REASON_VALUES = ["completed", "not_planned"] as const;
+export const SUB_PROGRESS_VALUES = ["none", "not_started", "in_progress", "done"] as const;
+
 const values = z.array(z.string().max(VIEW_LIMITS.value)).max(VIEW_LIMITS.values).optional();
 
 /** A mapped dimension, by field ID: `dim:<fieldId>` (§4.1). Field and option IDs travel inside a view. */
@@ -33,6 +38,11 @@ const leafFilterSchema = z.union([
   z.object({ field: dimKey, op: z.enum(["in", "not_in", "empty"]), values }).strict(),
   z.object({ field: z.literal("parent"), op: z.enum(["in", "empty", "has_sub_issues"]), values }).strict(),
   z.object({ field: z.literal("state"), op: z.enum(["in"]), values: z.array(z.enum(["open", "closed"])).max(2) }).strict(),
+  // D11 (§4.2): who opened it, whether it is on the project, why it was closed, GitHub's sub-issue progress.
+  z.object({ field: z.literal("author"), op: z.enum(["in", "not_in"]), values }).strict(),
+  z.object({ field: z.literal("inProject"), op: z.literal("in"), values: z.array(z.enum(IN_PROJECT_VALUES)).max(2) }).strict(),
+  z.object({ field: z.literal("closedReason"), op: z.enum(["in", "not_in"]), values: z.array(z.enum(CLOSED_REASON_VALUES)).max(2) }).strict(),
+  z.object({ field: z.literal("subProgress"), op: z.literal("in"), values: z.array(z.enum(SUB_PROGRESS_VALUES)).max(4) }).strict(),
   z.object({ field: z.literal("text"), op: z.literal("contains"), value: z.string().max(VIEW_LIMITS.text) }).strict(),
   // Relative dates, resolved when the view runs (like "me" and "current").
   z

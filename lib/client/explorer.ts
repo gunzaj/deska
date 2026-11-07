@@ -1,8 +1,8 @@
 // Pure explorer logic shared by every issue list: field registry, URL state,
 // filtering (via the saved-view engine), ordered grouping.
 import { dimFieldId, isDimKey, MISSING_FIELD } from "../sync/field-map";
-import { runView, type ViewContext } from "../views/engine";
-import type { Filter, View } from "../views/view";
+import { closedReason, runView, subProgressBucket, type ViewContext } from "../views/engine";
+import { CLOSED_REASON_VALUES, IN_PROJECT_VALUES, SUB_PROGRESS_VALUES, type Filter, type View } from "../views/view";
 import { BUCKET_LABEL, BUCKET_ORDER, sprintBucket, type SprintBucket } from "./sprint-bucket";
 import type { ClientDimension, ClientIssue, ClientMeta, DimKey, SingleSelectKey } from "./types";
 
@@ -147,7 +147,31 @@ export function sameState(a: ExplorerState, b: ExplorerState): boolean {
 
 // ---------- Filter fields ----------------------------------------------------
 
-export type FilterFieldKey = "status" | "priority" | "release" | "type" | "assignee" | "label" | "milestone" | "state" | "parent" | DimKey;
+export type FilterFieldKey = "status" | "priority" | "release" | "type" | "assignee" | "author" | "label" | "milestone" | "state" | "parent" | "inProject" | "closedReason" | "subProgress" | DimKey;
+
+/** Filters whose values are a fixed list, not discovered from GitHub (§4.2). */
+const FIXED_VALUES = {
+  state: [
+    { id: "open", label: "Open" },
+    { id: "closed", label: "Closed" },
+  ],
+  inProject: [
+    { id: "yes", label: "Yes" },
+    { id: "no", label: "No" },
+  ],
+  closedReason: [
+    { id: "completed", label: "Completed" },
+    { id: "not_planned", label: "Not planned" },
+  ],
+  subProgress: [
+    { id: "none", label: "No sub-issues" },
+    { id: "not_started", label: "Not started" },
+    { id: "in_progress", label: "In progress" },
+    { id: "done", label: "Done" },
+  ],
+} as const satisfies Record<string, readonly { id: string; label: string }[]>;
+const FIXED_VALUE_IDS: Record<keyof typeof FIXED_VALUES, readonly string[]> = { state: ["open", "closed"], inProject: IN_PROJECT_VALUES, closedReason: CLOSED_REASON_VALUES, subProgress: SUB_PROGRESS_VALUES };
+const hasFixedValues = (field: string): field is keyof typeof FIXED_VALUES => field in FIXED_VALUES;
 
 export type FilterValue = { id: string; label: string; color?: string | null; kind?: "relative" | "me" | "special" };
 
@@ -155,12 +179,16 @@ const FIXED_FILTERS: { key: FilterFieldKey; label: string; icon: string }[] = [
   { key: "status", label: "Status", icon: "circleDot" },
   { key: "priority", label: "Priority", icon: "flag" },
   { key: "assignee", label: "Assignee", icon: "user" },
+  { key: "author", label: "Author", icon: "user" },
   { key: "release", label: "Release", icon: "calendar" },
   { key: "type", label: "Type", icon: "box" },
   { key: "label", label: "Label", icon: "tag" },
   { key: "parent", label: "Epic", icon: "epic" },
   { key: "milestone", label: "Milestone", icon: "milestone" },
   { key: "state", label: "State", icon: "circleCheck" },
+  { key: "closedReason", label: "Closed reason", icon: "circleCheck" },
+  { key: "inProject", label: "In project", icon: "box" },
+  { key: "subProgress", label: "Sub-issue progress", icon: "epic" },
 ];
 
 /** The fields a list can filter by: the fixed ones and every mapped dimension (`dim:<fieldId>`). */
@@ -198,11 +226,18 @@ export function filterValues(field: FilterFieldKey, meta: ClientMeta, issues: Cl
       return meta.milestones.map((m) => ({ id: m.id, label: m.title }));
     case "assignee":
       return [{ id: "me", label: "Me", kind: "me" as const }, ...meta.users.map((u) => ({ id: u.login, label: u.login }))];
+    case "author": {
+      // People who opened an issue, most issues first; the issues are the source (GitHub lists no "authors").
+      const n = new Map<string, number>();
+      for (const i of issues) n.set(i.authorLogin, (n.get(i.authorLogin) ?? 0) + 1);
+      for (const u of meta.users) if (!n.has(u.login)) n.set(u.login, 0);
+      return [{ id: "me", label: "Me", kind: "me" as const }, ...[...n.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).map(([login]) => ({ id: login, label: login }))];
+    }
     case "state":
-      return [
-        { id: "open", label: "Open" },
-        { id: "closed", label: "Closed" },
-      ];
+    case "inProject":
+    case "closedReason":
+    case "subProgress":
+      return FIXED_VALUES[field].map((v) => ({ ...v }));
     case "parent":
       return issues
         .filter((i) => i.hasSubIssues)
@@ -226,7 +261,7 @@ export function valueLabel(field: FilterFieldKey, id: string, meta: ClientMeta, 
   }
   const v = filterValues(field, meta, []).find((x) => x.id === id);
   if (v) return field === "release" ? v.label.replace(" (current)", "") : v.label;
-  return field === "assignee" ? id : "missing option";
+  return field === "assignee" || field === "author" ? id : "missing option";
 }
 
 /** Issue's value IDs for a filter field (used for counts in pickers). */
@@ -250,8 +285,20 @@ export function issueValueIds(i: ClientIssue, field: FilterFieldKey): string[] {
       return i.milestoneId ? [i.milestoneId] : [];
     case "assignee":
       return i.assignees;
+    case "author":
+      return [i.authorLogin];
     case "state":
       return [i.state];
+    case "inProject":
+      return [i.inProject ? "yes" : "no"];
+    case "closedReason": {
+      const r = closedReason(i);
+      return r ? [r] : [];
+    }
+    case "subProgress": {
+      const b = subProgressBucket(i);
+      return b ? [b] : [];
+    }
     case "parent":
       return i.parentNodeId ? [i.parentNodeId] : [];
   }
@@ -441,8 +488,9 @@ export function setFilterValues(filters: Filter[], index: number, values: string
   const next = [...filters];
   const f = next[index];
   if (!f || !isValuesFilter(f)) return filters;
-  if (f.field === "state") {
-    next[index] = { field: "state", op: "in", values: values.filter((v): v is "open" | "closed" => v === "open" || v === "closed") };
+  if (hasFixedValues(f.field)) {
+    // A fixed list: anything else (a hand-edited URL) is dropped, as the schema would refuse it.
+    next[index] = { ...f, values: values.filter((v) => FIXED_VALUE_IDS[f.field as keyof typeof FIXED_VALUES].includes(v)) } as Filter;
   } else {
     next[index] = { ...f, values } as Filter;
   }
@@ -451,24 +499,30 @@ export function setFilterValues(filters: Filter[], index: number, values: string
 
 export function newFilter(field: FilterFieldKey, value?: string): Filter {
   if (field === "state") return { field: "state", op: "in", values: value === "closed" ? ["closed"] : ["open"] };
+  if (hasFixedValues(field)) return { field, op: "in", values: value && FIXED_VALUE_IDS[field].includes(value) ? [value] : [] } as Filter;
   if (field === "parent") return { field: "parent", op: "in", values: value ? [value] : [] };
   return { field, op: "in", values: value ? [value] : [] } as Filter;
 }
 
 /** Ops offered per field, with Linear-ish wording. */
 export function opsFor(field: string): { op: string; label: string }[] {
-  if (field === "state") return [{ op: "in", label: "is" }];
+  if (field === "state" || field === "inProject" || field === "subProgress") return [{ op: "in", label: "is" }];
+  if (field === "closedReason")
+    return [
+      { op: "in", label: "is" },
+      { op: "not_in", label: "is not" },
+    ];
   if (field === "parent")
     return [
       { op: "in", label: "is" },
       { op: "empty", label: "has no epic" },
       { op: "has_sub_issues", label: "has sub-issues" },
     ];
-  const multi = field === "label" || field === "assignee";
+  const multi = field === "label" || field === "assignee" || field === "author";
   return [
     { op: "in", label: multi ? "includes any of" : "is" },
     { op: "not_in", label: multi ? "excludes" : "is not" },
-    { op: "empty", label: field === "assignee" ? "is unassigned" : "is empty" },
+    ...(field === "author" ? [] : [{ op: "empty", label: field === "assignee" ? "is unassigned" : "is empty" }]),
   ];
 }
 
@@ -487,3 +541,15 @@ export function withStateFilter(filters: Filter[], v: "open" | "closed" | "all")
 
 /** Cards a board column shows before "Show more". The explorer's j/k stops at the same limit. */
 export const CARD_PAGE = 50;
+
+/** A filter in words, for the empty state ("Status is Done"): what the user has to remove to see more. */
+export function describeFilter(f: Filter, meta: ClientMeta, issues: ClientIssue[]): string {
+  if (f.field === "any") return f.filters.map((g) => describeFilter(g, meta, issues)).join(" or ");
+  if (f.field === "text") return `search "${f.value}"`;
+  if (isDateFilter(f)) return dateFilterLabel(f);
+  if (!isValuesFilter(f)) return fieldLabel((f as { field: string }).field, meta);
+  const field = f.field as FilterFieldKey;
+  const op = opsFor(field).find((o) => o.op === f.op)?.label ?? f.op;
+  const values = (f.values ?? []).map((v) => valueLabel(field, v, meta, issues));
+  return `${fieldLabel(field, meta)} ${op}${f.op === "in" || f.op === "not_in" ? ` ${values.length ? values.join(", ") : "any"}` : ""}`;
+}

@@ -32,9 +32,16 @@ function useValueIcon() {
       case "priority":
         return <PriorityIcon option={meta.fields.priority.find((o) => o.id === id)} total={meta.fields.priority.length} />;
       case "assignee":
+      case "author":
         return <Avatar login={id === "me" ? meta.viewer : id} url={avatarOf(id === "me" ? meta.viewer : id)} size={16} />;
       case "release":
         return <Icon name="calendar" size={13} className="text-faint" />;
+      case "inProject":
+        return <Icon name="box" size={13} className="text-faint" />;
+      case "closedReason":
+        return <StatusIcon option={null} total={0} state="closed" stateReason={id === "not_planned" ? "not_planned" : "completed"} />;
+      case "subProgress":
+        return <Icon name="epic" size={13} className="text-faint" />;
       case "state":
         return <StatusIcon option={null} total={0} state={id === "closed" ? "closed" : undefined} />;
       case "parent":
@@ -65,7 +72,7 @@ export function ValuePicker({
     const m = new Map<string, number>();
     for (const i of pool) {
       for (const v of issueValueIds(i, field)) {
-        const k = field === "assignee" ? v.toLowerCase() : v;
+        const k = field === "assignee" || field === "author" ? v.toLowerCase() : v;
         m.set(k, (m.get(k) ?? 0) + 1);
       }
     }
@@ -73,7 +80,7 @@ export function ValuePicker({
   }, [pool, field]);
   const viewerKey = data.meta.viewer.toLowerCase();
   const items: PickItem[] = filterValues(field, data.meta, data.issues).map((v) => {
-    const key = field === "assignee" ? (v.id === "me" ? viewerKey : v.id.toLowerCase()) : v.id;
+    const key = field === "assignee" || field === "author" ? (v.id === "me" ? viewerKey : v.id.toLowerCase()) : v.id;
     const relativeTarget =
       v.id === "current" ? data.meta.currentReleaseId : v.id === "next" ? data.meta.nextReleaseId : v.id === "previous" ? data.meta.previousReleaseId : null;
     const count = v.kind === "relative" ? (relativeTarget ? counts.get(relativeTarget) : 0) : counts.get(key);
@@ -86,7 +93,7 @@ export function ValuePicker({
     };
   });
   // Most useful first: selected, then values that actually occur.
-  if (field === "label" || field === "assignee" || field === "milestone") {
+  if (field === "label" || field === "assignee" || field === "author" || field === "milestone") {
     items.sort((a, b) => Number(b.checked) - Number(a.checked) || Number(b.hint) - Number(a.hint));
   }
   return <PickList multi items={items} onPick={onToggle} placeholder={`Filter by ${fieldLabel(field, data.meta).toLowerCase()}…`} />;

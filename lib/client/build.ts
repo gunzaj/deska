@@ -67,6 +67,7 @@ export function buildClientData(
       u: i.updatedAt,
     };
     if (i.stateReason) w.sr = i.stateReason;
+    if (p) w.ip = 1;
     if (p?.statusOpt) w.st = p.statusOpt;
     if (p?.priorityOpt) w.pr = p.priorityOpt;
     if (p?.dims) {
