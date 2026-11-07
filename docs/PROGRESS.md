@@ -10,7 +10,7 @@
 | D5 | done | [#10](https://github.com/gunzaj/deska/pull/10) | In-process sync, first import with resume, `/importing` |
 | D6 | done | [#13](https://github.com/gunzaj/deska/pull/13) | PR sync, tables, UI and links removed; migration 0003 |
 | D7 | done | [#14](https://github.com/gunzaj/deska/pull/14) | Single-user tasks and views; `LOCAL_OWNER`; Copy/Import view; migration 0004 |
-| D8 | todo | | |
+| D8 | done | [#15](https://github.com/gunzaj/deska/pull/15) | Backups, export/import, resets, restore on a database that won't open; no migration |
 | D9 | todo | | |
 | D10 | todo | | |
 | D11 | todo | | |
@@ -87,6 +87,13 @@
 - D7: Import view is a paste box on the Views page (the window grants clipboard write only, §2.2). The view string is `{"kind":"deska-view","v":1,"view":{…}}` without an ID, checked by the strict view schema.
 - D7: The per-person e2e specs for watches and snoozes were rewritten: both now belong to the install. The test-only `x-e2e-login` identity stays, as the stand-in for "a different GitHub account".
 - D7: Local `desktop:build` again needed TMPDIR in the session scratchpad (D4 note), and e2e/desktop tests needed the agent sandbox off.
+- D8: One JSON document for backups and exports, read generically (`to_jsonb`) so a backup can be taken from the schema before a migration. Import merges by primary key in one transaction (`ON CONFLICT DO NOTHING`: an existing row wins), skips rows whose parent is missing and views the strict schema refuses, and refuses a newer schema or an unknown table. A backup from an older schema may not fit the current one; the import then fails and changes nothing.
+- D8: Backups: `backups/` next to `db/` (`DESKA_BACKUP_DIR`, passed by main; `backups-dev` in dev), names `deska-backup-<UTC>-<daily|migration|reset|manual>.json`, owner-only, atomic, newest 14 kept across all reasons. The daily check runs at start and hourly. "Before every migration" = pending migrations on a database that already has data. "Reset everything" takes a `reset` backup first.
+- D8: Every string in a backup or export goes through the token redaction, so a token pasted into a task becomes `[redacted]`.
+- D8: Reset GitHub cache keeps `sync_state` keys `github.*` (PAT owner), `views.seeded` and the ETag generation, and keeps settings (project, mapping). Reset everything empties every table; the GitHub token stays until "Disconnect GitHub".
+- D8: A database that fails to open is noted by the server (`dbState`); main asks before opening the window (Restore from latest backup / Start empty / Quit) and calls `/api/local-data/recover`. The damaged folder is moved to `db.damaged-<time>`, never deleted; unreadable backups are skipped for the next older one.
+- D8: The `/api/local-data/*` routes are `public` (the launch-secret guard still applies): export, reset and recovery must work with no token or a broken database.
+- D8: Local e2e, `desktop:build` and `test:desktop` again needed the sandbox off and TMPDIR in the scratchpad. The recovery tests need a 60 s timeout on CI (each opens several on-disk databases).
 
 ## Maintainer to-do
 - [ ] Create a **read-only** fine-grained PAT: resource owner = the org, repository access = only the one repo; Repository → Metadata: Read, Repository → Issues: Read, Organization → Projects: Read, Organization → Issue types: Read (optional); nothing else. Then run the probe (report lands in `private/findings/`):
@@ -96,6 +103,7 @@
   ```
 - [ ] Try the D2 build on your Mac: `pnpm desktop:build`, then open `release/Deska-0.0.0-universal.dmg`. The app is unsigned, so the first time, right-click Deska.app → Open (or allow it under System Settings → Privacy & Security). Since D3 it opens on "Connect GitHub": paste a read-only fine-grained PAT (see the first item). The issue list still shows the fictional sample data until D5. Since D4, after the token it asks for the repository and project (step 2) and lets you map the fields; try it against your real project with the read-only PAT (reads only), and check Settings → Project and fields.
 - [ ] Review open [#12](https://github.com/gunzaj/deska/pull/12) (ADR-001: theme and density in app_settings, from another agent; outside the SPEC plan). `docs/UI-PASS.md` still describes PR rows.
+- [ ] Try the D8 recovery dialog by hand (not automated): quit Deska, overwrite `~/Library/Application Support/Deska/db/PG_VERSION` with junk, launch. It should offer "Restore from latest backup"; the damaged folder stays as `db.damaged-<time>`. Back up the folder first if it holds data you care about.
 - [ ] Optional: add a `.env.example` if you want one (the agent could not write `.env.*` files). Use only fictional values.
 
 ## Blockers
