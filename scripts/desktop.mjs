@@ -105,6 +105,9 @@ function stage() {
   mkdirSync(appDir, { recursive: true });
   for (const f of readdirSync(path.join(root, "desktop", "dist"))) cpSync(path.join(root, "desktop", "dist", f), path.join(appDir, f));
   const pkg = JSON.parse(readFileSync(path.join(root, "package.json"), "utf8"));
+  // The build's write switch (SPEC §3.4): off unless DESKA_WRITES=on is set
+  // on purpose. main.js reads it and tells the server.
+  writeFileSync(path.join(appDir, "build-info.json"), JSON.stringify({ writes: process.env.DESKA_WRITES === "on" ? "on" : "off" }, null, 2));
   writeFileSync(
     path.join(appDir, "package.json"),
     JSON.stringify({ name: "deska", productName: "Deska", version: pkg.version, description: "Deska: GitHub issues, sprints and personal tasks", main: "main.js", private: true }, null, 2),
@@ -148,10 +151,14 @@ function build() {
       category: "public.app-category.productivity",
       // Unsigned until the maintainer has a Developer ID (SPEC §1.3).
       identity: null,
+      // The flag is set for when a Developer ID exists; it has no effect on an unsigned build.
+      hardenedRuntime: true,
+      gatekeeperAssess: false,
       // The server folder is the same JavaScript in both architectures.
       x64ArchFiles: "Contents/Resources/server/**",
     },
     dmg: { title: "Deska" },
+    copyright: "MIT License",
   };
   const configFile = path.join(BUILD, "electron-builder.json");
   writeFileSync(configFile, JSON.stringify(config, null, 2));
