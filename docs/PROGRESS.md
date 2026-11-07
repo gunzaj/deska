@@ -11,7 +11,7 @@
 | D6 | done | [#13](https://github.com/gunzaj/deska/pull/13) | PR sync, tables, UI and links removed; migration 0003 |
 | D7 | done | [#14](https://github.com/gunzaj/deska/pull/14) | Single-user tasks and views; `LOCAL_OWNER`; Copy/Import view; migration 0004 |
 | D8 | done | [#15](https://github.com/gunzaj/deska/pull/15) | Backups, export/import, resets, restore on a database that won't open; no migration |
-| D9 | todo | | |
+| D9 | done | [#16](https://github.com/gunzaj/deska/pull/16) | GitHub's `subIssuesSummary` synced and shown (`50% · 2/4`); live paged children list; Progress sort; migration 0005 |
 | D10 | todo | | |
 | D11 | todo | | |
 | D12 | todo | | |
@@ -94,6 +94,12 @@
 - D8: A database that fails to open is noted by the server (`dbState`); main asks before opening the window (Restore from latest backup / Start empty / Quit) and calls `/api/local-data/recover`. The damaged folder is moved to `db.damaged-<time>`, never deleted; unreadable backups are skipped for the next older one.
 - D8: The `/api/local-data/*` routes are `public` (the launch-secret guard still applies): export, reset and recovery must work with no token or a broken database.
 - D8: Local e2e, `desktop:build` and `test:desktop` again needed the sandbox off and TMPDIR in the scratchpad. The recovery tests need a 60 s timeout on CI (each opens several on-disk databases).
+- D9: Counts come only from GitHub's `subIssuesSummary`; `percentCompleted` isn't stored (the percentage is `round(completed/total)`, which matches GitHub). Rows with cached children but no counts yet read "— progress not loaded"; rows with neither show nothing (so an unread cache isn't noisy).
+- D9: A child closing doesn't touch its parent's `updated_at`, so the poll also re-reads same-repo parents of the issues that changed (full rows via `fetchNodes`). The nightly reconcile re-reads counts for every open issue and parent (catches children added or removed). Migration 0005 clears `reconcile.lastRun`, so existing caches fill on the next launch.
+- D9: Children list is `GET /api/issues/[n]/sub-issues` (50 per page, cursor). Each child's Status is read live from the pinned project and mapped Status field; children outside the project show no Status. Without a token, or if GitHub fails on page one, cached children are served as one page and the panel says "Showing N of M" + Retry.
+- D9: The display prop key stays `subissues` (saved views) but is labelled "Progress"; a new `progress` sort field was added. Sprint-view progress (§4.5) comes with D10, which reuses `lib/client/progress.ts`.
+- D9: The Epics e2e text changed from `0/1 · 0%` to `0% · 0/1`. The a11y (Alt+↓) and triage-snooze e2e specs flaked once on timing and passed on rerun.
+- D9: Ran this milestone on Sonnet 5.5, though §0.6 recommends Opus 5.5 for D9.
 
 ## Maintainer to-do
 - [ ] Create a **read-only** fine-grained PAT: resource owner = the org, repository access = only the one repo; Repository → Metadata: Read, Repository → Issues: Read, Organization → Projects: Read, Organization → Issue types: Read (optional); nothing else. Then run the probe (report lands in `private/findings/`):
