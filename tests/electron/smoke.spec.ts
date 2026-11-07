@@ -900,4 +900,49 @@ test.describe("desktop shell", () => {
       await app.close();
     }
   });
+
+  test("tasks only: skipping GitHub opens the tasks app, tasks work with no token, it survives a restart, and connecting later switches it off", async () => {
+    // No seed, no env target, no token: a first launch that never connects GitHub.
+    let session = await launch(userData, github, { seed: "", envTarget: false });
+    try {
+      await session.win.waitForURL(`${session.origin}/onboarding`);
+      await session.win.locator("[data-skip-github]").click();
+      await session.win.waitForURL(`${session.origin}/tasks`, { timeout: 60_000 });
+      // No GitHub screens in the way: no issue links, a way back to GitHub, no connection banner.
+      await expect(session.win.getByRole("link", { name: "Connect GitHub" })).toBeVisible({ timeout: 60_000 });
+      await expect(session.win.getByRole("link", { name: "All issues" })).toHaveCount(0);
+      await expect(session.win.locator("[data-connection-state]")).toHaveCount(0);
+      // Tasks are saved without a token (no 401).
+      const created = await session.win.evaluate(() =>
+        fetch("/api/tasks", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ title: "Buy milk" }) }).then((r) => r.status),
+      );
+      expect(created).toBeLessThan(300);
+      // Nothing went to GitHub.
+      expect(github.requests).toHaveLength(0);
+    } finally {
+      await session.app.close();
+    }
+
+    // The choice is remembered: the next launch opens the app, not onboarding.
+    session = await launch(userData, github, { seed: "", envTarget: false });
+    try {
+      await session.win.goto(`${session.origin}/`);
+      await session.win.waitForURL(`${session.origin}/tasks`, { timeout: 60_000 });
+      const titles = await session.win.evaluate(() => fetch("/api/tasks").then((r) => r.json()).then((b: { tasks: { title: string }[] }) => b.tasks.map((t) => t.title)));
+      expect(titles).toContain("Buy milk");
+
+      // Connecting GitHub from the sidebar ends tasks-only mode.
+      await session.win.getByRole("link", { name: "Connect GitHub" }).click();
+      await expect(session.win.getByRole("heading", { name: "Connect GitHub" })).toBeVisible({ timeout: 60_000 });
+      await session.win.getByLabel("Personal access token").fill(TOKEN);
+      await session.win.getByRole("button", { name: "Connect" }).click();
+      await expect(session.win.getByText("Connected as")).toContainText("@alice", { timeout: 30_000 });
+      await session.win.getByRole("button", { name: "Continue" }).click();
+      await chooseProject(session.win, session.origin, "Widgets Roadmap");
+      await expect(session.win.getByRole("link", { name: "All issues" })).toBeVisible({ timeout: 120_000 });
+      expect(await session.win.evaluate(() => fetch("/api/settings/mode").then((r) => r.json()))).toEqual({ tasksOnly: false });
+    } finally {
+      await session.app.close();
+    }
+  });
 });

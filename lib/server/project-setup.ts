@@ -8,7 +8,7 @@ import { githubApiBase } from "../config";
 import { createReadOnlyClient, type ReadOnlyClient } from "../github/probe";
 import { checkRepo, fetchProjectDetail, listOrgProjects, ProjectReadError, type OrgProject, type ProjectDetail } from "../github/projects";
 import { localToken } from "../github/local-token";
-import { currentTarget, readMapping, readTarget, saveMapping, saveTarget, type StoredTarget } from "../settings";
+import { currentTarget, readMapping, readTarget, saveMapping, saveTarget, saveTasksOnly, type StoredTarget } from "../settings";
 import { bumpGeneration } from "../sync/generation";
 import { importFull } from "../sync/import";
 import { followRenames, missingFields, ROLES, sameFieldMap, suggestMapping, validateMapping, type FieldMapping, type MissingField } from "../sync/field-map";
@@ -165,6 +165,8 @@ export async function chooseProject(input: { repo: string; org: string; projectN
   await importFields(project.id, project.fields);
   await saveTarget({ repo: input.repo, org: input.org, projectNumber: project.number, projectId: project.id, projectTitle: project.title });
   await storeMapping(input.mapping, project.fields);
+  // Choosing a project ends "tasks only".
+  await saveTasksOnly(false);
   // First connect: the import starts now; the app shows its progress (D5).
   if (localToken()) void syncService().request("project");
   return setupState();

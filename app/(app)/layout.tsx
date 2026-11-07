@@ -1,5 +1,7 @@
 import { redirect } from "next/navigation";
 import { getViewerLogin } from "@/lib/session";
+import { readTasksOnly } from "@/lib/settings";
+import { TasksOnlyProvider } from "@/components/app/tasks-only";
 import { desktopGuard } from "@/lib/desktop/guard";
 import { needsFirstImport, needsProjectSetup } from "@/lib/server/project-setup";
 import { AppProvider } from "@/components/app/provider";
@@ -22,14 +24,18 @@ export const dynamic = "force-dynamic";
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const viewer = await getViewerLogin();
   if (!viewer) redirect("/onboarding");
+  // "Tasks only": the user skipped GitHub, so no project setup or import is needed.
+  const tasksOnly = desktopGuard() !== null && (await readTasksOnly());
   // Onboarding step 2 (D4): the desktop app needs a project and a field mapping first.
-  if (desktopGuard() && (await needsProjectSetup())) redirect("/onboarding?step=2");
+  if (!tasksOnly && desktopGuard() && (await needsProjectSetup())) redirect("/onboarding?step=2");
   // The first import (D5): its progress, never a half-filled list.
-  if (desktopGuard() && (await needsFirstImport())) redirect("/importing");
+  if (!tasksOnly && desktopGuard() && (await needsFirstImport())) redirect("/importing");
 
   return (
-    <AppProvider viewer={viewer}>
-      <AppShell>{children}</AppShell>
-    </AppProvider>
+    <TasksOnlyProvider value={tasksOnly}>
+      <AppProvider viewer={viewer}>
+        <AppShell>{children}</AppShell>
+      </AppProvider>
+    </TasksOnlyProvider>
   );
 }

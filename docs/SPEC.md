@@ -209,6 +209,8 @@ Stored locally: repo, org, project number + node ID (pinned after discovery), fi
 
 **[D4]** Settings live in the `app_settings` table (`github.target`, `project.mapping`), apart from the GitHub cache. The `GITHUB_REPO` / `GITHUB_ORG` / `GITHUB_PROJECT_NUMBER` env vars are only a fallback for tests, dev and the maintainer's CLI tools; the desktop app opens onboarding step 2 until a project and a mapping are stored.
 
+**[Changed after D14, at the maintainer's request]** **Tasks only.** Onboarding step 1 has "Skip, use tasks only". The `app.tasks-only` setting then skips the token, project and first-import gates, the local user is the stand-in `local`, the sidebar hides every GitHub block and shows "Connect GitHub", and nothing is sent to GitHub. Choosing a project in onboarding step 2 turns it off.
+
 ## 2.5 Removed with the server
 
 OAuth/Auth.js, allowlist and org-access mode, DB token encryption and its key, a shared server token, hosting config (Vercel, Docker), cron routes, the worker script, the health endpoint, and allowlist middleware (replaced by §2.2).

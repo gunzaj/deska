@@ -22,7 +22,7 @@ export type StoredTarget = {
   projectTitle: string;
 };
 
-const KEYS = { target: "github.target", mapping: "project.mapping" } as const;
+const KEYS = { target: "github.target", mapping: "project.mapping", tasksOnly: "app.tasks-only" } as const;
 
 type Cache = { loaded: Promise<void> | null; values: Map<string, unknown>; version: number };
 const CACHE = Symbol.for("deska.settings");
@@ -96,6 +96,15 @@ export async function readMapping(): Promise<FieldMapping | null> {
 
 export async function saveMapping(m: FieldMapping): Promise<void> {
   await set(KEYS.mapping, m);
+}
+
+/** The user skipped the GitHub setup and uses Deska for tasks only. */
+export async function readTasksOnly(): Promise<boolean> {
+  return (await get(KEYS.tasksOnly)) === true;
+}
+
+export async function saveTasksOnly(on: boolean): Promise<void> {
+  await set(KEYS.tasksOnly, on);
 }
 
 /** The env target (tests and dev, D3), or null when it isn't set. */

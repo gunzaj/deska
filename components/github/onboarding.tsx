@@ -149,7 +149,39 @@ export function Onboarding() {
             <TokenGuide />
           </section>
         ) : null}
+        {desktop && !connected && <SkipGithub />}
       </div>
     </main>
+  );
+}
+
+/** Use Deska for personal tasks only: nothing about GitHub blocks the app. Reversible from the sidebar. */
+function SkipGithub() {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  async function skip() {
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/settings/mode", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ tasksOnly: true }) });
+      if (!res.ok) throw new Error("failed");
+      window.location.assign("/tasks");
+    } catch {
+      setError("Couldn't save that. Try again.");
+      setBusy(false);
+    }
+  }
+  return (
+    <div className="mt-8 border-t border-line pt-5">
+      <p className="text-[12.5px] text-muted">Just want to manage tasks? You can connect GitHub later from the sidebar.</p>
+      <button type="button" disabled={busy} onClick={() => void skip()} data-skip-github className="mt-2 inline-flex h-8 items-center rounded-md border border-line px-3 text-[12.5px] font-medium hover:bg-hover disabled:opacity-60">
+        {busy ? "Opening…" : "Skip, use tasks only"}
+      </button>
+      {error && (
+        <p role="alert" className="mt-2 text-[12.5px] text-critical">
+          {error}
+        </p>
+      )}
+    </div>
   );
 }
