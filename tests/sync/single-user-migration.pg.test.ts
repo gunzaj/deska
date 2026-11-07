@@ -60,7 +60,11 @@ describe("migration 0004 (D7)", () => {
       expect(projects[1]!.id).toBe(pb);
       expect(projects[1]!.name).not.toBe("specs");
       expect(projects[1]!.name.startsWith("specs (")).toBe(true);
-      expect((await rows<{ name: string }>(pg, `SELECT name FROM task_labels ORDER BY name`)).map((r) => r.name).filter((n) => n === "later" || n === "Urgent")).toEqual(["Urgent", "later"]);
+      // Which of the two same-name labels is renamed depends on their random IDs: exactly one is.
+      const labels = (await rows<{ name: string }>(pg, `SELECT name FROM task_labels`)).map((r) => r.name);
+      expect(labels).toContain("later");
+      expect(labels.filter((n) => n.toLowerCase() === "urgent")).toHaveLength(1);
+      expect(labels.filter((n) => /^urgent \(/i.test(n))).toHaveLength(1);
       expect((await rows(pg, `SELECT 1 FROM task_labels`)).length).toBe(3);
 
       // One placement per task: the creator's.
