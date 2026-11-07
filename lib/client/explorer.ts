@@ -8,7 +8,7 @@ import type { ClientDimension, ClientIssue, ClientMeta, DimKey, SingleSelectKey 
 export type Layout = View["layout"];
 export type GroupField = "status" | "priority" | "release" | "type" | "assignee" | "label" | "milestone" | "parent" | DimKey;
 export type BoardField = NonNullable<View["boardColumnsField"]>;
-export type SortField = "priority" | "status" | "updated" | "created" | "number" | "title" | "release" | DimKey;
+export type SortField = "priority" | "status" | "updated" | "created" | "number" | "title" | "release" | "progress" | DimKey;
 
 /** The mapped dimension a `dim:<fieldId>` key names, if it is (still) mapped. */
 export function dimensionOf(meta: Pick<ClientMeta, "dimensions">, key: string | undefined | null): ClientDimension | undefined {
@@ -45,7 +45,7 @@ const BASE_PROPS = [
   { key: "type", label: "Type" },
   { key: "labels", label: "Labels" },
   { key: "parent", label: "Epic" },
-  { key: "subissues", label: "Sub-issues" },
+  { key: "subissues", label: "Progress" },
   { key: "milestone", label: "Milestone" },
   { key: "assignee", label: "Assignee" },
   { key: "created", label: "Created" },
@@ -94,6 +94,7 @@ export function sortOptions(meta: Pick<ClientMeta, "dimensions" | "mapping">): {
     { key: "status", label: "Status", defaultDir: "asc" },
     { key: "release", label: "Release", defaultDir: "asc" },
     ...liveDims(meta).map((d) => ({ key: d.key, label: d.name, defaultDir: "asc" as const })),
+    { key: "progress", label: "Progress", defaultDir: "desc" },
     { key: "number", label: "Issue number", defaultDir: "desc" },
     { key: "title", label: "Title", defaultDir: "asc" },
   ] as { key: SortField; label: string; defaultDir: "asc" | "desc" }[]);

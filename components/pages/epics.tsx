@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { pluralize } from "@/lib/client/format";
+import { PROGRESS_TOOLTIP, progressKey, progressText, subProgress } from "@/lib/client/progress";
 import type { ClientIssue } from "@/lib/client/types";
 import { useAppData } from "../app/provider";
 import { useOpenIssue } from "../app/open-issue";
@@ -14,7 +15,8 @@ type Sort = "progress" | "updated" | "size";
 
 function EpicRow({ e, onOpen }: { e: ClientIssue; onOpen: () => void }) {
   const c = useCells();
-  const pct = Math.round((e.subClosed / Math.max(1, e.subTotal)) * 100);
+  const p = subProgress(e);
+  const pct = p.kind === "counted" ? p.pct : 0;
   return (
     <button type="button" data-peek-row onClick={onOpen} className="flex h-14 w-full items-center gap-3 border-b border-line-soft px-4 text-left hover:bg-hover">
       {c.status(e)}
@@ -27,17 +29,23 @@ function EpicRow({ e, onOpen }: { e: ClientIssue; onOpen: () => void }) {
           {c.priority(e)}
           <span className="hidden sm:inline">{c.dimDot(e)}</span>
           <span className="tabular-nums md:hidden" data-epic-progress>
-            {pct}% of {e.subTotal} sub-issues
+            {progressText(p)}
           </span>
         </span>
       </span>
-      <span className="hidden w-48 shrink-0 items-center gap-2 md:flex" title={`${e.subClosed} of ${e.subTotal} sub-issues closed`}>
-        <span className="h-1.5 flex-1 overflow-hidden rounded-full bg-active">
-          <span className="block h-full rounded-full bg-brand-border" style={{ width: `${pct}%` }} />
-        </span>
-        <span className="w-16 text-right text-[12px] tabular-nums text-muted">
-          {e.subClosed}/{e.subTotal} · {pct}%
-        </span>
+      <span className="hidden w-52 shrink-0 items-center gap-2 md:flex" title={p.kind === "counted" ? `${PROGRESS_TOOLTIP}: ${p.done} of ${p.total} sub-issues completed` : undefined}>
+        {p.kind === "counted" ? (
+          <>
+            <span className="h-1.5 flex-1 overflow-hidden rounded-full bg-active">
+              <span className="block h-full rounded-full bg-brand-border" style={{ width: `${pct}%` }} />
+            </span>
+            <span className="w-24 text-right text-[12px] tabular-nums text-muted" data-epic-progress-text>
+              {progressText(p)}
+            </span>
+          </>
+        ) : (
+          <span className="flex-1 text-right text-[12px] text-faint">{progressText(p)}</span>
+        )}
       </span>
       <span className="hidden w-16 shrink-0 lg:block">{c.release(e)}</span>
       {c.assignee(e)}
@@ -53,9 +61,11 @@ export function EpicsPage() {
   const [sort, setSort] = useState<Sort>("progress");
   const epics = useMemo(() => {
     const list = data.issues.filter((i) => i.hasSubIssues && (state === "all" || i.state === state));
-    const pct = (i: ClientIssue) => i.subClosed / Math.max(1, i.subTotal);
+    const size = (i: ClientIssue) => i.subTotal ?? 0;
+    // Counts GitHub hasn't reported yet sort last, never as 0% or 100%.
+    const pct = (i: ClientIssue) => progressKey(i) ?? -1;
     return list.sort((a, b) =>
-      sort === "progress" ? pct(b) - pct(a) || b.subTotal - a.subTotal : sort === "size" ? b.subTotal - a.subTotal : b.updatedAt.localeCompare(a.updatedAt),
+      sort === "progress" ? pct(b) - pct(a) || size(b) - size(a) : sort === "size" ? size(b) - size(a) : b.updatedAt.localeCompare(a.updatedAt),
     );
   }, [data.issues, state, sort]);
 

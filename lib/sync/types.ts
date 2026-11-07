@@ -54,6 +54,13 @@ export type SnapshotIssue = {
   typeId?: string | null;
   milestoneId: string | null;
   parentNodeId?: string | null;
+  /**
+   * GitHub's own `subIssuesSummary` (§4.4): direct children and how many are
+   * completed. `undefined` = not in this payload, keep what we have; `null`
+   * = GitHub reports no summary. `total = 0` means no children.
+   */
+  subTotal?: number | null;
+  subCompleted?: number | null;
   authorLogin: string;
   url: string;
   createdAt: string;

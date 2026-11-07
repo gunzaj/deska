@@ -33,10 +33,10 @@ describe("client data", () => {
     expect(data.meta.nextReleaseId).toBeNull();
   });
 
-  it("counts sub-issues per epic", async () => {
+  it("carries GitHub's sub-issue counts per epic", async () => {
     const { data } = await client();
     const epic = data.issues.find((i) => i.number === 100)!;
-    expect([epic.subTotal, epic.subClosed]).toEqual([1, 0]);
+    expect([epic.subTotal, epic.subCompleted]).toEqual([1, 0]);
   });
 
   it("uses the stored GitHub URL when it is not this repository's issue", async () => {

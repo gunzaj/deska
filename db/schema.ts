@@ -75,6 +75,10 @@ export const issues = pgTable(
     issueTypeId: text("issue_type_id"),
     milestoneId: text("milestone_id"),
     parentIssueId: uuid("parent_issue_id"),
+    /** GitHub's `subIssuesSummary` (§4.4). Null until read; total 0 = no children. */
+    subTotal: integer("sub_total"),
+    subCompleted: integer("sub_completed"),
+    subSummaryAt: timestamp("sub_summary_at"),
     authorLogin: text("author_login"),
     url: text("url"),
     createdAt: timestamp("created_at"),

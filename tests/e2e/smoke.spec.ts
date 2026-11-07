@@ -165,7 +165,7 @@ test("planning pages render: triage queues, releases, epics, insights", async ({
 
   await page.goto("/epics");
   await expect(page.getByText("dashboard overhaul")).toBeVisible();
-  await expect(page.getByText("0/1 · 0%")).toBeVisible();
+  await expect(page.locator("[data-epic-progress-text]").first()).toHaveText("0% · 0/1");
 
   await page.goto("/insights");
   // One bar list per mapped dimension, named after the field (here "Team").

@@ -39,6 +39,11 @@ export interface ReconcileSource {
   listOpenNodeIds(): Promise<{ issues: string[] }>;
   /** Issues by node ID; null when GitHub can't resolve the node (deleted). */
   fetchNodes(ids: string[]): Promise<Map<string, FetchedNode | null>>;
+  /**
+   * GitHub's sub-issue counts (§4.4) by node ID. Optional: a source without it
+   * leaves the stored counts alone.
+   */
+  fetchSubSummaries?(ids: string[]): Promise<Map<string, { subTotal: number | null; subCompleted: number | null }>>;
   /** `owner/name` of the synced repo, to tell a transferred issue. */
   readonly repoName: string;
 }
@@ -141,8 +146,51 @@ export async function reconcile(
     );
   }
 
+  if (source.fetchSubSummaries) {
+    const done = await rateLimitAware(kv, () => refreshSubSummaries(source.fetchSubSummaries!.bind(source)));
+    if (done === null) return { ...result, rateLimited: true };
+  }
+
   result.agedOut = await ageOut(opts.closedCutoff);
   return result;
+}
+
+/**
+ * Re-read the sub-issue counts of every cached open issue and of every cached
+ * parent: a child added to or removed from a parent, or closed while Deska was
+ * closed, doesn't show up in the poll. Writes only counts that changed.
+ */
+async function refreshSubSummaries(fetch: NonNullable<ReconcileSource["fetchSubSummaries"]>): Promise<number> {
+  const db = getDb();
+  const parents = db.select({ id: issues.parentIssueId }).from(issues).where(and(eq(issues.deleted, false), isNotNull(issues.parentIssueId)));
+  const rows = await db
+    .select({ id: issues.id, nodeId: issues.ghNodeId, total: issues.subTotal, completed: issues.subCompleted })
+    .from(issues)
+    .where(and(eq(issues.deleted, false), isNotNull(issues.ghNodeId), or(eq(issues.state, "open"), sql`${issues.id} IN (${parents})`)));
+  let written = 0;
+  for (const batch of chunk(rows, 100)) {
+    const found = await fetch(batch.map((r) => r.nodeId!));
+    const stale = batch.filter((r) => {
+      const f = found.get(r.nodeId!);
+      return f && (f.subTotal !== r.total || f.subCompleted !== r.completed);
+    });
+    if (!stale.length) continue;
+    written += await writeTx(
+      db,
+      async (tx) => {
+        for (const r of stale) {
+          const f = found.get(r.nodeId!)!;
+          await tx
+            .update(issues)
+            .set({ subTotal: f.subTotal, subCompleted: f.subCompleted, subSummaryAt: f.subTotal == null ? null : new Date() })
+            .where(eq(issues.id, r.id));
+        }
+        return stale.length;
+      },
+      (n) => n > 0,
+    );
+  }
+  return written;
 }
 
 /** Split a list so an IN list stays under Postgres' bind-parameter limit. */

@@ -54,15 +54,29 @@ describe("hydrate row cache", () => {
     expect(hydrate({ meta: renamed, issues: w.issues }).issues[0]!.statusName).toBe("Backlog");
   });
 
-  it("never reuses a child row whose parent title or sub-issue counts changed", () => {
+  it("never reuses a child row whose parent title changed, and takes GitHub's counts for the parent", () => {
     const child = row(2, { pa: "I_1" });
-    const first = hydrate(wire([row(1), child]));
+    const first = hydrate(wire([row(1, { sc: [1, 0] }), child]));
     expect(first.issues[1]!.parentTitle).toBe("Issue 1");
-    expect(first.issues[0]!.subTotal).toBe(1);
-    // The same child object, a retitled parent and a second child.
-    const second = hydrate(wire([row(1, { t: "Renamed parent" }), child, row(3, { pa: "I_1", o: 0 })]));
+    expect(first.issues[0]).toMatchObject({ subTotal: 1, subCompleted: 0, hasSubIssues: true });
+    // The same child object, a retitled parent and new counts from GitHub.
+    const second = hydrate(wire([row(1, { t: "Renamed parent", sc: [2, 1] }), child, row(3, { pa: "I_1", o: 0 })]));
     expect(second.issues[1]!.parentTitle).toBe("Renamed parent");
-    expect(second.issues[0]).toMatchObject({ subTotal: 2, subClosed: 1 });
+    expect(second.issues[0]).toMatchObject({ subTotal: 2, subCompleted: 1 });
+  });
+
+  it("does not count children in the cache: no summary means not loaded, never a number (§4.4)", () => {
+    const h = hydrate(wire([row(1), row(2, { pa: "I_1" }), row(3, { pa: "I_1", o: 0 })]));
+    expect(h.issues[0]).toMatchObject({ subTotal: null, subCompleted: null, hasSubIssues: true });
+    expect(h.issues[1]).toMatchObject({ subTotal: null, hasSubIssues: false });
+  });
+
+  it("a parent's progress does not depend on which rows are in the list (filters never change it)", () => {
+    const parent = row(1, { sc: [4, 2] });
+    const all = hydrate(wire([parent, row(2, { pa: "I_1" }), row(3, { pa: "I_1" }), row(4, { pa: "I_1", o: 0 }), row(5, { pa: "I_1", o: 0 })]));
+    const onlyOneChild = hydrate(wire([parent, row(2, { pa: "I_1" })]));
+    expect(all.issues[0]).toMatchObject({ subTotal: 4, subCompleted: 2 });
+    expect(onlyOneChild.issues[0]).toMatchObject({ subTotal: 4, subCompleted: 2 });
   });
 });
 

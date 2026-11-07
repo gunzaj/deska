@@ -177,7 +177,11 @@ async function addExtras(source: GitHubSource, issues: SnapshotIssue[]): Promise
   for (const i of issues) {
     const e = extras.get(i.nodeId);
     i.parentNodeId = e ? e.parentNodeId : null;
-    if (e) i.typeId = e.typeId;
+    if (e) {
+      i.typeId = e.typeId;
+      i.subTotal = e.subTotal;
+      i.subCompleted = e.subCompleted;
+    }
   }
 }
 

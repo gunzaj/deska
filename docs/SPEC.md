@@ -307,6 +307,8 @@ Keep queues (needs triage, new this week, not in a sprint, unassigned in the cur
 - Sort by progress in the explorer and on the Epics page.
 - Direct children only.
 
+**[D9]** The counts are read with every issue fetch (`subIssuesSummary { total completed }`), stored in `issues.sub_total`, `sub_completed`, `sub_summary_at` and sent to the browser as GitHub reports them; nothing is counted from cached children. A poll also re-reads the parents (same repository) of the issues that changed, because a child closing doesn't touch its parent's `updated_at`, and the nightly reconcile re-reads every open issue and every parent, which also catches a child added or removed. `percentCompleted` isn't stored: the percentage is `round(completed / total)`, which is what GitHub shows. Rows with cached children but no counts yet read "— progress not loaded"; rows with neither show nothing. The children list is `GET /api/issues/[n]/sub-issues` (one page of 50 per call, cursor in `after`), with each child's Status read from the pinned project; the panel follows the cursor and says "Showing N of M — couldn't load the rest" + Retry when a page fails. Without a token, or when GitHub can't be reached on the first page, the cached children are served as one page.
+
 ## 4.5 Sprint view
 
 A sprint is one iteration of the mapped Sprint field. Build on the predecessor's sprint pages (overview, per-sprint board, planning, risk, notes); don't add a parallel one.

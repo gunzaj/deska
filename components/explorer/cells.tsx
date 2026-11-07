@@ -2,6 +2,7 @@
 
 import { shortAgo, formatDate, plainName } from "@/lib/client/format";
 import { dimensionLabel, primaryDimension, type DisplayProp } from "@/lib/client/explorer";
+import { PROGRESS_TOOLTIP, progressText, subProgress } from "@/lib/client/progress";
 import { dimFieldId, isDimKey } from "@/lib/sync/field-map";
 import type { ClientIssue, DimKey } from "@/lib/client/types";
 import { Icon } from "../icons";
@@ -75,13 +76,17 @@ export function useCells() {
           <span className="truncate">{(i.parentTitle ?? `#${i.parentNumber}`).replace(/^Epic:\s*/i, "")}</span>
         </span>
       ) : null,
-    subissues: (i: ClientIssue) =>
-      i.subTotal ? (
-        <span className="inline-flex items-center gap-1 text-[11.5px] tabular-nums text-muted" title={`${i.subClosed} of ${i.subTotal} sub-issues closed`}>
-          <ProgressRing done={i.subClosed} total={i.subTotal} />
-          {i.subClosed}/{i.subTotal}
+    subissues: (i: ClientIssue) => {
+      const p = subProgress(i);
+      if (p.kind === "none") return null;
+      if (p.kind === "unloaded") return <span className="text-[11.5px] text-faint" data-sub-progress="unloaded">{progressText(p)}</span>;
+      return (
+        <span className="inline-flex items-center gap-1 text-[11.5px] tabular-nums text-muted" title={`${PROGRESS_TOOLTIP}: ${p.done} of ${p.total} sub-issues completed`} data-sub-progress="counted">
+          <ProgressRing done={p.done} total={p.total} />
+          {progressText(p)}
         </span>
-      ) : null,
+      );
+    },
     milestone: (i: ClientIssue) =>
       i.milestoneName ? (
         <span className="inline-flex items-center gap-1 text-[11.5px] text-muted">

@@ -30,13 +30,10 @@ export function hydrate(data: WireData): ClientData {
   const labels = new Map(meta.labels.map((l) => [l.id, l.name]));
   const milestones = new Map(meta.milestones.map((m) => [m.id, m.title]));
   const byId = new Map(data.issues.map((w) => [w.id, w]));
-  const subTotal = new Map<string, number>();
-  const subClosed = new Map<string, number>();
-  for (const w of data.issues) {
-    if (!w.pa) continue;
-    subTotal.set(w.pa, (subTotal.get(w.pa) ?? 0) + 1);
-    if (!w.o) subClosed.set(w.pa, (subClosed.get(w.pa) ?? 0) + 1);
-  }
+  // Children seen in the cache: only the fallback for "has sub-issues" while
+  // GitHub's counts (`sc`) haven't been read. Progress itself is never counted here (§4.4).
+  const cachedParents = new Set<string>();
+  for (const w of data.issues) if (w.pa) cachedParents.add(w.pa);
   const [owner, repo] = meta.repo.split("/");
 
   const issues: ClientIssue[] = data.issues.map((w) => {
@@ -46,8 +43,7 @@ export function hydrate(data: WireData): ClientData {
       hit &&
       hit.parentNumber === (parent?.n ?? null) &&
       hit.parentTitle === (parent?.t ?? null) &&
-      hit.subTotal === (subTotal.get(w.id) ?? 0) &&
-      hit.subClosed === (subClosed.get(w.id) ?? 0)
+      hit.hasSubIssues === (w.sc ? w.sc[0] > 0 : cachedParents.has(w.id))
     ) {
       return hit;
     }
@@ -84,14 +80,14 @@ export function hydrate(data: WireData): ClientData {
       parentNodeId: w.pa ?? null,
       parentNumber: parent?.n ?? null,
       parentTitle: parent?.t ?? null,
-      hasSubIssues: subTotal.has(w.id),
+      hasSubIssues: w.sc ? w.sc[0] > 0 : cachedParents.has(w.id),
+      subTotal: w.sc ? w.sc[0] : null,
+      subCompleted: w.sc ? w.sc[1] : null,
       createdAt: w.c,
       updatedAt: w.u,
       url: w.gh ?? fallbackIssueUrl(`${owner}/${repo}`, w.n),
       authorLogin: w.au,
       closedAt: w.cl ?? null,
-      subTotal: subTotal.get(w.id) ?? 0,
-      subClosed: subClosed.get(w.id) ?? 0,
     };
     rows.set(w, row);
     return row;

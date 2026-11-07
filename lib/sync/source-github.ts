@@ -24,6 +24,7 @@ type GqlIssueNode = {
   author: { login: string } | null;
   issueType: { id: string } | null;
   parent: { id: string } | null;
+  subIssuesSummary: { total: number; completed: number } | null;
   milestone: { number: number } | null;
   labels: { nodes: { name: string }[] };
   assignees: { nodes: { login: string }[] };
@@ -32,6 +33,8 @@ type GqlIssueNode = {
 type GqlNode = GqlIssueNode & { repository?: { nameWithOwner: string } };
 
 /** An issue fetched by node ID, with the repository it lives in now. */
+export type IssueExtras = { typeId: string | null; parentNodeId: string | null; subTotal: number | null; subCompleted: number | null };
+
 export type FetchedNode = { kind: "issue"; repo: string; issue: SnapshotIssue };
 
 type GqlItemConnection = {
@@ -113,8 +116,14 @@ export class GitHubSource implements SyncSource {
         if (e) {
           i.typeId = e.typeId;
           i.parentNodeId = e.parentNodeId;
+          i.subTotal = e.subTotal;
+          i.subCompleted = e.subCompleted;
         }
       }
+      // A child changing state doesn't touch its parent's `updated_at`, so the
+      // parent isn't in this poll. Read the cached-repo parents of what changed
+      // (full rows, same as a reconcile) so their progress follows (§4.4).
+      issues.push(...(await this.parentsOf(issues)));
       const maxUpdated = raw.reduce<string>(
         (m, i) => (i.updated_at && i.updated_at > m ? i.updated_at : m),
         "",
@@ -144,22 +153,38 @@ export class GitHubSource implements SyncSource {
    * Native issue type and parent link for a batch of issues (GraphQL, 100 per
    * request, ~1 point each). Issues GitHub no longer resolves are skipped.
    */
-  async issueExtras(
-    nodeIds: string[],
-  ): Promise<Map<string, { typeId: string | null; parentNodeId: string | null }>> {
-    const out = new Map<string, { typeId: string | null; parentNodeId: string | null }>();
+  async issueExtras(nodeIds: string[]): Promise<Map<string, IssueExtras>> {
+    const out = new Map<string, IssueExtras>();
     for (let i = 0; i < nodeIds.length; i += 100) {
       const ids = nodeIds.slice(i, i + 100);
       const res = await this.gql(
-        `query DeskaIssueExtras($ids:[ID!]!) { nodes(ids:$ids) { ... on Issue { id issueType { id } parent { id } } } }`,
+        `query DeskaIssueExtras($ids:[ID!]!) { nodes(ids:$ids) { ... on Issue { id issueType { id } parent { id } subIssuesSummary { total completed } } } }`,
         { ids },
       );
-      for (const n of (res?.nodes ?? []) as ({ id?: string; issueType?: { id: string } | null; parent?: { id: string } | null } | null)[]) {
+      for (const n of (res?.nodes ?? []) as ({ id?: string; issueType?: { id: string } | null; parent?: { id: string } | null; subIssuesSummary?: { total: number; completed: number } | null } | null)[]) {
         if (!n?.id) continue;
-        out.set(n.id, { typeId: n.issueType?.id ?? null, parentNodeId: n.parent?.id ?? null });
+        out.set(n.id, {
+          typeId: n.issueType?.id ?? null,
+          parentNodeId: n.parent?.id ?? null,
+          subTotal: n.subIssuesSummary?.total ?? null,
+          subCompleted: n.subIssuesSummary?.completed ?? null,
+        });
       }
     }
     return out;
+  }
+
+  /**
+   * Parents of the changed issues that aren't in the batch, as full rows with
+   * a fresh progress summary. A parent in another repository stays out.
+   */
+  private async parentsOf(changed: SnapshotIssue[]): Promise<SnapshotIssue[]> {
+    const have = new Set(changed.map((i) => i.nodeId));
+    const want = [...new Set(changed.flatMap((i) => (i.parentNodeId && !have.has(i.parentNodeId) ? [i.parentNodeId] : [])))];
+    if (!want.length) return [];
+    const fetched = await this.fetchNodes(want);
+    const here = this.repoName.toLowerCase();
+    return [...fetched.values()].flatMap((f) => (f?.kind === "issue" && f.repo.toLowerCase() === here ? [f.issue] : []));
   }
 
   /**
@@ -255,7 +280,7 @@ export class GitHubSource implements SyncSource {
         res = await this.gql(
           `query($ids:[ID!]!) { nodes(ids:$ids) {
             ... on Issue { __typename id number title body state stateReason url createdAt updatedAt closedAt
-              author { login } issueType { id } parent { id } milestone { number }
+              author { login } issueType { id } parent { id } subIssuesSummary { total completed } milestone { number }
               labels(first:50) { nodes { name } } assignees(first:20) { nodes { login } }
               repository { nameWithOwner } }
           } }`,
@@ -301,6 +326,8 @@ export class GitHubSource implements SyncSource {
             stateReason: issue.stateReason ? issue.stateReason.toLowerCase() : null,
             typeId: issue.issueType?.id ?? null,
             parentNodeId: issue.parent?.id ?? null,
+            subTotal: issue.subIssuesSummary?.total ?? null,
+            subCompleted: issue.subIssuesSummary?.completed ?? null,
             milestoneId: issue.milestone && ids ? await ids.milestoneId(issue.milestone.number) : null,
             authorLogin: issue.author?.login ?? "ghost",
             url: issue.url,
@@ -314,6 +341,12 @@ export class GitHubSource implements SyncSource {
       }
     }
     return out;
+  }
+
+  /** Sub-issue counts for a batch of issues, for the reconcile's refresh (§4.4). */
+  async fetchSubSummaries(nodeIds: string[]): Promise<Map<string, { subTotal: number | null; subCompleted: number | null }>> {
+    const extras = await this.issueExtras(nodeIds);
+    return new Map([...extras].map(([id, e]) => [id, { subTotal: e.subTotal, subCompleted: e.subCompleted }]));
   }
 
   /** This source's repository as `owner/name`. */

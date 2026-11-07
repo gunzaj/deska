@@ -22,6 +22,8 @@ export const ISSUE_PROPS = [
   "deleted",
   "deletedReason",
 ] as const;
+// subTotal/subCompleted (and subSummaryAt) join the written columns only when
+// the payload carries a summary (see upsertIssueRows).
 
 export function issueValues(i: SnapshotIssue) {
   return {
@@ -32,6 +34,9 @@ export function issueValues(i: SnapshotIssue) {
     state: i.state,
     stateReason: i.stateReason,
     issueTypeId: i.typeId ?? null,
+    subTotal: i.subTotal ?? null,
+    subCompleted: i.subCompleted ?? null,
+    subSummaryAt: i.subTotal == null ? null : new Date(),
     milestoneId: i.milestoneId,
     authorLogin: i.authorLogin,
     url: i.url,
@@ -65,6 +70,7 @@ export async function upsertIssueRows(tx: Tx, list: SnapshotIssue[], ctx: Ctx = 
     const props: string[] = [...ISSUE_PROPS];
     if (i.typeId !== undefined) props.push("issueTypeId");
     if (i.body !== undefined) props.push("body");
+    if (i.subTotal !== undefined) props.push("subTotal", "subCompleted");
     const key = props.join(",");
     const g = groups.get(key) ?? { props, rows: [] };
     g.rows.push(i);
@@ -76,7 +82,9 @@ export async function upsertIssueRows(tx: Tx, list: SnapshotIssue[], ctx: Ctx = 
       .values(rows.map(issueValues))
       .onConflictDoUpdate({
         target: issues.ghNodeId,
-        set: { ...excludedSet(issues, props), syncedAt: sql`excluded.synced_at` },
+        // The read time follows whenever the counts are written, but never
+        // makes a row look changed by itself.
+        set: { ...excludedSet(issues, props.includes("subTotal") ? [...props, "subSummaryAt"] : props), syncedAt: sql`excluded.synced_at` },
         setWhere: and(changed(issues, props), notOlder(issues)),
       })
       .returning({ inserted: insertedFlag });
