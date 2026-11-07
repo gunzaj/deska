@@ -2,7 +2,7 @@
  * True while the user is typing, a popover/dialog owns the keyboard, or Enter
  * or Space would activate the focused button or link (not the focused row).
  *
- * Lives here, not in the explorer, so the global shortcuts and the PR list do
+ * Lives here, not in the explorer, so the global shortcuts and other lists do
  * not pull the explorer, the board and `@dnd-kit` into every route (v5 3.9).
  */
 export function keyboardBusy(e: KeyboardEvent): boolean {

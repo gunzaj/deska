@@ -12,7 +12,7 @@ import type { Assignable, Resolve, Result } from "./service";
 // generation: build them once per store, not on every task POST and PATCH (a
 // checkbox toggle used to rebuild ~5k entries; v5 3.8).
 const loginsOf = new WeakMap<ReadModel, Set<string>>();
-const numbersOf = new WeakMap<ReadModel, Map<number, { kind: "issue" | "pr"; nodeId: string; title: string }>>();
+const numbersOf = new WeakMap<ReadModel, Map<number, { nodeId: string; title: string }>>();
 
 /** Logins of the repo's assignable users (gh_users), lowercased. */
 export async function knownLogins(): Promise<Set<string>> {
@@ -35,22 +35,20 @@ export async function assignable(): Promise<Assignable> {
   return (login) => known.has(login);
 }
 
-/** Issues and PRs in the cache by number. */
+/** Issues in the cache by number. */
 export async function resolver(): Promise<Resolve> {
   try {
     const store = await getStore();
     let byNumber = numbersOf.get(store);
     if (!byNumber) {
-      // Issues and PRs share GitHub's number space.
       byNumber = new Map();
-      for (const p of store.pullRequests.values()) byNumber.set(p.number, { kind: "pr", nodeId: p.nodeId, title: p.title });
-      for (const i of store.issues.values()) byNumber.set(i.number, { kind: "issue", nodeId: i.nodeId, title: i.title });
+      for (const i of store.issues.values()) byNumber.set(i.number, { nodeId: i.nodeId, title: i.title });
       numbersOf.set(store, byNumber);
     }
     const index = byNumber;
     return (n) => {
       const i = index.get(n);
-      return i ? { kind: i.kind, nodeId: i.nodeId, number: n, title: i.title } : null;
+      return i ? { kind: "issue", nodeId: i.nodeId, number: n, title: i.title } : null;
     };
   } catch {
     return () => null;

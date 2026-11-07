@@ -11,7 +11,6 @@ export const CUSTOMIZE_SIDEBAR_EVENT = "deska:customize-sidebar";
 
 export const SECTION_LABELS: Record<SidebarSection, string> = {
   tasks: "Tasks",
-  pulls: "Pull requests",
   projects: "Projects",
   labels: "Labels",
   workspace: "Workspace",

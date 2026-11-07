@@ -1,13 +1,13 @@
 // Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
 
-exports[`release notes (F5) > matches the snapshot: grouped by Type, with the merged PRs that closed each issue 1`] = `
+exports[`release notes (F5) > matches the snapshot: grouped by Type, one line per issue, no pull request lines 1`] = `
 "# Release Sprint 23
 
 7 Oct – 3 Nov
 
 ## Task
 
-- Sub: dashboard widget ([#101](https://github.com/acme/widgets/issues/101), [#104](https://github.com/acme/widgets/pull/104)) — @bob
+- Sub: dashboard widget ([#101](https://github.com/acme/widgets/issues/101))
 
 ## Feature
 
@@ -24,7 +24,7 @@ exports[`release notes (F5) > sub-groups by the chosen labels, listing an issue 
 
 ### dashboard
 
-- Sub: dashboard widget ([#101](https://github.com/acme/widgets/issues/101), [#104](https://github.com/acme/widgets/pull/104)) — @bob
+- Sub: dashboard widget ([#101](https://github.com/acme/widgets/issues/101))
 
 ## Feature
 

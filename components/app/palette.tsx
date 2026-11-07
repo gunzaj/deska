@@ -5,15 +5,13 @@ import { useCallback, useEffect, useId, useMemo, useRef, useState, type ReactNod
 import { encodeState, primaryDimension, sprintOn } from "@/lib/client/explorer";
 import { plainName } from "@/lib/client/format";
 import { PRESETS } from "@/lib/client/presets";
-import { newIssueUrl, searchPrs, searchTasks } from "@/lib/client/palette";
+import { newIssueUrl, searchTasks } from "@/lib/client/palette";
 import { matchesCommand, searchIssues } from "@/lib/client/search";
-import type { ClientIssue, ClientPr } from "@/lib/client/types";
+import type { ClientIssue } from "@/lib/client/types";
 import type { Task } from "@/lib/tasks/model";
 import { useCells } from "../explorer/cells";
 import { Icon, type IconName } from "../icons";
 import { Kbd, OptionDot } from "../props";
-import { openPr, PR_PARAM } from "../prs/open-pr";
-import { usePrs } from "../prs/store";
 import { openTask } from "../tasks/open-task";
 import { useTasks } from "../tasks/store";
 import { Dialog } from "../ui/dialog";
@@ -29,7 +27,6 @@ type Item = {
   hint?: ReactNode;
   keywords?: string;
   issue?: ClientIssue;
-  pr?: ClientPr;
   task?: Task;
   run: (opts: { meta: boolean }) => void;
 };
@@ -52,17 +49,6 @@ function IssueLine({ issue }: { issue: ClientIssue }) {
   );
 }
 
-function PrLine({ pr }: { pr: ClientPr }) {
-  return (
-    <>
-      <Icon name="git" size={15} className={pr.state === "merged" ? "text-brand-text" : "text-faint"} />
-      <span className="w-14 shrink-0 text-faint">#{pr.number}</span>
-      <span className={`min-w-0 flex-1 truncate ${pr.state === "open" ? "" : "text-muted"}`}>{pr.title}</span>
-      <span className="hidden shrink-0 text-[11.5px] text-faint sm:block">{pr.author}</span>
-    </>
-  );
-}
-
 function TaskLine({ task }: { task: Task }) {
   return (
     <>
@@ -76,7 +62,6 @@ export function CommandPalette() {
   const app = useApp();
   const { data, views, syncNow, setTheme, theme, byNumber } = app;
   const { openCompose, tasks } = useTasks();
-  const { prs } = usePrs();
   const router = useRouter();
   const openIssue = useOpenIssue();
   const [open, setOpen] = useState(false);
@@ -86,8 +71,8 @@ export function CommandPalette() {
   // Unique per instance, so two palettes don't share option ids.
   const listboxId = useId();
   const [recent, setRecent] = useState<number[]>([]);
-  // The issue or PR open in the side panel when the palette opened: it gets actions of its own.
-  const [target, setTarget] = useState<{ kind: "issue" | "pr"; n: number } | null>(null);
+  // The issue open in the side panel when the palette opened: it gets actions of its own.
+  const [target, setTarget] = useState<{ n: number } | null>(null);
 
   useEffect(() => {
     const show = () => {
@@ -96,8 +81,7 @@ export function CommandPalette() {
       setRecent(recentIssues());
       const sp = new URL(window.location.href).searchParams;
       const issue = Number(sp.get(PEEK_PARAM));
-      const pr = Number(sp.get(PR_PARAM));
-      setTarget(issue > 0 ? { kind: "issue", n: issue } : pr > 0 ? { kind: "pr", n: pr } : null);
+      setTarget(issue > 0 ? { n: issue } : null);
       setOpen(true);
     };
     const onKey = (e: KeyboardEvent) => {
@@ -130,9 +114,6 @@ export function CommandPalette() {
       { id: "nav:today", section: "Go to", label: "Tasks due today", keywords: "todo today overdue", icon: ico("star"), run: go("/tasks/today") },
       { id: "nav:upcoming", section: "Go to", label: "Upcoming tasks", keywords: "todo week schedule", icon: ico("calendar"), run: go("/tasks/upcoming") },
       { id: "nav:delegated", section: "Go to", label: "Delegated tasks", keywords: "todo assigned others", icon: ico("users"), run: go("/tasks/delegated") },
-      { id: "nav:prreview", section: "Go to", label: "PRs waiting on my review", keywords: "pull requests review queue", icon: ico("eye"), hint: <Kbd>G P</Kbd>, run: go("/pulls/review") },
-      { id: "nav:prmine", section: "Go to", label: "My open PRs", keywords: "pull requests mine authored", icon: ico("git"), run: go("/pulls/mine") },
-      { id: "nav:prs", section: "Go to", label: "All pull requests", keywords: "pr explorer", icon: ico("git"), run: go("/pulls") },
       { id: "nav:all", section: "Go to", label: "All issues", icon: ico("layers"), hint: <Kbd>G I</Kbd>, run: go("/issues") },
       { id: "nav:backlog", section: "Go to", label: "Backlog", icon: ico("list"), hint: <Kbd>G B</Kbd>, run: go("/backlog") },
       ...(cur ? [{ id: "nav:cur", section: "Go to", label: `Current release · ${cur.title}`, keywords: "board sprint", icon: ico("calendar"), hint: <Kbd>G R</Kbd>, run: go(`/releases/${cur.id}`) }] : []),
@@ -211,17 +192,15 @@ export function CommandPalette() {
 
   const targetActions = useMemo<Item[]>(() => {
     if (!target) return [];
-    const issue = target.kind === "issue" ? byNumber.get(target.n) : undefined;
-    const pr = target.kind === "pr" ? prs.find((p) => p.number === target.n) : undefined;
-    const url = issue?.url ?? pr?.url;
+    const url = byNumber.get(target.n)?.url;
     if (!url) return [];
-    const section = target.kind === "issue" ? "This issue" : "This pull request";
+    const section = "This issue";
     return [
       { id: "tgt:task", section, label: `Add #${target.n} to tasks`, keywords: "task todo", icon: ico("plus"), run: () => openCompose({ links: [target.n] }) },
       { id: "tgt:copy", section, label: `Copy link to #${target.n}`, keywords: "share url", icon: ico("link"), run: () => void navigator.clipboard?.writeText(url) },
       { id: "tgt:gh", section, label: `Open #${target.n} on GitHub`, keywords: "external", icon: ico("external"), run: () => { if (!data.meta.demo) window.open(url, "_blank", "noopener"); } },
     ];
-  }, [target, byNumber, prs, openCompose, data.meta.demo]);
+  }, [target, byNumber, openCompose, data.meta.demo]);
 
   const items = useMemo<Item[]>(() => {
     const query = q.trim();
@@ -248,20 +227,6 @@ export function CommandPalette() {
       return [...targetActions, ...rec, ...commands.filter((c) => c.section === "Go to" || c.section === "Actions")];
     }
     const issues = searchIssues(data.issues, query, 8).map((i) => issueItem(i, "Issues"));
-    const prItems: Item[] = searchPrs(prs, query, 5).map((p) => ({
-      id: `pr:${p.nodeId}`,
-      section: "Pull requests",
-      label: p.title,
-      icon: null,
-      pr: p,
-      run: ({ meta }) => {
-        if (meta) {
-          if (!data.meta.demo) window.open(p.url, "_blank", "noopener");
-          return;
-        }
-        openPr(p.number);
-      },
-    }));
     const taskItems: Item[] = searchTasks(tasks, query, app.viewer, 5).map((t) => ({
       id: `task:${t.id}`,
       section: "Tasks",
@@ -281,11 +246,10 @@ export function CommandPalette() {
     };
     // A bare number most likely means "go to issue"; otherwise commands first.
     const isNumber = /^#?\d+$/.test(query);
-    // The same number can be an issue and a PR: issues first, then PRs.
-    return isNumber ? [...issues, ...prItems, ...cmds, ...taskItems, searchAll] : [...cmds, ...issues, ...prItems, ...taskItems, searchAll];
+    return isNumber ? [...issues, ...cmds, ...taskItems, searchAll] : [...cmds, ...issues, ...taskItems, searchAll];
     // openIssue and router are used above: without them the memo keeps a stale
     // openIssue after a client-side navigation.
-  }, [q, commands, data.issues, data.meta.demo, recent, byNumber, prs, tasks, app.viewer, targetActions, openIssue, router]);
+  }, [q, commands, data.issues, data.meta.demo, recent, byNumber, tasks, app.viewer, targetActions, openIssue, router]);
 
   useEffect(() => setActive(0), [q]);
   useEffect(() => {
@@ -347,8 +311,6 @@ export function CommandPalette() {
               >
                 {it.issue ? (
                   <IssueLine issue={it.issue} />
-                ) : it.pr ? (
-                  <PrLine pr={it.pr} />
                 ) : it.task ? (
                   <TaskLine task={it.task} />
                 ) : (

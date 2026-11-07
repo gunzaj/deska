@@ -5,13 +5,12 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { encodeState } from "@/lib/client/explorer";
 import { PRESETS } from "@/lib/client/presets";
-import { NO_PR_DAYS, releaseRisk } from "@/lib/client/risk";
+import { releaseRisk } from "@/lib/client/risk";
 import { isUnauthorized } from "@/lib/client/session";
 import type { ClientIssue, ClientRelease } from "@/lib/client/types";
 import { useOpenIssue } from "../app/open-issue";
 import { useAppData } from "../app/provider";
 import { Icon } from "../icons";
-import { usePrs } from "../prs/store";
 
 /** Issues F0 saw set to this Release on or after its start. A failed load just means none are shown. */
 function useScopeAdded(release: ClientRelease): { ids: string[]; loaded: boolean } {
@@ -68,7 +67,6 @@ function Group({ id, title, hint, issues, href }: { id: string; title: string; h
 
 export function ReleaseRisk({ release }: { release: ClientRelease }) {
   const { data } = useAppData();
-  const { closing, loaded: prsLoaded } = usePrs();
   const scope = useScopeAdded(release);
   const risk = useMemo(
     () =>
@@ -76,14 +74,13 @@ export function ReleaseRisk({ release }: { release: ClientRelease }) {
         issues: data.issues,
         release,
         meta: data.meta,
-        hasOpenPr: (nodeId) => closing(nodeId).some((p) => p.state === "open"),
         scopeAddedIds: scope.ids,
       }),
-    [data.issues, data.meta, release, closing, scope.ids],
+    [data.issues, data.meta, release, scope.ids],
   );
   const base = [{ field: "release" as const, op: "in" as const, values: [release.id] }, { field: "state" as const, op: "in" as const, values: ["open" as const] }];
   const top = risk.topPriorityId ? [{ field: "priority" as const, op: "in" as const, values: [risk.topPriorityId] }] : [];
-  const count = risk.noOwner.length + (risk.noPr?.length ?? 0) + risk.scopeAdded.length;
+  const count = risk.noOwner.length + risk.scopeAdded.length;
 
   return (
     <details open={count > 0} className="shrink-0 border-b border-line px-4 py-2" data-release-risk>
@@ -94,7 +91,7 @@ export function ReleaseRisk({ release }: { release: ClientRelease }) {
           {count === 0 ? "nothing flagged" : `${count} flagged`}
         </span>
       </summary>
-      <div className="mt-2 grid gap-4 pb-1 md:grid-cols-3">
+      <div className="mt-2 grid gap-4 pb-1 md:grid-cols-2">
         <Group
           id="no-owner"
           title="Top priority, no assignee"
@@ -102,20 +99,6 @@ export function ReleaseRisk({ release }: { release: ClientRelease }) {
           issues={risk.noOwner}
           href={explorer([...base, ...top, { field: "assignee", op: "empty" }])}
         />
-        {risk.noPr ? (
-          <Group
-            id="no-pr"
-            title="Top priority, no open PR"
-            hint={`Open top-priority issues with no open PR linked, with ${NO_PR_DAYS} days or fewer left.${prsLoaded ? "" : " Loading PRs…"}`}
-            issues={prsLoaded ? risk.noPr : []}
-            href={explorer([...base, ...top])}
-          />
-        ) : (
-          <section aria-label="Top priority, no open PR" data-risk="no-pr-off">
-            <h3 className="text-[12.5px] font-semibold">Top priority, no open PR</h3>
-            <p className="text-[11.5px] text-faint">Checked in the last {NO_PR_DAYS} days of a Release.</p>
-          </section>
-        )}
         <Group
           id="scope-added"
           title="Added after the start"

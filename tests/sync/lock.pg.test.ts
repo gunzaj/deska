@@ -36,8 +36,6 @@ function racingSource() {
       return { kind: "changed", issues: [newIssue], items: [], etag: "e1", since: newIssue.updatedAt };
     }),
     scanProjectItems: vi.fn(async () => ({ items: [], nextCursor: null, total: 0 })),
-    scanOpenPullRequests: vi.fn(async () => []),
-    teamMembers: vi.fn(async () => []),
   } satisfies CycleSource;
 }
 

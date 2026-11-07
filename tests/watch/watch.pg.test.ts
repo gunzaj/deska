@@ -12,7 +12,7 @@ import { fixtureSnapshot } from "../fixtures/github";
 
 async function truncate() {
   await getDb().execute(
-    sql`TRUNCATE watches, views, issues, issue_labels, issue_assignees, project_items, project_scan_seen, field_options, iterations, project_fields, labels, milestones, gh_users, issue_types, sync_state, pull_requests, pr_labels, pr_assignees, pr_review_requests, pr_reviews, pr_issue_links, gh_team_members RESTART IDENTITY CASCADE`,
+    sql`TRUNCATE watches, views, issues, issue_labels, issue_assignees, project_items, project_scan_seen, field_options, iterations, project_fields, labels, milestones, gh_users, issue_types, sync_state RESTART IDENTITY CASCADE`,
   );
 }
 const tick = () => new Promise((r) => setTimeout(r, 15));

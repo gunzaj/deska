@@ -11,11 +11,11 @@ import { fixtureSnapshot } from "../fixtures/github";
 describe("sync:full --db (Postgres)", () => {
   beforeAll(async () => {
     await getDb().execute(
-      sql`TRUNCATE issues, issue_labels, issue_assignees, project_items, field_options, iterations, project_fields, labels, milestones, gh_users, issue_types, sync_state, pull_requests, pr_labels, pr_assignees, pr_review_requests, pr_reviews, pr_issue_links, gh_team_members RESTART IDENTITY CASCADE`,
+      sql`TRUNCATE issues, issue_labels, issue_assignees, project_items, field_options, iterations, project_fields, labels, milestones, gh_users, issue_types, sync_state RESTART IDENTITY CASCADE`,
     );
   });
 
-  it("leaves issues.since, project.lastScan and prs.lastScan set, and is idempotent", async () => {
+  it("leaves issues.since and project.lastScan set, and is idempotent", async () => {
     const snapshot = fixtureSnapshot();
     const res = await syncFull(snapshot, new PostgresStore(), { waitMs: 0 });
     expect(res.ran).toBe(true);
@@ -28,7 +28,7 @@ describe("sync:full --db (Postgres)", () => {
     const newest = snapshot.issues.map((i) => i.updatedAt).sort().at(-1);
     expect(rows.get("issues.since")).toBe(newest);
     expect(Date.parse(rows.get("project.lastScan") ?? "")).not.toBeNaN();
-    expect(Date.parse(rows.get("prs.lastScan") ?? "")).not.toBeNaN();
+    expect(rows.has("prs.lastScan")).toBe(false);
     expect(Date.parse(rows.get("sync.lastSync") ?? "")).not.toBeNaN();
   });
 });

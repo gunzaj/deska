@@ -18,7 +18,7 @@ describe("sync generation and ETags (Postgres)", async () => {
 
   beforeAll(async () => {
     await getDb().execute(
-      sql`TRUNCATE issues, issue_labels, issue_assignees, project_items, project_scan_seen, field_options, iterations, project_fields, labels, milestones, gh_users, issue_types, sync_state, pull_requests, pr_labels, pr_assignees, pr_review_requests, pr_reviews, pr_issue_links, gh_team_members RESTART IDENTITY CASCADE`,
+      sql`TRUNCATE issues, issue_labels, issue_assignees, project_items, project_scan_seen, field_options, iterations, project_fields, labels, milestones, gh_users, issue_types, sync_state RESTART IDENTITY CASCADE`,
     );
     await importFull(fixtureSnapshot(), new PostgresStore());
   });
@@ -57,7 +57,6 @@ describe("sync generation and ETags (Postgres)", async () => {
     const snap = await readSnapshot();
     expect(snap.issues.length).toBeGreaterThan(0);
     for (const i of snap.issues) expect(Object.keys(i)).not.toContain("body");
-    for (const p of snap.pullRequests ?? []) expect(Object.keys(p)).not.toContain("body");
 
     const withBody = fixtureSnapshot().issues.find((i) => i.body)!;
     const detail = await cachedDetail(await getStore(), withBody.number, "offline");

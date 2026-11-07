@@ -3,7 +3,7 @@
 // project (SPEC §0.2): every ID, name, login and issue here is made up.
 // Links point at a sample repo, so a demo row never opens a live issue.
 // Never used when DESKA_DB_DIR is set (see lib/store.ts).
-import type { FullSnapshot, SnapshotIssue, SnapshotProjectItem, SnapshotPullRequest } from "@/lib/sync/types";
+import type { FullSnapshot, SnapshotIssue, SnapshotProjectItem } from "@/lib/sync/types";
 import { fixtureSnapshot, projectItem } from "./fixtures";
 
 const ITEM_FIELDS = { status: "PVTSSF_acme_status", priority: "PVTSSF_acme_priority", sprint: "PVTIF_acme_release" };
@@ -339,60 +339,6 @@ export function demoSnapshot(now = new Date()): FullSnapshot {
     number += 1 + Math.floor(rand() * 3);
   }
 
-  // PRs for the PR lens (SPEC §13): some open issues have a fix in flight,
-  // some closed ones were fixed by a merged PR. Numbers continue after issues.
-  const TEAMS = ["core", "desktop", "checkout"];
-  const pullRequests: SnapshotPullRequest[] = [];
-  let prNumber = number + 1;
-  const iso = (ms: number) => new Date(Math.min(ms, today)).toISOString();
-  for (const issue of issues) {
-    if (issue.title.startsWith("Epic:")) continue;
-    const open = issue.state === "open";
-    if (rand() > (open ? 0.25 : 0.35)) continue;
-    const author = pick(USERS).login.toLowerCase();
-    const others = USERS.map((u) => u.login.toLowerCase()).filter((l) => l !== author);
-    const created = Date.parse(issue.createdAt) + rand() * 6 * 86_400_000;
-    const updated = open ? today - rand() * 9 * 86_400_000 : Date.parse(issue.closedAt ?? issue.updatedAt);
-    const draft = open && rand() < 0.25;
-    const requests: SnapshotPullRequest["reviewRequests"] = [];
-    if (open && !draft) {
-      for (const l of others) if (rand() < 0.12) requests.push({ kind: "user", reviewer: l });
-      if (rand() < 0.3) requests.push({ kind: "team", reviewer: pick(TEAMS) });
-    }
-    const reviewed = !open || rand() < 0.45;
-    const verdict = !open ? "APPROVED" : pick(["APPROVED", "CHANGES_REQUESTED", "COMMENTED"]);
-    const reviews = reviewed ? [{ author: pick(others), state: verdict, submittedAt: iso(updated - 3_600_000) }] : [];
-    const checks = draft ? pick(["PENDING", "FAILURE", "SUCCESS"]) : pick(["SUCCESS", "SUCCESS", "SUCCESS", "FAILURE", "PENDING"]);
-    pullRequests.push({
-      nodeId: `PR_demo_${prNumber}`,
-      number: prNumber,
-      title: `${draft ? "WIP: " : ""}${issue.title.replace(/^(Bug|Sub|Feature):\s*/i, "")}`,
-      body: `Closes #${issue.number}.`,
-      state: open ? "open" : "merged",
-      isDraft: draft,
-      authorLogin: author,
-      url: `https://github.com/${DEMO_REPO}/pull/${prNumber}`,
-      headRef: `fix/${issue.number}-${issue.title.toLowerCase().replace(/[^a-z0-9]+/g, "-").slice(0, 24)}`,
-      baseRef: "develop",
-      reviewDecision: !open ? "APPROVED" : reviews[0]?.state === "APPROVED" ? "APPROVED" : reviews[0]?.state === "CHANGES_REQUESTED" ? "CHANGES_REQUESTED" : "REVIEW_REQUIRED",
-      checksState: open ? checks : "SUCCESS",
-      milestoneId: null,
-      additions: Math.floor(rand() * 400) + 3,
-      deletions: Math.floor(rand() * 150),
-      createdAt: iso(created),
-      updatedAt: iso(updated),
-      closedAt: open ? null : iso(updated),
-      mergedAt: open ? null : iso(updated),
-      labelIds: issue.labelIds.slice(0, 2),
-      assigneeIds: [],
-      reviewRequests: requests,
-      reviews,
-      closingIssueNodeIds: [issue.nodeId],
-    });
-    prNumber += 1 + Math.floor(rand() * 2);
-  }
-  const teams = TEAMS.map((slug) => ({ slug, members: [...new Set(USERS.filter(() => rand() < 0.35).map((u) => u.login.toLowerCase()))] }));
-
   const snapshot: FullSnapshot = {
     projectId: base.projectId,
     fields: [
@@ -408,8 +354,6 @@ export function demoSnapshot(now = new Date()): FullSnapshot {
     ghUsers: USERS,
     issues,
     projectItems: items,
-    pullRequests,
-    teams,
   };
   cache = { key, snapshot };
   return snapshot;

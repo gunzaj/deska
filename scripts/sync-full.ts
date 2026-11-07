@@ -40,7 +40,7 @@ async function main() {
   console.log(`second run: ${JSON.stringify(second)}`);
   if (store instanceof MemoryStore) {
     console.log(
-      `rows: issues=${store.issueCount} fields=${store.fields.size} types=${store.issueTypes.size} labels=${store.labels.size} items=${store.projectItems.size} prs=${store.pullRequests.size}`,
+      `rows: issues=${store.issueCount} fields=${store.fields.size} types=${store.issueTypes.size} labels=${store.labels.size} items=${store.projectItems.size}`,
     );
   }
   // PGlite writes its files on close.

@@ -9,7 +9,7 @@ import { tokenKey, type Token } from "@/lib/tasks/quick-add";
  * transparent text so the caret, selection and IME still behave natively.
  *
  * Backspace right after a highlighted token turns it back into plain text
- * instead of deleting a character. Typing `@` (people), `#` (issues and PRs),
+ * instead of deleting a character. Typing `@` (people), `#` (issues),
  * `+` (labels) or `=` (projects) opens suggestions.
  */
 export type Suggestion = { id: string; label: string; insert: string; icon?: ReactNode; hint?: string };

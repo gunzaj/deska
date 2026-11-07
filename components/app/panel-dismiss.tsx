@@ -3,8 +3,8 @@
 import { useSearchParams } from "next/navigation";
 import { useEffect } from "react";
 
-/** Query params of the side panels (issue, task, PR). One is open at a time. */
-const PANEL_PARAMS = ["issue", "task", "pr"] as const;
+/** Query params of the side panels (issue, task). One is open at a time. */
+const PANEL_PARAMS = ["issue", "task"] as const;
 
 /** Elements the outside-click rule treats specially. */
 const SIDE_PANEL = "data-side-panel";

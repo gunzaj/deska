@@ -12,8 +12,6 @@ function fakeSource() {
   return {
     checkChanges: vi.fn(async () => ({ kind: "not-modified" as const })),
     scanProjectItems: vi.fn(async () => ({ items: [], nextCursor: null, total: 0 })),
-    scanOpenPullRequests: vi.fn(async () => []),
-    teamMembers: vi.fn(async () => []),
   } satisfies CycleSource;
 }
 
@@ -42,17 +40,13 @@ describe("triggerSync", () => {
     const store = new MemoryStore();
     const kv = await getSyncKv();
     kv.set("project.lastScan", new Date(Date.now() - 10_000).toISOString());
-    kv.set("prs.lastScan", new Date(Date.now() - 10_000).toISOString());
     await triggerSync(source, store, { manual: true });
     expect(source.scanProjectItems).not.toHaveBeenCalled();
-    expect(source.scanOpenPullRequests).not.toHaveBeenCalled();
 
     kv.set("sync.lastAttemptAt", "");
     kv.set("project.lastScan", new Date(Date.now() - 61_000).toISOString());
-    kv.set("prs.lastScan", new Date(Date.now() - 61_000).toISOString());
     await triggerSync(source, store, { manual: true });
     expect(source.scanProjectItems).toHaveBeenCalledTimes(1);
-    expect(source.scanOpenPullRequests).toHaveBeenCalledTimes(1);
   });
 
   it("does not throttle the sync loop", async () => {

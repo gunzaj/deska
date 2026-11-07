@@ -7,8 +7,6 @@ import { EditsProvider } from "../issue/edits";
 import { IssuePeek } from "../issue/peek";
 import { ComposeTask } from "../tasks/compose";
 import { TaskPeek } from "../tasks/panel";
-import { PrPeek } from "../prs/panel";
-import { PrsProvider } from "../prs/store";
 import { SnoozeProvider } from "../triage/snoozes";
 import { WatchProvider } from "../watch/store";
 import { DefaultScopeProvider } from "./team-scope";
@@ -33,7 +31,6 @@ export function AppShell({ children }: { children: ReactNode }) {
 
   return (
     <ConnectionProvider>
-    <PrsProvider>
       <EditsProvider>
         <TasksProvider>
           <NotificationsProvider>
@@ -69,7 +66,6 @@ export function AppShell({ children }: { children: ReactNode }) {
               <Suspense>
                 <IssuePeek />
                 <TaskPeek />
-                <PrPeek />
                 <PanelDismiss />
               </Suspense>
               <ComposeTask />
@@ -82,7 +78,6 @@ export function AppShell({ children }: { children: ReactNode }) {
           </NotificationsProvider>
         </TasksProvider>
       </EditsProvider>
-    </PrsProvider>
     </ConnectionProvider>
   );
 }

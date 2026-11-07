@@ -103,22 +103,6 @@ describe("project scan pruning", () => {
   });
 });
 
-describe("provisional IDs on pull requests", () => {
-  it("re-keys a PR's provisional label and assignee once the real IDs arrive", async () => {
-    const store = new MemoryStore();
-    const pr = fixtureSnapshot().pullRequests![0]!;
-    await importFull(
-      { ...fixtureSnapshot(), issues: [], projectItems: [], pullRequests: [{ ...pr, labelIds: [store.labelId("fresh")], assigneeIds: [store.userId("newbie")] }], teams: [] },
-      store,
-    );
-    store.upsertLabel({ id: "LA_fresh", name: "fresh", color: "", description: "" });
-    store.upsertGhUser({ githubId: "U_newbie", login: "newbie", avatarUrl: null });
-    const saved = store.pullRequests.get(pr.nodeId)!;
-    expect(saved.labelIds).toEqual(["LA_fresh"]);
-    expect(saved.assigneeIds).toEqual(["U_newbie"]);
-  });
-});
-
 describe("Octokit throttling", () => {
   const opts = { method: "GET", url: "/repos/x/y/issues" };
   it("retries a short limit once, and never waits out a long one", () => {
@@ -180,8 +164,6 @@ describe("runSyncCycle error handling (v5 4.3)", () => {
         throw Object.assign(new Error("HTTP 502 from api.github.com"), { status: 502 });
       },
       scanProjectItems: async () => ({ items: [], nextCursor: null, total: 0 }),
-      scanOpenPullRequests: async () => [],
-      teamMembers: async () => [],
     };
     return { kv, source };
   };
@@ -194,7 +176,7 @@ describe("runSyncCycle error handling (v5 4.3)", () => {
   it("without a cursor it stops before the scans", async () => {
     const { source } = failingPoll();
     const res = await runSyncCycle(source, new MemoryStore(), new MapKv());
-    expect(res).toMatchObject({ issues: { reason: "needs-initial-import" }, project: null, prs: null });
+    expect(res).toMatchObject({ issues: { reason: "needs-initial-import" }, project: null });
   });
 });
 

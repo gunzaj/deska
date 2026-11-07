@@ -3,51 +3,11 @@
 import { gqlClient, restClient } from "../github/client";
 import { githubTarget, type GithubTarget } from "../config";
 import type { ProjectFieldMap, Role } from "./field-map";
-import type { SnapshotIssue, SnapshotProjectItem, SnapshotPullRequest, SnapshotTeam } from "./types";
+import type { SnapshotIssue, SnapshotProjectItem } from "./types";
 import type { ChangeCheck, IdResolver, SyncSource } from "./poll";
 
 type RestLabel = { name?: string; id?: number } | string;
 type RestMilestone = { number: number; title?: string } | null;
-
-/** The §13.1 PR fields (P0 measured one page of 100 at 6 points). */
-const PR_FIELDS = `
-  id number title body state isDraft mergedAt closedAt createdAt updatedAt url
-  author { login } headRefName baseRefName reviewDecision additions deletions
-  milestone { number }
-  assignees(first:10) { nodes { login } }
-  labels(first:20) { nodes { name } }
-  reviewRequests(first:20) { nodes { requestedReviewer { __typename ... on User { login } ... on Team { slug } } } }
-  latestReviews(first:20) { nodes { author { login } state submittedAt } }
-  commits(last:1) { nodes { commit { statusCheckRollup { state } } } }
-  closingIssuesReferences(first:10) { nodes { id repository { nameWithOwner } } }
-`;
-
-type GqlPr = {
-  id: string;
-  number: number;
-  title: string;
-  body: string | null;
-  state: "OPEN" | "CLOSED" | "MERGED";
-  isDraft: boolean;
-  mergedAt: string | null;
-  closedAt: string | null;
-  createdAt: string;
-  updatedAt: string;
-  url: string;
-  author: { login: string } | null;
-  headRefName: string;
-  baseRefName: string;
-  reviewDecision: string | null;
-  additions: number;
-  deletions: number;
-  milestone: { number: number } | null;
-  assignees: { nodes: { login: string }[] };
-  labels: { nodes: { name: string }[] };
-  reviewRequests: { nodes: { requestedReviewer: { __typename: string; login?: string; slug?: string } | null }[] };
-  latestReviews: { nodes: { author: { login: string } | null; state: string; submittedAt: string | null }[] };
-  commits: { nodes: { commit: { statusCheckRollup: { state: string } | null } }[] };
-  closingIssuesReferences: { nodes: { id: string; repository: { nameWithOwner: string } }[] };
-};
 
 type GqlIssueNode = {
   __typename: "Issue";
@@ -69,12 +29,10 @@ type GqlIssueNode = {
   assignees: { nodes: { login: string }[] };
   repository: { nameWithOwner: string };
 };
-type GqlNode = (GqlIssueNode | (GqlPr & { __typename: "PullRequest" })) & { repository?: { nameWithOwner: string } };
+type GqlNode = GqlIssueNode & { repository?: { nameWithOwner: string } };
 
-/** An issue or PR fetched by node ID, with the repository it lives in now. */
-export type FetchedNode =
-  | { kind: "issue"; repo: string; issue: SnapshotIssue }
-  | { kind: "pr"; repo: string; pr: SnapshotPullRequest };
+/** An issue fetched by node ID, with the repository it lives in now. */
+export type FetchedNode = { kind: "issue"; repo: string; issue: SnapshotIssue };
 
 type GqlItemConnection = {
   totalCount: number;
@@ -141,16 +99,11 @@ export class GitHubSource implements SyncSource {
       }
 
       const issues: SnapshotIssue[] = [];
-      const prNodeIds: string[] = [];
       for (const i of raw) {
-        // The issues endpoint also lists PRs (P0): fetch those in full below.
-        if (i.pull_request) {
-          prNodeIds.push(i.node_id);
-          continue;
-        }
+        // The issues endpoint also lists pull requests; Deska skips them (D6).
+        if (i.pull_request) continue;
         issues.push(await this.toSnapshotIssue(i));
       }
-      const pullRequests = await this.fetchPullRequests(prNodeIds);
       // REST has no parent link and only the type name; fetch both by node ID
       // so new issues arrive with their epic and type instead of waiting for a
       // full reconcile.
@@ -170,7 +123,6 @@ export class GitHubSource implements SyncSource {
         kind: "changed",
         issues,
         items: [],
-        pullRequests,
         etag: newEtag ?? etag ?? "",
         // `since` is inclusive on updated_at. Advancing to the newest row we
         // actually processed never skips an issue: issues sharing that second are
@@ -264,115 +216,32 @@ export class GitHubSource implements SyncSource {
     return this.ids.milestoneId(m.number);
   }
 
-  /** Map one GraphQL PR onto the snapshot, resolving names to store IDs. */
-  private async toSnapshotPr(p: GqlPr): Promise<SnapshotPullRequest> {
-    const ids = this.ids;
-    const labelIds: string[] = [];
-    const assigneeIds: string[] = [];
-    if (ids) {
-      for (const l of p.labels.nodes) labelIds.push(await ids.labelId(l.name));
-      for (const a of p.assignees.nodes) assigneeIds.push(await ids.userId(a.login));
-    }
-    const repo = `${this.owner}/${this.repo}`;
-    return {
-      nodeId: p.id,
-      number: p.number,
-      title: p.title,
-      body: p.body,
-      state: p.state === "MERGED" ? "merged" : p.state === "CLOSED" ? "closed" : "open",
-      isDraft: p.isDraft,
-      authorLogin: p.author?.login ?? "ghost",
-      url: p.url,
-      headRef: p.headRefName,
-      baseRef: p.baseRefName,
-      reviewDecision: p.reviewDecision,
-      checksState: p.commits.nodes[0]?.commit.statusCheckRollup?.state ?? null,
-      milestoneId: p.milestone && ids ? await ids.milestoneId(p.milestone.number) : null,
-      additions: p.additions,
-      deletions: p.deletions,
-      createdAt: p.createdAt,
-      updatedAt: p.updatedAt,
-      closedAt: p.closedAt,
-      mergedAt: p.mergedAt,
-      labelIds,
-      assigneeIds,
-      reviewRequests: p.reviewRequests.nodes
-        .map((n) => n.requestedReviewer)
-        .flatMap((r): SnapshotPullRequest["reviewRequests"] =>
-          r?.__typename === "User" && r.login ? [{ kind: "user", reviewer: r.login.toLowerCase() }] : r?.__typename === "Team" && r.slug ? [{ kind: "team", reviewer: r.slug }] : [],
-        ),
-      reviews: p.latestReviews.nodes.filter((r) => r.author).map((r) => ({ author: r.author!.login.toLowerCase(), state: r.state, submittedAt: r.submittedAt })),
-      // Only this repo's issues: the cache holds nothing else.
-      closingIssueNodeIds: p.closingIssuesReferences.nodes.filter((n) => n.repository.nameWithOwner === repo).map((n) => n.id),
-    };
-  }
-
-  /** Full PR data for these node IDs (from the REST change check), 50 per request. */
-  async fetchPullRequests(nodeIds: string[]): Promise<SnapshotPullRequest[]> {
-    const out: SnapshotPullRequest[] = [];
-    for (let i = 0; i < nodeIds.length; i += 50) {
-      const res = await this.gql(`query($ids:[ID!]!) { nodes(ids:$ids) { ... on PullRequest { ${PR_FIELDS} } } }`, { ids: nodeIds.slice(i, i + 50) });
-      for (const n of (res?.nodes ?? []) as (GqlPr | null)[]) if (n?.id) out.push(await this.toSnapshotPr(n));
-    }
-    return out;
-  }
-
   /**
-   * Walk PRs newest-updated first. Open PRs: all of them. Closed/merged:
-   * until they were last updated before `since` (closed before it, too).
+   * Node IDs of every open issue in the repo, IDs only (S6 reconcile). One
+   * point per page of 100.
    */
-  async listPullRequests(states: ("OPEN" | "CLOSED" | "MERGED")[], since?: string): Promise<SnapshotPullRequest[]> {
-    const out: SnapshotPullRequest[] = [];
+  async listOpenNodeIds(): Promise<{ issues: string[] }> {
+    const out = { issues: [] as string[] };
     let after: string | null = null;
     for (;;) {
-      const res: { repository: { pullRequests: { pageInfo: { hasNextPage: boolean; endCursor: string }; nodes: GqlPr[] } } } = await this.gql(
-        `query DeskaPullRequests($owner:String!, $name:String!, $after:String, $states:[PullRequestState!]) {
+      const res: { repository: { issues: { pageInfo: { hasNextPage: boolean; endCursor: string }; nodes: { id: string }[] } } } = await this.gql(
+        `query($owner:String!, $name:String!, $after:String) {
           repository(owner:$owner, name:$name) {
-            pullRequests(first:100, after:$after, states:$states, orderBy:{field:UPDATED_AT, direction:DESC}) {
-              pageInfo { hasNextPage endCursor } nodes { ${PR_FIELDS} }
-            }
+            issues(first:100, after:$after, states:[OPEN]) { pageInfo { hasNextPage endCursor } nodes { id } }
           }
         }`,
-        { owner: this.owner, name: this.repo, after, states },
+        { owner: this.owner, name: this.repo, after },
       );
-      const conn = res.repository.pullRequests;
-      for (const n of conn.nodes) {
-        if (since && n.updatedAt < since) return out;
-        out.push(await this.toSnapshotPr(n));
-      }
-      if (!conn.pageInfo.hasNextPage) return out;
+      const conn = res.repository.issues;
+      out.issues.push(...conn.nodes.map((n) => n.id));
+      if (!conn.pageInfo.hasNextPage) break;
       after = conn.pageInfo.endCursor;
-    }
-  }
-
-  /**
-   * Node IDs of every open issue and open PR in the repo, IDs only (S6
-   * reconcile). One point per page of 100.
-   */
-  async listOpenNodeIds(): Promise<{ issues: string[]; pullRequests: string[] }> {
-    const out = { issues: [] as string[], pullRequests: [] as string[] };
-    for (const kind of ["issues", "pullRequests"] as const) {
-      let after: string | null = null;
-      for (;;) {
-        const res: { repository: Record<typeof kind, { pageInfo: { hasNextPage: boolean; endCursor: string }; nodes: { id: string }[] }> } = await this.gql(
-          `query($owner:String!, $name:String!, $after:String) {
-            repository(owner:$owner, name:$name) {
-              ${kind}(first:100, after:$after, states:[OPEN]) { pageInfo { hasNextPage endCursor } nodes { id } }
-            }
-          }`,
-          { owner: this.owner, name: this.repo, after },
-        );
-        const conn = res.repository[kind];
-        out[kind].push(...conn.nodes.map((n) => n.id));
-        if (!conn.pageInfo.hasNextPage) break;
-        after = conn.pageInfo.endCursor;
-      }
     }
     return out;
   }
 
   /**
-   * Issues and PRs by node ID, wherever they live now (S6 reconcile). A node
+   * Issues by node ID, wherever they live now (S6 reconcile). A node
    * GitHub can't resolve (deleted) maps to null; `repo` tells a transferred
    * issue from one still in this repo.
    */
@@ -389,7 +258,6 @@ export class GitHubSource implements SyncSource {
               author { login } issueType { id } parent { id } milestone { number }
               labels(first:50) { nodes { name } } assignees(first:20) { nodes { login } }
               repository { nameWithOwner } }
-            ... on PullRequest { __typename ${PR_FIELDS} repository { nameWithOwner } }
           } }`,
           { ids: batch },
         );
@@ -414,10 +282,6 @@ export class GitHubSource implements SyncSource {
           continue;
         }
         const repo = n.repository?.nameWithOwner ?? "";
-        if (n.__typename === "PullRequest") {
-          out.set(id, { kind: "pr", repo, pr: await this.toSnapshotPr(n as unknown as GqlPr) });
-          continue;
-        }
         const issue = n as GqlIssueNode;
         const labelIds: string[] = [];
         const assigneeIds: string[] = [];
@@ -455,44 +319,6 @@ export class GitHubSource implements SyncSource {
   /** This source's repository as `owner/name`. */
   get repoName(): string {
     return `${this.owner}/${this.repo}`;
-  }
-
-  /** Every open PR: the periodic rescan for review requests and CI (P0 (e)). */
-  async scanOpenPullRequests(): Promise<SnapshotPullRequest[]> {
-    return this.listPullRequests(["OPEN"]);
-  }
-
-  /**
-   * Members of the teams asked to review, for "review requested from me".
-   * Needs `read:org`; a token without it yields nothing rather than failing.
-   */
-  async teamMembers(slugs: string[]): Promise<SnapshotTeam[]> {
-    const out: SnapshotTeam[] = [];
-    for (const slug of [...new Set(slugs)]) {
-      try {
-        const members: string[] = [];
-        let after: string | null = null;
-        for (;;) {
-          const res: { organization: { team: { members: { pageInfo: { hasNextPage: boolean; endCursor: string }; nodes: { login: string }[] } } | null } } = await this.gql(
-            `query($org:String!, $slug:String!, $after:String) { organization(login:$org) { team(slug:$slug) {
-              members(first:100, after:$after) { pageInfo { hasNextPage endCursor } nodes { login } } } } }`,
-            { org: this.org, slug, after },
-          );
-          const team = res.organization.team;
-          if (!team) break;
-          members.push(...team.members.nodes.map((m) => m.login.toLowerCase()));
-          if (!team.members.pageInfo.hasNextPage) break;
-          after = team.members.pageInfo.endCursor;
-        }
-        out.push({ slug, members });
-      } catch (e) {
-        // A rate limit or a transient failure must surface so the scan can back
-        // off; only "no read:org" (a 4xx permission error) is tolerated, and
-        // team requests just won't match anyone.
-        if (isRateLimitError(e) || (errorStatus(e) ?? 0) >= 500) throw e;
-      }
-    }
-    return out;
   }
 
   /**

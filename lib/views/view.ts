@@ -1,6 +1,5 @@
 import { z } from "zod";
 import { isDimKey } from "../sync/field-map";
-import { prViewStateSchema } from "./pr-view";
 
 /**
  * Limits on a saved view (v5 2.6), in line with the task schemas
@@ -66,9 +65,6 @@ export const viewSchema = z
     groupBy: z.string().max(VIEW_LIMITS.id + 4).optional(),
     boardColumnsField: z.union([z.enum(["status", "priority", "assignee", "release", "type"]), dimKey]).optional(),
     columns: z.array(z.string().max(VIEW_LIMITS.id + 4)).max(VIEW_LIMITS.columns).optional(),
-    /** "pr" views belong to the PR lens and keep their state in `pr` (SPEC §13.3). */
-    entity: z.enum(["issue", "pr"]).optional(),
-    pr: prViewStateSchema.optional(),
   })
   .strict();
 

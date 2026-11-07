@@ -19,7 +19,7 @@ import { PostgresStore, readSnapshot } from "@/lib/sync/store-postgres";
 
 async function reset() {
   await getDb().execute(
-    sql`TRUNCATE issues, issue_labels, issue_assignees, project_items, project_item_dims, project_scan_seen, field_options, iterations, project_fields, labels, milestones, gh_users, issue_types, sync_state, app_settings, issue_field_changes, pull_requests, pr_labels, pr_assignees, pr_review_requests, pr_reviews, pr_issue_links, gh_team_members RESTART IDENTITY CASCADE`,
+    sql`TRUNCATE issues, issue_labels, issue_assignees, project_items, project_item_dims, project_scan_seen, field_options, iterations, project_fields, labels, milestones, gh_users, issue_types, sync_state, app_settings, issue_field_changes RESTART IDENTITY CASCADE`,
   );
   resetSettingsCache();
   invalidateReadCache();

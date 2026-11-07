@@ -12,8 +12,6 @@ import { isRateLimitError, retryAfterMs, type GitHubSource } from "./source-gith
 import { partialSnapshot } from "./types";
 
 export const PROJECT_SCAN_MS = Number(process.env.SYNC_PROJECT_MS ?? 450_000);
-/** Open-PR rescan (SPEC §13.1): review requests and CI may not bump updated_at. */
-export const PR_SCAN_MS = Number(process.env.SYNC_PR_SCAN_MS ?? 600_000);
 
 /**
  * "Sync now" forces the scans only when the last one is older than this, so
@@ -23,7 +21,7 @@ export const FORCED_SCAN_MIN_AGE_MS = 60_000;
 
 /** What a cycle reads from GitHub; GitHubSource in production, fakes in tests. */
 export type CycleSource = SyncSource &
-  Pick<GitHubSource, "scanProjectItems" | "scanOpenPullRequests" | "teamMembers"> & { useFields?(map: ProjectFieldMap): void };
+  Pick<GitHubSource, "scanProjectItems"> & { useFields?(map: ProjectFieldMap): void };
 
 /**
  * Hand the source the field mapping once per cycle (§4.1): the confirmed one
@@ -40,33 +38,14 @@ export async function refreshSourceFields(source: { useFields?(map: ProjectField
 export type CycleResult = {
   issues: PollResult;
   project: Awaited<ReturnType<typeof scanProject>> | null;
-  prs: Awaited<ReturnType<typeof scanPullRequests>> | null;
 };
 
 /** Whether the scan stored under `key` is at least `minAgeMs` old (or never ran). */
-export function scanOlderThan(kv: Kv, key: "project.lastScan" | "prs.lastScan", minAgeMs: number, nowMs = Date.now()): boolean {
+export function scanOlderThan(kv: Kv, key: "project.lastScan", minAgeMs: number, nowMs = Date.now()): boolean {
   const last = Date.parse(kv.get(key) ?? "");
   return !Number.isFinite(last) || nowMs - last >= minAgeMs;
 }
 
-export function prScanDue(kv: Kv, nowMs = Date.now()): boolean {
-  return scanOlderThan(kv, "prs.lastScan", PR_SCAN_MS, nowMs);
-}
-
-/** Rescan every open PR and the members of teams asked to review them. */
-export async function scanPullRequests(
-  source: Pick<GitHubSource, "scanOpenPullRequests" | "teamMembers">,
-  store: ImportStore,
-  kv: Kv,
-  nowIso: string,
-): Promise<{ prs: number; updated: number; inserted: number }> {
-  const prs = await source.scanOpenPullRequests();
-  const slugs = prs.flatMap((p) => p.reviewRequests.filter((r) => r.kind === "team").map((r) => r.reviewer));
-  const teams = await source.teamMembers(slugs);
-  const stats = await importFull(partialSnapshot({ pullRequests: prs, teams }), store);
-  kv.set("prs.lastScan", nowIso);
-  return { prs: prs.length, updated: stats.updated, inserted: stats.inserted };
-}
 
 /** Thrown between pages when the app quits; the checkpoint makes the next run resume. */
 export class SyncStopped extends Error {
@@ -159,8 +138,7 @@ export async function scanProject(
 }
 
 /**
- * One cycle: field map, issue poll, project scan (when due), PR scan (when
- * due). The only orchestrator: the in-process sync service (lib/sync/service.ts)
+ * One cycle: field map, issue poll, project scan (when due). The only orchestrator: the in-process sync service (lib/sync/service.ts)
  * runs it on an interval, on launch, on wake and on "Sync now".
  * Callers hold the sync lock (withLockedSyncKv); two cycles at once race on
  * inserts and on project-item pruning.
@@ -179,15 +157,13 @@ export async function runSyncCycle(
   const issues = await pollOnce(source, store, kv, nowIso);
   // The scans only update issues the cache already holds; before the initial
   // import there are none.
-  if (!issues.applied && issues.reason === "needs-initial-import") return { issues, project: null, prs: null };
+  if (!issues.applied && issues.reason === "needs-initial-import") return { issues, project: null };
   // While GitHub says we are rate limited, the GraphQL scans would only fail.
   const ok = () => !isRateLimited(kv);
-  const forced = (key: "project.lastScan" | "prs.lastScan") =>
-    !!opts.forceProjectScan && scanOlderThan(kv, key, FORCED_SCAN_MIN_AGE_MS, nowMs);
+  const forced = (key: "project.lastScan") => !!opts.forceProjectScan && scanOlderThan(kv, key, FORCED_SCAN_MIN_AGE_MS, nowMs);
   const project =
     ok() && (forced("project.lastScan") || projectScanDue(kv, nowMs)) ? await rateLimitAware(kv, () => scanProject(source, store, kv, nowIso)) : null;
-  const prs = ok() && (forced("prs.lastScan") || prScanDue(kv, nowMs)) ? await rateLimitAware(kv, () => scanPullRequests(source, store, kv, nowIso)) : null;
-  return { issues, project, prs };
+  return { issues, project };
 }
 
 /**

@@ -103,18 +103,25 @@ describe("sidebar layout", () => {
   });
 
   it("puts saved sections first and appends sections added later", () => {
-    const out = resolveSidebar({ order: ["views", "tasks"], hidden: ["pulls"] });
-    expect(out.map((s) => s.id)).toEqual(["views", "tasks", "pulls", "projects", "labels", "workspace", "teams"]);
-    expect(out.filter((s) => s.hidden).map((s) => s.id)).toEqual(["pulls"]);
+    const out = resolveSidebar({ order: ["views", "tasks"], hidden: ["labels"] });
+    expect(out.map((s) => s.id)).toEqual(["views", "tasks", "projects", "labels", "workspace", "teams"]);
+    expect(out.filter((s) => s.hidden).map((s) => s.id)).toEqual(["labels"]);
+  });
+
+  it("drops a section that no longer exists, such as the pull requests one (D6)", () => {
+    const out = resolveSidebar({ order: ["pulls", "views"], hidden: ["pulls"] } as never);
+    expect(out.map((s) => s.id)).not.toContain("pulls");
+    expect(out.filter((s) => s.hidden)).toEqual([]);
   });
 
   it("drops duplicates and unknown ids from stored layouts", () => {
     const out = resolveSidebar({ order: ["teams", "teams", "gone" as never], hidden: [] });
-    expect(out.map((s) => s.id)).toEqual(["teams", "tasks", "pulls", "projects", "labels", "workspace", "views"]);
+    expect(out.map((s) => s.id)).toEqual(["teams", "tasks", "projects", "labels", "workspace", "views"]);
   });
 
   it("only accepts known section ids", () => {
-    expect(prefsSchema.safeParse({ sidebar: { order: ["tasks"], hidden: ["pulls"] } }).success).toBe(true);
+    expect(prefsSchema.safeParse({ sidebar: { order: ["tasks"], hidden: ["labels"] } }).success).toBe(true);
+    expect(prefsSchema.safeParse({ sidebar: { order: ["tasks"], hidden: ["pulls"] } }).success).toBe(false);
     expect(prefsSchema.safeParse({ sidebar: null }).success).toBe(true);
     expect(prefsSchema.safeParse({ sidebar: { order: ["nope"], hidden: [] } }).success).toBe(false);
   });

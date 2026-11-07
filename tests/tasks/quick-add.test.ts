@@ -162,10 +162,13 @@ describe("priority, labels, projects, links, assignee (§12.4 rows 4–8)", () =
     expect(r.title).toBe("Review and #999");
   });
 
-  it("pasted widgets URLs become links; other repos stay text", () => {
-    const r = p("Look at https://github.com/acme/widgets/pull/5678#discussion_r1 and https://github.com/other/repo/issues/101");
+  it("pasted widgets issue URLs become links; other repos and pull request URLs stay text (D6)", () => {
+    const r = p("Look at https://github.com/acme/widgets/issues/5678#issuecomment-1 and https://github.com/other/repo/issues/101");
     expect(r.links).toEqual([5678]);
     expect(r.title).toBe("Look at and https://github.com/other/repo/issues/101");
+    const pr = p("Review https://github.com/acme/widgets/pull/42");
+    expect(pr.links).toEqual([]);
+    expect(pr.title).toBe("Review https://github.com/acme/widgets/pull/42");
   });
 
   it("@login assigns a known user, once", () => {

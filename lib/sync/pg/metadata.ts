@@ -1,6 +1,6 @@
 // Batched writes for labels, users, milestones, issue types and project fields.
 import { and, eq, inArray, isNull, notInArray, sql } from "drizzle-orm";
-import { fieldOptions, ghUsers, issueAssignees, issueLabels, issueTypes, issues, iterations, labels, milestones, prAssignees, prLabels, projectFields, pullRequests } from "@/db/schema";
+import { fieldOptions, ghUsers, issueAssignees, issueLabels, issueTypes, issues, iterations, labels, milestones, projectFields } from "@/db/schema";
 import type { StoreStats } from "../import";
 import type { FullSnapshot, SnapshotField } from "../types";
 import { type Result, type Tx, changed, emptyStats, excludedSet, insertedFlag, lastByKey, tallyUpsert } from "./sql-helpers";
@@ -8,46 +8,31 @@ import { type Result, type Tx, changed, emptyStats, excludedSet, insertedFlag, l
 // --- metadata -------------------------------------------------------------
 
 /**
- * Point issue and PR references from one label/user ID to another. A
+ * Point issue references from one label/user ID to another. A
  * reference that would duplicate one already on the new ID is dropped first,
  * or the UPDATE would violate the primary key.
  */
 export async function rekey(tx: Tx, kind: "label" | "user" | "milestone", fromId: string, toId: string) {
   const targets =
     kind === "label"
-      ? [
-          { table: sql.raw("issue_labels"), owner: sql.raw("issue_id"), ref: sql.raw("label_id") },
-          { table: sql.raw("pr_labels"), owner: sql.raw("pr_id"), ref: sql.raw("label_id") },
-        ]
+      ? [{ table: sql.raw("issue_labels"), owner: sql.raw("issue_id"), ref: sql.raw("label_id") }]
       : kind === "user"
-        ? [
-            { table: sql.raw("issue_assignees"), owner: sql.raw("issue_id"), ref: sql.raw("gh_user_id") },
-            { table: sql.raw("pr_assignees"), owner: sql.raw("pr_id"), ref: sql.raw("gh_user_id") },
-          ]
-        : [
-            { table: sql.raw("issues"), owner: sql.raw("id"), ref: sql.raw("milestone_id") },
-            { table: sql.raw("pull_requests"), owner: sql.raw("id"), ref: sql.raw("milestone_id") },
-          ];
+        ? [{ table: sql.raw("issue_assignees"), owner: sql.raw("issue_id"), ref: sql.raw("gh_user_id") }]
+        : [{ table: sql.raw("issues"), owner: sql.raw("id"), ref: sql.raw("milestone_id") }];
   for (const { table, owner, ref } of targets) {
     await tx.execute(sql`DELETE FROM ${table} a WHERE a.${ref} = ${fromId} AND EXISTS (SELECT 1 FROM ${table} b WHERE b.${owner} = a.${owner} AND b.${ref} = ${toId})`);
     await tx.execute(sql`UPDATE ${table} SET ${ref} = ${toId} WHERE ${ref} = ${fromId}`);
   }
 }
 
-/** IDs among `candidates` that issue or PR rows still reference. */
+/** IDs among `candidates` that issue rows still reference. */
 export async function referenced(tx: Tx, kind: "label" | "user", candidates: string[]): Promise<Set<string>> {
   if (!candidates.length) return new Set();
-  const [a, b] =
+  const rows =
     kind === "label"
-      ? await Promise.all([
-          tx.selectDistinct({ id: issueLabels.labelId }).from(issueLabels).where(inArray(issueLabels.labelId, candidates)),
-          tx.selectDistinct({ id: prLabels.labelId }).from(prLabels).where(inArray(prLabels.labelId, candidates)),
-        ])
-      : await Promise.all([
-          tx.selectDistinct({ id: issueAssignees.ghUserId }).from(issueAssignees).where(inArray(issueAssignees.ghUserId, candidates)),
-          tx.selectDistinct({ id: prAssignees.ghUserId }).from(prAssignees).where(inArray(prAssignees.ghUserId, candidates)),
-        ]);
-  return new Set([...a, ...b].map((r) => r.id));
+      ? await tx.selectDistinct({ id: issueLabels.labelId }).from(issueLabels).where(inArray(issueLabels.labelId, candidates))
+      : await tx.selectDistinct({ id: issueAssignees.ghUserId }).from(issueAssignees).where(inArray(issueAssignees.ghUserId, candidates));
+  return new Set(rows.map((r) => r.id));
 }
 
 export async function upsertLabels(tx: Tx, rows: FullSnapshot["labels"]): Promise<StoreStats> {
@@ -156,14 +141,11 @@ export async function upsertIssueTypes(tx: Tx, rows: FullSnapshot["issueTypes"])
   return tallyUpsert(list.length, ret);
 }
 
-/** Milestone IDs among `candidates` that issue or PR rows still reference. */
+/** Milestone IDs among `candidates` that issue rows still reference. */
 export async function referencedMilestones(tx: Tx, candidates: string[]): Promise<Set<string>> {
   if (!candidates.length) return new Set();
-  const [a, b] = await Promise.all([
-    tx.selectDistinct({ id: issues.milestoneId }).from(issues).where(inArray(issues.milestoneId, candidates)),
-    tx.selectDistinct({ id: pullRequests.milestoneId }).from(pullRequests).where(inArray(pullRequests.milestoneId, candidates)),
-  ]);
-  return new Set([...a, ...b].map((r) => r.id).filter((id): id is string => id != null));
+  const rows = await tx.selectDistinct({ id: issues.milestoneId }).from(issues).where(inArray(issues.milestoneId, candidates));
+  return new Set(rows.map((r) => r.id).filter((id): id is string => id != null));
 }
 
 export async function upsertMilestones(tx: Tx, rows: FullSnapshot["milestones"]): Promise<StoreStats> {

@@ -15,7 +15,7 @@ describe("preloaded fetches (v5 3.9)", () => {
 
   it("starts every store's first request at once, and hands each response over once", async () => {
     preloadAppFetches();
-    expect(calls.sort()).toEqual(["/api/me/prefs", "/api/notifications", "/api/prs", "/api/tasks", "/api/triage/snoozes", "/api/watches"].sort());
+    expect(calls.sort()).toEqual(["/api/me/prefs", "/api/notifications", "/api/tasks", "/api/triage/snoozes", "/api/watches"].sort());
     const before = calls.length;
     const res = await fetchPreloaded("/api/tasks", { cache: "no-store" });
     expect(await res.json()).toEqual({ url: "/api/tasks" });
@@ -34,11 +34,11 @@ describe("preloaded fetches (v5 3.9)", () => {
   it("falls back to a normal request when the preload failed or went stale", async () => {
     vi.stubGlobal("fetch", vi.fn(async (url: string) => {
       calls.push(url);
-      if (calls.length <= 6) throw new Error("offline");
+      if (calls.length <= 5) throw new Error("offline");
       return new Response("{}");
     }));
     preloadAppFetches();
-    const res = await fetchPreloaded("/api/prs"); // the preload rejected
+    const res = await fetchPreloaded("/api/watches"); // the preload rejected
     expect(res.ok).toBe(true);
 
     __resetPreload();

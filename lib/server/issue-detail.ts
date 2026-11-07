@@ -194,15 +194,15 @@ function repoOf(url: string): string | undefined {
  * An item that left the read model (S6) is still served by number from the
  * cache, with a "no longer on GitHub" note when it was deleted or moved.
  */
-async function removedDetail(kind: "issue" | "pr", number: number, reason: string | null): Promise<IssueDetail | null> {
-  const row = await removedItem(kind, number);
+async function removedDetail(number: number, reason: string | null): Promise<IssueDetail | null> {
+  const row = await removedItem(number);
   if (!row) return null;
   return {
     number,
     body: row.body ?? "",
     bodyHtml: row.body ? sanitizeHtml(renderMarkdownLite(row.body)) : null,
     comments: [],
-    commentsError: removedNote(kind, row.reason) ?? reason,
+    commentsError: removedNote(row.reason) ?? reason,
     source: "cache",
   };
 }
@@ -210,8 +210,8 @@ async function removedDetail(kind: "issue" | "pr", number: number, reason: strin
 /** Body from the sync cache (read per item, S5), rendered locally (no comments). */
 export async function cachedDetail(store: ReadModel, number: number, reason: string | null): Promise<IssueDetail | null> {
   const issue = [...store.issues.values()].find((i) => i.number === number);
-  if (!issue) return removedDetail("issue", number, reason);
-  const body = await cachedBody("issue", issue.nodeId, issue.body);
+  if (!issue) return removedDetail(number, reason);
+  const body = await cachedBody(issue.nodeId, issue.body);
   return {
     number,
     body: body ?? "",
@@ -226,7 +226,7 @@ const DEMO_COMMENTS = [
   "Reproduced on the latest develop build. Looks related to the recent refactor of the account state.",
   "I can take this one. Should we wait for the design update first?",
   "Design is ready, see the **Figma** link in the parent epic.",
-  "PR is up, needs a review from someone on the team.",
+  "Fix is ready, needs a review from someone on the team.",
   "Tested on Windows and macOS, works fine now. Moving to QA.",
   "This also happens with two accounts, adding a note to the test plan.",
 ];
@@ -251,33 +251,6 @@ export async function demoDetail(store: ReadModel, number: number): Promise<Issu
       bodyHtml: renderMarkdownLite(text),
       url: `${issue.url}#issuecomment-${k}`,
     };
-  });
-  return { ...base, comments, source: "demo" };
-}
-
-/** PR body from the sync cache (read per item, S5), rendered locally (no comments). */
-export async function cachedPrDetail(store: ReadModel, number: number, reason: string | null): Promise<IssueDetail | null> {
-  const pr = [...store.pullRequests.values()].find((p) => p.number === number);
-  if (!pr) return removedDetail("pr", number, reason);
-  const body = await cachedBody("pr", pr.nodeId, pr.body);
-  return {
-    number,
-    body: body ?? "",
-    bodyHtml: body ? sanitizeHtml(renderMarkdownLite(body, repoOf(pr.url))) : null,
-    comments: [],
-    commentsError: reason,
-    source: "cache",
-  };
-}
-
-/** Deterministic fake PR thread for the demo dataset. */
-export async function demoPrDetail(store: ReadModel, number: number): Promise<IssueDetail | null> {
-  const base = await cachedPrDetail(store, number, null);
-  if (!base) return null;
-  const pr = [...store.pullRequests.values()].find((p) => p.number === number)!;
-  const comments: IssueComment[] = pr.reviews.map((r, k) => {
-    const text = r.state === "APPROVED" ? "Looks good, thanks!" : r.state === "CHANGES_REQUESTED" ? "A couple of things to fix before this can go in, see inline comments." : "Left a few questions.";
-    return { id: `${number}-r${k}`, author: r.author, avatarUrl: null, createdAt: r.submittedAt ?? pr.updatedAt, body: text, bodyHtml: renderMarkdownLite(text), url: `${pr.url}#review-${k}` };
   });
   return { ...base, comments, source: "demo" };
 }

@@ -39,25 +39,3 @@ describe("collectWatchChanges (F6)", () => {
     expect(got).toEqual({});
   });
 });
-
-describe("watchCoverage of a PR view (v5 4.6)", () => {
-  it("covers no issues: a PR view has no issue field changes, and its empty filters must not mean 'every issue'", async () => {
-    const { saveView } = await import("@/lib/views/runtime");
-    const { watchCoverage } = await import("@/lib/watch/changes");
-    const login = "pr-view-watcher";
-    await saveView(login, {
-      id: "pr-view-1",
-      name: "Merged PRs",
-      ownerId: login,
-      visibility: "personal",
-      layout: "list",
-      filters: [],
-      sort: [],
-      entity: "pr",
-      pr: { filters: [{ field: "state", values: ["merged"] }], sort: "updated", dir: "desc", groupBy: "", layout: "list" },
-    });
-    const w = { kind: "view" as const, targetId: "pr-view-1", userId: login, seenAt: new Date(0).toISOString(), createdAt: new Date(0).toISOString() };
-    const cover = await watchCoverage(login, [w as never]);
-    expect(cover.get("view:pr-view-1")).toEqual([]);
-  });
-});

@@ -20,7 +20,6 @@ import { UserMenu } from "./user-menu";
 import { inInbox, isDelegated, type SidebarSection } from "@/lib/tasks/model";
 import { ColorDot, ProjectDialog } from "../tasks/organize";
 import { NotificationBell, useToday } from "../tasks/notifications";
-import { usePrs } from "../prs/store";
 import { PALETTE_EVENT } from "./palette";
 import { useAppData, useAppSync, useAppViews } from "./provider";
 import { useConnection } from "./connection";
@@ -173,13 +172,6 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
     { href: "/tasks/delegated", label: "Delegated", icon: "users", count: taskCounts.delegated },
   ];
 
-  const { reviewQueue, myOpen } = usePrs();
-  const prNav: NavItem[] = [
-    { href: "/pulls/review", label: "Review requested", icon: "eye", count: reviewQueue.length },
-    { href: "/pulls/mine", label: "My open PRs", icon: "user", count: myOpen.length },
-    { href: "/pulls", label: "All pull requests", icon: "git", match: (p) => p === "/pulls" },
-  ];
-
   const current = meta.releases.find((r) => r.id === meta.currentReleaseId);
   const triage = useTriageCount();
   const { unseen: watchUnseen } = useWatchlist();
@@ -214,13 +206,6 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
         }
       >
         {taskNav.map((n) => (
-          <NavLink key={n.href} item={n} onNavigate={onNavigate} />
-        ))}
-      </Section>
-    ),
-    pulls: (
-      <Section key="pulls" title="Pull requests">
-        {prNav.map((n) => (
           <NavLink key={n.href} item={n} onNavigate={onNavigate} />
         ))}
       </Section>

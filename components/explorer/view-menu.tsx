@@ -52,8 +52,7 @@ export function ViewMenu({ view, mine, onRename, onDuplicate, onDelete, onToggle
 /**
  * The header controls of a saved view or of the filters that could become one:
  * Reset and Save while modified, the visibility mark, the watch star, and the
- * menu (rename, duplicate, share, delete with Undo). Shared by the issue and
- * the PR explorer (v5 4.6).
+ * menu (rename, duplicate, share, delete with Undo).
  */
 export function ViewActions({
   view,
@@ -98,13 +97,8 @@ export function ViewActions({
       <span title={view.visibility === "shared" ? "Shared view" : "Personal view"} className="text-faint">
         <Icon name={view.visibility === "shared" ? "users" : "lock"} size={14} />
       </span>
-      {/* Watching follows issue field changes; a PR view has none. */}
-      {view.entity !== "pr" && (
-        <>
-          <WatchStar kind="view" id={view.id} />
-          <SeenOnOpen kind="view" id={view.id} />
-        </>
-      )}
+      <WatchStar kind="view" id={view.id} />
+      <SeenOnOpen kind="view" id={view.id} />
       <ViewMenu
         view={view}
         mine={mine}

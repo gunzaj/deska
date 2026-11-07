@@ -12,8 +12,6 @@ import { MemoryStore } from "@/lib/sync/store-memory";
 const source = {
   checkChanges: vi.fn(async () => ({ kind: "not-modified" as const })),
   scanProjectItems: vi.fn(async () => ({ items: [], nextCursor: null, total: 0 })),
-  scanOpenPullRequests: vi.fn(async () => []),
-  teamMembers: vi.fn(async () => []),
 };
 
 describe("triggerSync outside the lock", () => {

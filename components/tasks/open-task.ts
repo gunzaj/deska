@@ -12,7 +12,6 @@ export function openTask(id: string) {
   const already = url.searchParams.has(TASK_PARAM);
   url.searchParams.set(TASK_PARAM, id);
   url.searchParams.delete("issue");
-  url.searchParams.delete("pr");
   if (already) window.history.replaceState(null, "", url);
   else window.history.pushState(null, "", url);
 }

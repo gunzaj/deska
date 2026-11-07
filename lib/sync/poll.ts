@@ -1,10 +1,10 @@
 // M3 incremental polling behind a SyncSource interface (SPEC §3).
 // Webhook handler can implement SyncSource later.
-import { partialSnapshot, type SnapshotIssue, type SnapshotProjectItem, type SnapshotPullRequest } from "./types";
+import { partialSnapshot, type SnapshotIssue, type SnapshotProjectItem } from "./types";
 import { importFull, type ImportStore, type MaybePromise } from "./import";
 
 export type ChangeCheck =
-  | { kind: "changed"; issues: SnapshotIssue[]; items: SnapshotProjectItem[]; pullRequests?: SnapshotPullRequest[]; etag: string; since: string }
+  | { kind: "changed"; issues: SnapshotIssue[]; items: SnapshotProjectItem[]; etag: string; since: string }
   | { kind: "not-modified" }
   | { kind: "rate-limited"; retryAfterMs: number };
 
@@ -61,7 +61,7 @@ export async function pollOnce(
     kv.set("sync.rateLimitedUntil", String(Date.now() + checked.retryAfterMs));
     return { applied: false, reason: "rate-limited" };
   }
-  const snapshot = partialSnapshot({ issues: checked.issues, projectItems: checked.items, pullRequests: checked.pullRequests ?? [] });
+  const snapshot = partialSnapshot({ issues: checked.issues, projectItems: checked.items });
   const stats = await importFull(snapshot, store);
   kv.set("issues.since", checked.since || nowIso);
   kv.set("issues.etag", checked.etag);

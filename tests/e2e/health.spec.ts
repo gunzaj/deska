@@ -8,24 +8,6 @@ async function as(browser: Browser, login = "alice") {
   return { context, page: await context.newPage() };
 }
 
-test("a failed PR load shows the error and Retry; Retry loads the list", async ({ browser }) => {
-  const { context, page } = await as(browser);
-  // Fail every load until Retry: React's dev mode runs the first load twice.
-  let fail = true;
-  await page.route("**/api/prs", async (route) => {
-    if (fail) return route.fulfill({ status: 500, contentType: "application/json", body: JSON.stringify({ error: "boom" }) });
-    return route.fallback();
-  });
-  await page.goto("/pulls");
-  await expect(page.getByText("Couldn't load pull requests")).toBeVisible({ timeout: 20_000 });
-  await expect(page.getByText("Loading…")).toHaveCount(0);
-  fail = false;
-  await page.getByRole("button", { name: "Retry" }).click();
-  await expect(page.getByRole("option").filter({ hasText: "Fix crash" })).toBeVisible();
-  await expect(page.getByText("Couldn't load pull requests")).toHaveCount(0);
-  await context.close();
-});
-
 test("a 401 from /api/data shows the disconnected banner", async ({ browser }) => {
   const { context, page } = await as(browser);
   await page.route("**/api/data", (route) => route.fulfill({ status: 401, contentType: "application/json", body: JSON.stringify({ error: "unauthenticated" }) }));

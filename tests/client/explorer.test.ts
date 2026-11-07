@@ -56,11 +56,6 @@ describe("client data", () => {
       expect(issue.authorLogin.endsWith("-demo")).toBe(true);
     }
     for (const user of snap.ghUsers) expect(user.login.endsWith("-demo")).toBe(true);
-    for (const pr of snap.pullRequests ?? []) {
-      expect(pr.url.startsWith(`https://github.com/${DEMO_REPO}/pull/`)).toBe(true);
-      expect(pr.authorLogin.endsWith("-demo")).toBe(true);
-      expect(pr.reviewRequests.some((r) => r.reviewer === "alice")).toBe(false);
-    }
     const store = new MemoryStore();
     await importFull(snap, store);
     const data = hydrate(buildClientData(store, { viewer: "alice", writeMode: false, demo: true, now: NOW }));

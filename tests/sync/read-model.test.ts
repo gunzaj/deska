@@ -13,8 +13,6 @@ const plain = (s: MemoryStore) => ({
   ghUsers: [...s.ghUsers],
   issues: [...s.issues],
   projectItems: [...s.projectItems],
-  pullRequests: [...s.pullRequests],
-  teams: [...s.teams],
 });
 
 describe("MemoryStore.loadSnapshot", () => {
@@ -44,7 +42,7 @@ describe("MemoryStore.loadSnapshot", () => {
     await importFull(fixtureSnapshot(), store);
     const item = [...store.projectItems.values()].find((p) => p.issueNodeId === "I_epic")!;
     // The item ID now belongs to another issue: the old issue has no item left, so its fields read as cleared.
-    await importFull({ ...fixtureSnapshot(), issues: [], projectItems: [{ ...item, issueNodeId: "I_bug", statusOpt: "a0000006" }], pullRequests: [] }, store);
+    await importFull({ ...fixtureSnapshot(), issues: [], projectItems: [{ ...item, issueNodeId: "I_bug", statusOpt: "a0000006" }] }, store);
     const moved = store.fieldChanges.filter((c) => c.issueNodeId === "I_bug" && c.field === "status");
     expect(moved.at(-1)).toMatchObject({ newValue: "a0000006" });
   });
@@ -69,7 +67,7 @@ describe("indexes on the read model (v5 3.8)", () => {
     const store = new MemoryStore();
     await importFull(fixtureSnapshot(), store);
     const bug = fixtureSnapshot().issues.find((i) => i.nodeId === "I_bug")!;
-    await importFull({ ...fixtureSnapshot(), issues: [{ ...bug, number: 777 }], projectItems: [], pullRequests: [] }, store);
+    await importFull({ ...fixtureSnapshot(), issues: [{ ...bug, number: 777 }], projectItems: [] }, store);
     expect(store.issueByNumber(777)?.nodeId).toBe("I_bug");
     expect(store.issueByNumber(102)).toBeUndefined();
   });

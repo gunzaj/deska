@@ -1,5 +1,5 @@
 // Start the app's independent requests together (v5 3.9). The shell waits for
-// the issue payload before it mounts the task, PR, watch, snooze and
+// the issue payload before it mounts the task, watch, snooze and
 // notification stores, and each of those then began its own request: the page
 // waited for them one after the other. These are started when the provider
 // mounts, alongside the issue payload, and each store takes its response when
@@ -10,7 +10,6 @@ type Warm = { url: string; init?: RequestInit };
 /** The first load of each store, with the options the store uses (same URL, same cache mode). */
 const WARM: Warm[] = [
   { url: "/api/tasks", init: { cache: "no-store" } },
-  { url: "/api/prs" },
   { url: "/api/notifications", init: { cache: "no-store" } },
   { url: "/api/me/prefs", init: { cache: "no-store" } },
   { url: "/api/triage/snoozes", init: { cache: "no-store" } },

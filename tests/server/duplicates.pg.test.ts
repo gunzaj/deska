@@ -32,7 +32,7 @@ const extra = (n: number, title: string, over: Partial<SnapshotIssue> = {}): Sna
 describe("possible duplicates (Postgres, pg_trgm)", () => {
   beforeAll(async () => {
     await getDb().execute(
-      sql`TRUNCATE issues, issue_labels, issue_assignees, project_items, project_scan_seen, field_options, iterations, project_fields, labels, milestones, gh_users, issue_types, sync_state, pull_requests, pr_labels, pr_assignees, pr_review_requests, pr_reviews, pr_issue_links, gh_team_members RESTART IDENTITY CASCADE`,
+      sql`TRUNCATE issues, issue_labels, issue_assignees, project_items, project_scan_seen, field_options, iterations, project_fields, labels, milestones, gh_users, issue_types, sync_state RESTART IDENTITY CASCADE`,
     );
     const snapshot = demoSnapshot();
     const closedRecently = new Date(Date.now() - 5 * 86_400_000).toISOString();
