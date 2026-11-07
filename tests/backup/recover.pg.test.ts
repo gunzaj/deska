@@ -2,7 +2,7 @@
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { afterAll, describe, expect, it } from "vitest";
+import { afterAll, describe, expect, it, vi } from "vitest";
 import { sql } from "drizzle-orm";
 import { closeDb, getDb } from "@/db";
 import { listBackups, writeBackup } from "@/lib/backup/files";
@@ -25,6 +25,9 @@ async function useDisk(name: string) {
   mkdirSync(process.env.DESKA_DB_DIR, { recursive: true }); // the desktop shell creates it
   process.env.DESKA_BACKUP_DIR = path.join(root, name, "backups");
 }
+
+// Each test opens several on-disk databases (WASM start-up): slow on a CI runner.
+vi.setConfig({ testTimeout: 60_000 });
 
 describe("recovery", () => {
   it("a corrupted database is reported, restored from the latest backup, and kept aside", async () => {
