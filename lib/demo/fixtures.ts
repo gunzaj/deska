@@ -2,6 +2,7 @@
 // org project (SPEC §0.2). Every ID here is made up; tests/repo/node-ids.test.ts
 // keeps real GitHub node IDs out of the repo. Used by the explicit demo store
 // (DEMO_DATASET=fixtures) and tests.
+import { withSubSummaries } from "./summaries";
 import type { FullSnapshot, SnapshotProjectItem } from "@/lib/sync/types";
 
 /**
@@ -97,7 +98,7 @@ export function fixtureSnapshot(now = new Date()): FullSnapshot {
       { githubId: "U_1", login: "alice", avatarUrl: null },
       { githubId: "U_2", login: "bob", avatarUrl: null },
     ],
-    issues: [
+    issues: withSubSummaries([
       {
         nodeId: "I_epic",
         number: 100,
@@ -172,7 +173,7 @@ export function fixtureSnapshot(now = new Date()): FullSnapshot {
         // The REST change check lists pull requests among issues; sync skips them (D6).
         isPullRequest: true,
       },
-    ],
+    ]),
     projectItems: [
       projectItem({ itemId: "PVTI_1", issueNodeId: "I_epic", statusOpt: "a0000001", priorityOpt: "b0000003", releaseIter: "e0000023" }, FIELDS, { [TEAM]: "c0000001" }),
       projectItem({ itemId: "PVTI_2", issueNodeId: "I_sub", statusOpt: "a0000002", priorityOpt: "b0000002", releaseIter: null }, FIELDS, { [TEAM]: "c0000001" }),

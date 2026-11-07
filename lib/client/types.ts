@@ -18,9 +18,6 @@ export type ClientIssue = ViewRow & {
   authorLogin: string;
   closedAt: string | null;
   stateReason: string | null;
-  /** Sub-issue counts (only those in the cache). */
-  subTotal: number;
-  subClosed: number;
 };
 
 /** The single-select roles (§4.1). Dimensions are keyed `dim:<fieldId>`. */
@@ -102,6 +99,7 @@ export type WireIssue = {
   lb?: string[];
   as?: string[]; // logins
   pa?: string; // parent node ID
+  sc?: [number, number]; // GitHub's sub-issue counts: total, completed (absent = not read yet)
   au: string;
   c: string;
   u: string;

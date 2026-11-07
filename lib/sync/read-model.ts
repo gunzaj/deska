@@ -16,6 +16,9 @@ export type IssueRow = {
   typeId: string | null;
   milestoneId: string | null;
   parentNodeId: string | null;
+  /** GitHub's sub-issue counts (§4.4); both null until the summary has been read. */
+  subTotal: number | null;
+  subCompleted: number | null;
   authorLogin: string;
   url: string;
   createdAt: string;
@@ -101,6 +104,8 @@ export class ReadModel {
         typeId: i.typeId ?? null,
         milestoneId: i.milestoneId,
         parentNodeId: i.parentNodeId ?? null,
+        subTotal: i.subTotal ?? null,
+        subCompleted: i.subCompleted ?? null,
         authorLogin: i.authorLogin,
         url: i.url,
         createdAt: i.createdAt,

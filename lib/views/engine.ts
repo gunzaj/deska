@@ -1,5 +1,6 @@
 import { dimFieldId, isDimKey } from "../sync/field-map";
 import type { ReadModel } from "../sync/read-model";
+import { progressKey } from "../client/progress";
 import { resolveRelease, type ViewRow } from "./rows";
 import type { Filter, View } from "./view";
 
@@ -197,6 +198,8 @@ function sortKey(row: ViewRow, field: string): string | number | null {
       return row.assignees.length ? row.assignees.join(", ") : null;
     case "parent":
       return row.parentNumber;
+    case "progress":
+      return progressKey(row);
     case "updated":
       return row.updatedAt;
     case "created":

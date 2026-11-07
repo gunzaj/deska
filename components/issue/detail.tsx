@@ -1,5 +1,6 @@
 "use client";
 
+import { SubIssues } from "./sub-issues";
 import Link from "next/link";
 import { EDITING_OFF } from "@/lib/client/edit";
 import { useEffect, useState, type ReactNode } from "react";
@@ -196,43 +197,6 @@ function IssueActions({ issue }: { issue: ClientIssue }) {
         {issue.state === "open" ? "Close issue" : "Reopen issue"}
       </button>
     </div>
-  );
-}
-
-function SubIssues({ issue }: { issue: ClientIssue }) {
-  const { data } = useAppData();
-  const open = useOpenIssue();
-  const c = useCells();
-  const subs = data.issues
-    .filter((i) => i.parentNodeId === issue.nodeId)
-    .sort((a, b) => (a.state === b.state ? (b.priorityRank ?? -1) - (a.priorityRank ?? -1) : a.state === "open" ? -1 : 1));
-  if (!subs.length) return null;
-  const pct = Math.round((issue.subClosed / Math.max(1, issue.subTotal)) * 100);
-  return (
-    <section>
-      <h3 className="mb-2 flex items-center gap-2 text-[12.5px] font-semibold text-muted">
-        Sub-issues
-        <span className="font-normal tabular-nums text-faint">
-          {issue.subClosed}/{issue.subTotal}
-        </span>
-        <span className="h-1.5 w-20 overflow-hidden rounded-full bg-active">
-          <span className="block h-full rounded-full bg-brand-border" style={{ width: `${pct}%` }} />
-        </span>
-      </h3>
-      <ul className="overflow-hidden rounded-lg border border-line">
-        {subs.map((s) => (
-          <li key={s.nodeId}>
-            <button type="button" onClick={() => open(s.number)} className="flex h-9 w-full items-center gap-2.5 border-b border-line-soft px-3 text-left last:border-b-0 hover:bg-hover">
-              {c.priority(s)}
-              {c.status(s)}
-              <span className="w-14 shrink-0">{c.id(s)}</span>
-              <span className={`min-w-0 flex-1 truncate ${s.state === "closed" ? "text-muted line-through decoration-faint" : ""}`}>{s.title}</span>
-              {c.assignee(s)}
-            </button>
-          </li>
-        ))}
-      </ul>
-    </section>
   );
 }
 

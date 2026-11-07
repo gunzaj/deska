@@ -80,6 +80,7 @@ export function buildClientData(
     if (i.labelIds.length) w.lb = [...i.labelIds];
     if (assignees.length) w.as = assignees;
     if (i.parentNodeId) w.pa = i.parentNodeId;
+    if (i.subTotal != null && i.subCompleted != null) w.sc = [i.subTotal, i.subCompleted];
     if (i.closedAt) w.cl = i.closedAt;
     // The browser rebuilds the common case. A link GitHub stored in another
     // repository (or a sample row) has to travel with the row, or the GitHub

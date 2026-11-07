@@ -397,6 +397,8 @@ export async function readSnapshot(): Promise<FullSnapshot> {
         typeId: i.issueTypeId,
         milestoneId: i.milestoneId,
         parentNodeId: i.parentNodeId ?? null,
+        subTotal: i.subSummaryAt ? i.subTotal : null,
+        subCompleted: i.subSummaryAt ? i.subCompleted : null,
         authorLogin: i.authorLogin ?? "unknown",
         url: i.url ?? "",
         createdAt: i.createdAt?.toISOString() ?? i.updatedAt?.toISOString() ?? new Date(0).toISOString(),

@@ -36,6 +36,13 @@
       "when": 1794031397366,
       "tag": "0004_d7_single_user",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1794035860123,
+      "tag": "0005_d9_sub_issue_progress",
+      "breakpoints": true
     }
   ]
 }

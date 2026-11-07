@@ -173,3 +173,26 @@ describe("sorting regression (fields that used to be ignored)", () => {
     }
   });
 });
+
+describe("parent progress in views (§4.4)", () => {
+  it("rows carry GitHub's counts, and filtering to one child leaves the parent's counts alone", async () => {
+    const { store, rows } = await setup();
+    const epic = rows.find((r) => r.number === 100)!;
+    expect([epic.subTotal, epic.subCompleted, epic.hasSubIssues]).toEqual([1, 0, true]);
+    const ctx = { viewerLogin: "alice", store, todayIso: TODAY };
+    const only = runView({ id: "t", name: "t", layout: "list", filters: [{ field: "parent", op: "in", values: ["I_epic"] }], sort: [] }, ctx, rows);
+    expect(only.map((r) => r.number)).toEqual([101]);
+    // The parent is built from the store, not from the filtered list.
+    expect(buildViewRows(store, "I_epic")[0]).toMatchObject({ subTotal: 1, subCompleted: 0 });
+  });
+
+  it("sorts by progress with children without counts last", async () => {
+    const { store, rows } = await setup();
+    const ctx = { viewerLogin: "alice", store, todayIso: TODAY };
+    const a = { ...rows[0]!, number: 1, subTotal: 4, subCompleted: 3, hasSubIssues: true };
+    const b = { ...rows[0]!, number: 2, subTotal: 4, subCompleted: 1, hasSubIssues: true };
+    const c = { ...rows[0]!, number: 3, subTotal: null, subCompleted: null, hasSubIssues: false };
+    const out = runView({ id: "t", name: "t", layout: "list", filters: [], sort: [{ field: "progress", dir: "desc" }] }, ctx, [c, b, a]);
+    expect(out.map((r) => r.number)).toEqual([1, 2, 3]);
+  });
+});

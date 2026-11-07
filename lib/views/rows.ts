@@ -33,6 +33,9 @@ export type ViewRow = {
   parentNumber: number | null;
   parentTitle: string | null;
   hasSubIssues: boolean;
+  /** GitHub's sub-issue counts (§4.4); null until read. */
+  subTotal: number | null;
+  subCompleted: number | null;
   createdAt: string;
   updatedAt: string;
   closedAt: string | null;
@@ -96,7 +99,9 @@ export function buildViewRows(store: ReadModel, onlyNodeId?: string): ViewRow[] 
       parentNodeId: i.parentNodeId,
       parentNumber: parent?.number ?? null,
       parentTitle: parent?.title ?? null,
-      hasSubIssues: children.has(i.nodeId),
+      hasSubIssues: i.subTotal != null ? i.subTotal > 0 : children.has(i.nodeId),
+      subTotal: i.subTotal,
+      subCompleted: i.subCompleted,
       createdAt: i.createdAt,
       updatedAt: i.updatedAt,
       closedAt: i.closedAt,

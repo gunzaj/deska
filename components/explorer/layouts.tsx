@@ -283,14 +283,14 @@ export function ListLayout({
 type FixedProp = Exclude<DisplayProp, DimKey>;
 const COL_W: Record<FixedProp, number> = {
   id: 76, status: 150, priority: 110, release: 96, type: 96, labels: 200,
-  parent: 190, subissues: 90, milestone: 110, assignee: 150, created: 84, updated: 84,
+  parent: 190, subissues: 120, milestone: 110, assignee: 150, created: 84, updated: 84,
 };
 const SORTABLE: Partial<Record<FixedProp, string>> = {
-  id: "number", status: "status", priority: "priority", release: "release", created: "created", updated: "updated",
+  id: "number", status: "status", priority: "priority", release: "release", created: "created", updated: "updated", subissues: "progress",
 };
 const LABEL: Record<FixedProp, string> = {
   id: "ID", status: "Status", priority: "Priority", release: "Release", type: "Type", labels: "Labels",
-  parent: "Epic", subissues: "Sub-issues", milestone: "Milestone", assignee: "Assignee", created: "Created", updated: "Updated",
+  parent: "Epic", subissues: "Progress", milestone: "Milestone", assignee: "Assignee", created: "Created", updated: "Updated",
 };
 /** Dimension columns (`dim:<fieldId>`) are as wide as a team column was, and sort by themselves. */
 const colWidth = (p: DisplayProp) => (isDimKey(p) ? 170 : COL_W[p]);

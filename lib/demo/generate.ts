@@ -3,6 +3,7 @@
 // project (SPEC §0.2): every ID, name, login and issue here is made up.
 // Links point at a sample repo, so a demo row never opens a live issue.
 // Never used when DESKA_DB_DIR is set (see lib/store.ts).
+import { withSubSummaries } from "./summaries";
 import type { FullSnapshot, SnapshotIssue, SnapshotProjectItem } from "@/lib/sync/types";
 import { fixtureSnapshot, projectItem } from "./fixtures";
 
@@ -352,7 +353,7 @@ export function demoSnapshot(now = new Date()): FullSnapshot {
     labels: LABELS,
     milestones: [],
     ghUsers: USERS,
-    issues,
+    issues: withSubSummaries(issues),
     projectItems: items,
   };
   cache = { key, snapshot };

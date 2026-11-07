@@ -250,6 +250,8 @@ export class MemoryStore extends ReadModel implements ImportStore, IdResolver {
       milestoneId: i.milestoneId,
       parentNodeId:
         i.parentNodeId === undefined ? (prev?.parentNodeId ?? null) : i.parentNodeId,
+      subTotal: i.subTotal === undefined ? (prev?.subTotal ?? null) : i.subTotal,
+      subCompleted: i.subCompleted === undefined ? (prev?.subCompleted ?? null) : i.subCompleted,
       authorLogin: i.authorLogin,
       url: i.url,
       createdAt: i.createdAt,
