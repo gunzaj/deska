@@ -9,7 +9,7 @@ const e2eEnv = {
   E2E_BYPASS_ACK: "i-understand",
 };
 
-// A second project runs the smoke and task specs against the database path:
+// A second project runs the smoke, task and local-data specs against the database path:
 // PGlite → getStore → the APIs (S11). Its server keeps an in-memory database
 // that it migrates and seeds with the fixtures when it starts
 // (instrumentation-node.ts), so every run starts from the same data.
@@ -26,10 +26,11 @@ export default defineConfig({
   reporter: process.env.CI ? [["github"], ["html", { open: "never" }]] : "list",
   use: { trace: "on-first-retry" },
   projects: [
-    { name: "mocks", use: { baseURL: "http://localhost:3100" } },
+    // local-data needs a database: it runs in e2e-db only.
+    { name: "mocks", testIgnore: /local-data\.spec\.ts/, use: { baseURL: "http://localhost:3100" } },
     {
       name: "e2e-db",
-      testMatch: /(smoke|tasks)\.spec\.ts/,
+      testMatch: /(smoke|tasks|local-data)\.spec\.ts/,
       use: { baseURL: `http://localhost:${DB_PORT}` },
     },
   ],

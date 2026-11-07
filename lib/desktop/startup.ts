@@ -1,0 +1,44 @@
+// What the desktop server does once it is up (instrumentation-node.ts, and
+// again after a database recovery): open the database, then run the sync and
+// the daily backup check.
+import { prepareDatabase } from "../db-bootstrap";
+import { backupDir, backupIfDue } from "../backup/files";
+import { setDbState } from "../backup/recover";
+import { syncService } from "../sync/service";
+
+const CHECK_EVERY_MS = 60 * 60 * 1000;
+const SCHEDULE = Symbol.for("deska.backupSchedule");
+
+/** Opens (and migrates) the database and records whether that worked. */
+export async function openDatabase(): Promise<boolean> {
+  try {
+    const { seeded } = await prepareDatabase();
+    if (seeded) console.log("deska: seeded the sample dataset into an empty database");
+    setDbState(true);
+    return true;
+  } catch (e) {
+    // Drizzle wraps the real reason ("PGlite failed to initialize...") as the cause.
+    const cause = e instanceof Error && e.cause instanceof Error ? e.cause.message : null;
+    const message = cause ?? (e instanceof Error ? e.message : String(e));
+    console.error(`deska: could not prepare the database: ${message}`);
+    setDbState(false, message);
+    return false;
+  }
+}
+
+/** A backup now if the newest is a day old, then again whenever the hour check finds it so. */
+function startBackupSchedule(): void {
+  const g = globalThis as Record<symbol, unknown>;
+  if (!backupDir() || g[SCHEDULE]) return;
+  const check = () => backupIfDue().catch((e: unknown) => console.error(`deska: the daily backup failed: ${e instanceof Error ? e.message : String(e)}`));
+  void check();
+  const timer = setInterval(() => void check(), CHECK_EVERY_MS);
+  timer.unref?.();
+  g[SCHEDULE] = timer;
+}
+
+/** The sync loop (D5) and the backup schedule (D8); both need an open database. */
+export function startDesktopServices(): void {
+  startBackupSchedule();
+  syncService().start();
+}

@@ -224,6 +224,11 @@ export async function restoreView(id: string): Promise<View | null> {
 
 export { newViewId };
 
+/** After "Reset everything" cleared the seeding flag: seed views come back on the next read. */
+export function resetViewSeedingFlag(): void {
+  seeded = false;
+}
+
 /**
  * Test helper: reset the in-memory view store. `restart` keeps the stored
  * views and seed flag, forgetting only per-process state, like a cold start.

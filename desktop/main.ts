@@ -81,6 +81,8 @@ function startServerProcess(port: number, secret: string): Server {
     secret,
     dbDir,
     env: {
+      // Daily, pre-migration and pre-reset backups of the local data (D8).
+      DESKA_BACKUP_DIR: path.join(userData, DEV ? "backups-dev" : "backups"),
       // Tests and dev may fill an empty database with a fictional sample
       // dataset (under a "Sample data" banner, and never synced). The app
       // itself imports from GitHub after onboarding (D5).
@@ -135,6 +137,66 @@ async function waitForServer(origin: string, secret: string, timeoutMs: number):
     if (ok) return;
     if (Date.now() > deadline) throw new Error("the local server did not start");
     await new Promise((r) => setTimeout(r, 200));
+  }
+}
+
+// --- local data safety (SPEC §4.7) ----------------------------------------
+
+type DbStatus = { database: { ok: boolean; error: string | null }; backups: { items: { name: string; createdAt: string }[] } };
+
+/** A call to the local server's own API, with the launch secret (main is the one client that has it). */
+function localApi<T>(origin: string, secret: string, method: "GET" | "POST", pathname: string, body?: unknown): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const payload = body === undefined ? undefined : JSON.stringify(body);
+    const req = http.request(
+      new URL(pathname, origin),
+      { method, headers: { cookie: `${LAUNCH_COOKIE}=${secret}`, ...(payload ? { "content-type": "application/json", "content-length": Buffer.byteLength(payload) } : {}) }, timeout: 120_000 },
+      (res) => {
+        const chunks: Buffer[] = [];
+        res.on("data", (c: Buffer) => chunks.push(c));
+        res.on("end", () => {
+          let parsed: unknown = null;
+          try {
+            parsed = JSON.parse(Buffer.concat(chunks).toString("utf8"));
+          } catch {
+            /* not JSON */
+          }
+          if ((res.statusCode ?? 500) >= 400) reject(new Error((parsed as { error?: string } | null)?.error ?? `request failed (${res.statusCode})`));
+          else resolve(parsed as T);
+        });
+      },
+    );
+    req.on("error", reject);
+    req.on("timeout", () => req.destroy(new Error("timed out")));
+    req.end(payload);
+  });
+}
+
+/**
+ * When the database would not open, ask before any window shows: restore the
+ * latest backup, start empty, or quit. The damaged folder is kept, not deleted.
+ */
+async function offerRecovery(origin: string, secret: string): Promise<void> {
+  const status = await localApi<DbStatus>(origin, secret, "GET", "/api/local-data/status");
+  if (status.database.ok) return;
+  const latest = status.backups.items[0];
+  const buttons = latest ? ["Restore from latest backup", "Start empty", "Quit"] : ["Start empty", "Quit"];
+  const detail = [
+    status.database.error ? `Error: ${status.database.error}` : "",
+    latest ? `The latest backup is from ${new Date(latest.createdAt).toLocaleString()}.` : "There is no backup to restore.",
+    "The damaged database is kept next to the new one; nothing is deleted.",
+  ]
+    .filter(Boolean)
+    .join("\n\n");
+  const { response } = await dialog.showMessageBox({ type: "error", title: "Deska", message: "Deska could not open its database.", detail, buttons, defaultId: 0, cancelId: buttons.length - 1, noLink: true });
+  const choice = buttons[response];
+  if (choice === "Quit") {
+    app.exit(0);
+    return;
+  }
+  const result = await localApi<{ restored: string | null }>(origin, secret, "POST", "/api/local-data/recover", { mode: choice === "Start empty" ? "fresh" : "restore" });
+  if (choice !== "Start empty" && !result.restored) {
+    await dialog.showMessageBox({ type: "warning", title: "Deska", message: "No backup could be restored.", detail: "Deska started with an empty database. The damaged one was kept." });
   }
 }
 
@@ -296,6 +358,7 @@ async function boot() {
   await ses.cookies.set({ url: s.origin, name: LAUNCH_COOKIE, value: secret, httpOnly: true, sameSite: "strict", secure: false });
 
   await waitForServer(s.origin, secret, DEV ? 180_000 : 60_000);
+  await offerRecovery(s.origin, secret);
   createWindow(s.origin);
 }
 
