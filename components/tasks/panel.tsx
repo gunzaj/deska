@@ -14,6 +14,7 @@ import { AddLinkButton, LinkChip } from "./links";
 import { RemindersEditor, RepeatPicker } from "./schedule";
 import { useToday } from "./notifications";
 import { LabelPicker, ProjectPicker } from "./organize";
+import { SectionPicker } from "./sections";
 import { closeTask, openTask, TASK_PARAM } from "./open-task";
 import { useTasks } from "./store";
 import { usePanelFocus } from "../app/panel-focus";
@@ -146,7 +147,7 @@ function TaskBody({
   const [editingDesc, setEditingDesc] = useState(false);
   const [desc, setDesc] = useState(task.description);
   const [confirmDelete, setConfirmDelete] = useState(false);
-  const { tasks, labels, toggleComplete } = useTasks();
+  const { tasks, labels, sections, toggleComplete } = useTasks();
   const { today, now, tz } = useToday();
   const parent = task.parentId ? tasks.find((t) => t.id === task.parentId) : null;
   const myLabels = task.labels.map((id) => labels.find((l) => l.id === id)?.name).filter((n): n is string => Boolean(n));
@@ -308,6 +309,11 @@ function TaskBody({
             <Prop label="Project">
               <ProjectPicker value={task.projectId} onChange={(id) => void update(task.id, { projectId: id })} />
             </Prop>
+            {task.projectId && !task.parentId && sections.some((s) => s.projectId === task.projectId) && (
+              <Prop label="Section">
+                <SectionPicker projectId={task.projectId} value={task.sectionId} onChange={(id) => void update(task.id, { sectionId: id })} />
+              </Prop>
+            )}
             <Prop label="Labels">
               <LabelPicker value={myLabels} onChange={(names) => void update(task.id, { labels: names })} />
             </Prop>

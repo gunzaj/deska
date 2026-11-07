@@ -166,6 +166,7 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
     { href: "/tasks", label: "Inbox", icon: "inbox", count: taskCounts.inbox, match: (p) => p === "/tasks", drop: { kind: "inbox" } },
     { href: "/tasks/today", label: "Today", icon: "star", count: taskCounts.due, drop: { kind: "today" } },
     { href: "/tasks/upcoming", label: "Upcoming", icon: "calendar", drop: { kind: "upcoming" } },
+    { href: "/tasks/completed", label: "Completed", icon: "circleCheck" },
   ];
 
   const current = meta.releases.find((r) => r.id === meta.currentReleaseId);

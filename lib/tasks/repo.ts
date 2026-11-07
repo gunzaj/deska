@@ -1,5 +1,5 @@
 import { AsyncLocalStorage } from "node:async_hooks";
-import { and, asc, count, desc, eq, gt, gte, inArray, isNotNull, isNull, lte, or, sql } from "drizzle-orm";
+import { and, asc, count, desc, eq, gt, gte, ilike, inArray, isNotNull, isNull, lte, or, sql } from "drizzle-orm";
 import { dbDir, getDb } from "@/db";
 import {
   notifications as notificationsTable,
@@ -11,10 +11,11 @@ import {
   taskPlacements,
   taskProjects,
   taskReminders,
+  taskSections,
   tasks as tasksTable,
   userPrefs,
 } from "@/db/schema";
-import type { AppNotification, TaskComment, Prefs, Priority, Reminder, TaskCore, TaskLabel, TaskLink, TaskProject } from "./model";
+import type { AppNotification, TaskComment, Prefs, Priority, Reminder, TaskCore, TaskLabel, TaskLink, TaskProject, TaskSection } from "./model";
 
 /**
  * The transaction `locked()` opened, if this call runs inside one (S9), else
@@ -38,6 +39,12 @@ export type StoredTask = TaskCore & { deletedAt: string | null };
 export type Placement = { projectId: string | null; position: number };
 export type StoredProject = TaskProject & { owner: string };
 export type StoredLabel = TaskLabel & { owner: string };
+export type StoredSection = TaskSection & { owner: string };
+/** A logged occurrence of a recurring task. */
+export type StoredCompletion = { taskId: string; dueDate: string | null; at: string };
+
+/** Most hits a task search returns. */
+export const SEARCH_LIMIT = 20;
 export type NewNotification = Omit<AppNotification, "id" | "createdAt" | "readAt"> & { login: string; dedupeKey: string };
 
 /** Completed tasks returned per list call; older ones stay in the DB. */
@@ -66,6 +73,24 @@ export interface TaskRepo {
   /** False when the owner already has a project with this name (case-insensitive). */
   insertProject(p: StoredProject): Promise<boolean>;
   updateProject(id: string, patch: Partial<StoredProject>): Promise<void>;
+
+  sections(login: string): Promise<StoredSection[]>;
+  insertSection(s: StoredSection): Promise<void>;
+  updateSection(id: string, patch: Partial<StoredSection>): Promise<void>;
+  /** Its tasks stay in the project, without a section. */
+  deleteSection(id: string): Promise<void>;
+  /** Highest position among a project's sections (0 when it has none). */
+  maxSectionPosition(login: string, projectId: string): Promise<number>;
+
+  /** Live tasks completed at or after `since`, newest first, at most `limit`. */
+  completedSince(since: string, limit: number): Promise<StoredTask[]>;
+  /** Logged occurrences of recurring tasks at or after `since`, for live tasks, newest first. */
+  completionsSince(since: string, limit: number): Promise<StoredCompletion[]>;
+  /**
+   * Live tasks where every word is in the title, the description or a live
+   * comment (case-insensitive), open ones first, then the most recently changed.
+   */
+  search(words: string[], limit: number): Promise<StoredTask[]>;
 
   labels(login: string): Promise<StoredLabel[]>;
   /** False when the owner already has a label with this name (case-insensitive). */
@@ -139,6 +164,7 @@ export class MemoryTaskRepo implements TaskRepo {
   place = new Map<string, Placement>(); // `${taskId}|${login}`
   projectMap = new Map<string, StoredProject>();
   labelMap = new Map<string, StoredLabel>();
+  sectionMap = new Map<string, StoredSection>();
   labelLinkSet = new Set<string>(); // `${taskId}|${labelId}`
   completions: { taskId: string; login: string; dueDate: string | null; at: string }[] = [];
   commentList: (TaskComment & { deleted: boolean; deletedAt?: string })[] = [];
@@ -212,6 +238,54 @@ export class MemoryTaskRepo implements TaskRepo {
   async updateProject(id: string, patch: Partial<StoredProject>) {
     const p = this.projectMap.get(id);
     if (p) this.projectMap.set(id, { ...p, ...patch });
+  }
+  async sections(login: string) {
+    return [...this.sectionMap.values()].filter((s) => s.owner === login).map((s) => ({ ...s }));
+  }
+  async insertSection(s: StoredSection) {
+    this.sectionMap.set(s.id, { ...s });
+  }
+  async updateSection(id: string, patch: Partial<StoredSection>) {
+    const s = this.sectionMap.get(id);
+    if (s) this.sectionMap.set(id, { ...s, ...patch });
+  }
+  async deleteSection(id: string) {
+    this.sectionMap.delete(id);
+    for (const [k, t] of this.map) if (t.sectionId === id) this.map.set(k, { ...t, sectionId: null });
+  }
+  async maxSectionPosition(login: string, projectId: string) {
+    let max = 0;
+    for (const s of this.sectionMap.values()) if (s.owner === login && s.projectId === projectId) max = Math.max(max, s.position);
+    return max;
+  }
+  async completedSince(since: string, limit: number) {
+    return [...this.map.values()]
+      .filter((t) => !t.deletedAt && t.completedAt != null && t.completedAt >= since)
+      .sort((a, b) => (b.completedAt ?? "").localeCompare(a.completedAt ?? ""))
+      .slice(0, limit)
+      .map(copy);
+  }
+  async completionsSince(since: string, limit: number) {
+    return this.completions
+      .filter((c) => c.at >= since && c.taskId != null && this.map.get(c.taskId) != null && !this.map.get(c.taskId)!.deletedAt)
+      // Same instant: the later due date is the later occurrence.
+      .sort((a, b) => b.at.localeCompare(a.at) || (b.dueDate ?? "").localeCompare(a.dueDate ?? ""))
+      .slice(0, limit)
+      .map((c) => ({ taskId: c.taskId, dueDate: c.dueDate, at: c.at }));
+  }
+  async search(words: string[], limit: number) {
+    const live = [...this.map.values()].filter((t) => !t.deletedAt);
+    const comments = new Map<string, string>();
+    for (const c of this.commentList) if (!c.deleted) comments.set(c.taskId, `${comments.get(c.taskId) ?? ""}\n${c.body}`);
+    const lower = words.map((w) => w.toLowerCase());
+    return live
+      .filter((t) => {
+        const hay = `${t.title}\n${t.description}\n${comments.get(t.id) ?? ""}`.toLowerCase();
+        return lower.every((w) => hay.includes(w));
+      })
+      .sort((a, b) => Number(Boolean(a.completedAt)) - Number(Boolean(b.completedAt)) || b.updatedAt.localeCompare(a.updatedAt))
+      .slice(0, limit)
+      .map(copy);
   }
   async labels(login: string) {
     return [...this.labelMap.values()].filter((l) => l.owner === login).map((l) => ({ ...l }));
@@ -342,6 +416,7 @@ function fromRow(r: Row, links: TaskLink[] = [], reminders: Reminder[] = []): St
     id: r.id,
     creator: r.creatorLogin,
     parentId: r.parentId,
+    sectionId: r.sectionId,
     title: r.title,
     description: r.description,
     priority: r.priority as Priority,
@@ -363,6 +438,7 @@ function toRow(p: Partial<StoredTask>): Partial<Row> {
   const out: Partial<Row> = {};
   if (p.creator !== undefined) out.creatorLogin = p.creator;
   if (p.parentId !== undefined) out.parentId = p.parentId;
+  if (p.sectionId !== undefined) out.sectionId = p.sectionId;
   if (p.title !== undefined) out.title = p.title;
   if (p.description !== undefined) out.description = p.description;
   if (p.priority !== undefined) out.priority = p.priority;
@@ -576,6 +652,68 @@ export class PostgresTaskRepo implements TaskRepo {
     if (patch.archived !== undefined) set.archivedAt = patch.archived ? new Date() : null;
     if (patch.source !== undefined) set.source = patch.source;
     if (Object.keys(set).length) await conn().update(taskProjects).set(set).where(eq(taskProjects.id, id));
+  }
+  async sections(login: string) {
+    const rows = await conn().select().from(taskSections).where(eq(taskSections.ownerLogin, login));
+    return rows.map((r) => ({ id: r.id, owner: r.ownerLogin, projectId: r.projectId, name: r.name, position: r.position, collapsed: r.collapsed }));
+  }
+  async insertSection(s: StoredSection) {
+    await conn().insert(taskSections).values({ id: s.id, ownerLogin: s.owner, projectId: s.projectId, name: s.name, position: s.position, collapsed: s.collapsed });
+  }
+  async updateSection(id: string, patch: Partial<StoredSection>) {
+    const set: Partial<typeof taskSections.$inferInsert> = {};
+    if (patch.name !== undefined) set.name = patch.name;
+    if (patch.position !== undefined) set.position = patch.position;
+    if (patch.collapsed !== undefined) set.collapsed = patch.collapsed;
+    if (Object.keys(set).length && isUuid(id)) await conn().update(taskSections).set(set).where(eq(taskSections.id, id));
+  }
+  async deleteSection(id: string) {
+    if (isUuid(id)) await conn().delete(taskSections).where(eq(taskSections.id, id)); // tasks.section_id is ON DELETE SET NULL
+  }
+  async maxSectionPosition(login: string, projectId: string) {
+    const rows = await conn()
+      .select({ max: sql<number | null>`max(${taskSections.position})` })
+      .from(taskSections)
+      .where(and(eq(taskSections.ownerLogin, login), eq(taskSections.projectId, projectId)));
+    return Number(rows[0]?.max ?? 0);
+  }
+  async completedSince(since: string, limit: number) {
+    const rows = await conn()
+      .select()
+      .from(tasksTable)
+      .where(and(isNull(tasksTable.deletedAt), isNotNull(tasksTable.completedAt), gte(tasksTable.completedAt, new Date(since))))
+      .orderBy(desc(tasksTable.completedAt))
+      .limit(limit);
+    return this.withLinks(rows);
+  }
+  async completionsSince(since: string, limit: number) {
+    const rows = await conn()
+      .select({ taskId: taskCompletions.taskId, dueDate: taskCompletions.dueDate, at: taskCompletions.at })
+      .from(taskCompletions)
+      .innerJoin(tasksTable, eq(tasksTable.id, taskCompletions.taskId))
+      .where(and(isNull(tasksTable.deletedAt), gte(taskCompletions.at, new Date(since))))
+      .orderBy(desc(taskCompletions.at), desc(taskCompletions.dueDate))
+      .limit(limit);
+    return rows.map((r) => ({ taskId: r.taskId!, dueDate: r.dueDate, at: r.at.toISOString() }));
+  }
+  async search(words: string[], limit: number) {
+    if (!words.length) return [];
+    // Every word must be somewhere in the task or its live comments; % _ \ in a word are literal.
+    const each = words.map((w) => {
+      const like = `%${w.replace(/[\\%_]/g, "\\$&")}%`;
+      return or(
+        ilike(tasksTable.title, like),
+        ilike(tasksTable.description, like),
+        sql`EXISTS (SELECT 1 FROM task_comments c WHERE c.task_id = ${tasksTable.id} AND c.deleted_at IS NULL AND c.body ILIKE ${like})`,
+      );
+    });
+    const rows = await conn()
+      .select()
+      .from(tasksTable)
+      .where(and(isNull(tasksTable.deletedAt), ...each))
+      .orderBy(sql`(${tasksTable.completedAt} IS NOT NULL)`, desc(tasksTable.updatedAt))
+      .limit(limit);
+    return this.withLinks(rows);
   }
   async labels(login: string) {
     const rows = await conn().select().from(taskLabels).where(eq(taskLabels.ownerLogin, login));
@@ -794,6 +932,7 @@ export function __resetTasks(): void {
   memory.place.clear();
   memory.projectMap.clear();
   memory.labelMap.clear();
+  memory.sectionMap.clear();
   memory.labelLinkSet.clear();
   memory.completions = [];
   memory.commentList = [];

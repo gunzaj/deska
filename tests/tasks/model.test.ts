@@ -7,6 +7,7 @@ function task(p: Partial<Task>): Task {
     id: p.id ?? "t",
     creator: "local",
     parentId: null,
+    sectionId: null,
     title: "x",
     description: "",
     priority: 4,
@@ -44,7 +45,7 @@ describe("default order (SPEC §9 T1)", () => {
 describe("input validation", () => {
   it("applies defaults and drops an assignee: there are none (§4.6)", () => {
     const r = createTaskSchema.parse({ title: "  Finish spec  ", assignee: "Bob" });
-    expect(r).toEqual({ title: "Finish spec", description: "", priority: 4, dueDate: null, dueTime: null, recurrence: null, reminders: [], links: [], parentId: null, projectId: null, labels: [] });
+    expect(r).toEqual({ title: "Finish spec", description: "", priority: 4, dueDate: null, dueTime: null, recurrence: null, reminders: [], links: [], parentId: null, sectionId: null, projectId: null, labels: [] });
   });
   it("rejects empty titles, bad dates and bad priorities", () => {
     expect(createTaskSchema.safeParse({ title: "   " }).success).toBe(false);

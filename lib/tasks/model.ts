@@ -31,6 +31,8 @@ export type TaskCore = {
   creator: string;
   /** Sub-task of (one level only, §12.1). */
   parentId: string | null;
+  /** The section of its project it sits in (§4.6, D13); null = none. Top-level tasks only. */
+  sectionId: string | null;
   title: string;
   description: string;
   priority: Priority;
@@ -62,6 +64,19 @@ export type ProjectSource = { issues: Filter[] | null };
 
 export type TaskProject = { id: string; name: string; color: string; position: number; archived: boolean; source: ProjectSource | null };
 export type TaskLabel = { id: string; name: string; color: string };
+/** A named group inside a project (D13). Order is `position`; `collapsed` is remembered. */
+export type TaskSection = { id: string; projectId: string; name: string; position: number; collapsed: boolean };
+
+/**
+ * One line of the Completed view (D13): a task completed in the window, or one
+ * occurrence of a recurring task (which stays open). `undoable` is false for an
+ * occurrence that a later one has replaced.
+ */
+export type CompletedItem = { key: string; task: Task; at: string; occurrence: string | null; undoable: boolean };
+/** A ⌘K task hit and where the words were found (D13). */
+export type SearchHit = { task: Task; in: "title" | "description" | "comment" };
+/** The Completed view shows this many days back. */
+export const COMPLETED_DAYS = 30;
 
 /** Colours for projects and labels; names map to theme-safe swatches in the UI. */
 export const TASK_COLORS = ["grey", "red", "orange", "yellow", "green", "teal", "blue", "violet", "pink"] as const;
@@ -145,6 +160,8 @@ export const createTaskSchema = z
     parentId: uuid.nullable().default(null),
     /** The creator's project; null = Inbox. */
     projectId: uuid.nullable().default(null),
+    /** A section of that project; null = none. */
+    sectionId: uuid.nullable().default(null),
     /** Label names; unknown ones are created for the viewer (§12.4 `+label`). */
     labels: labelNames.default([]),
   })
@@ -172,6 +189,8 @@ export const patchTaskSchema = z
     /** Viewer's own filing: project (null = Inbox) and manual order. */
     projectId: uuid.nullable(),
     position: z.number().finite(),
+    /** A section of the task's project (null = none). Moving to another project clears it unless given. */
+    sectionId: uuid.nullable(),
     /** The viewer's full new label set, by name. */
     labels: labelNames,
     /** With `completed: true`, also complete open sub-tasks. */
@@ -204,6 +223,8 @@ export const projectPatchSchema = z
   .object({ name, color, position: z.number().finite(), archived: z.boolean(), source: projectSourceSchema.nullable() })
   .partial()
   .strict();
+export const sectionInputSchema = z.object({ projectId: uuid, name });
+export const sectionPatchSchema = z.object({ name, position: z.number().finite(), collapsed: z.boolean() }).partial().strict();
 export const labelInputSchema = z.object({ name, color: color.default("grey") });
 export const labelPatchSchema = z.object({ name, color }).partial().strict();
 
