@@ -95,6 +95,20 @@ class SyncService {
     if (running) await Promise.race([running.catch(() => undefined), new Promise((r) => setTimeout(r, STOP_WAIT_MS))]);
   }
 
+  /**
+   * A run in progress stops after its current page and this resolves once it
+   * has. The service keeps running: a reset calls this, then does its work
+   * under the sync lock (lib/backup/local-data.ts).
+   */
+  async interrupt(): Promise<void> {
+    const running = this.current;
+    if (!running) return;
+    this.again = null;
+    this.controller.abort();
+    await Promise.race([running.catch(() => undefined), new Promise((r) => setTimeout(r, STOP_WAIT_MS))]);
+    if (!this.stopped) this.controller = new AbortController();
+  }
+
   private async runOnce(reason: SyncReason): Promise<ServiceOutcome> {
     const token = localToken();
     if (!token) return { kind: "idle", reason: "no-token" };
@@ -141,7 +155,7 @@ class SyncService {
 const KEY = Symbol.for("deska.syncService");
 
 /** What desktop/server-entry.ts calls through globalThis. */
-export type SyncServiceHandle = Pick<SyncService, "request" | "stop" | "start" | "state">;
+export type SyncServiceHandle = Pick<SyncService, "request" | "stop" | "start" | "state" | "interrupt">;
 
 /** The process's sync service (created on first use; the loop starts with `start()`). */
 export function syncService(): SyncServiceHandle {

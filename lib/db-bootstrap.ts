@@ -6,6 +6,7 @@
 // synced (lib/sync/service.ts), so the two never mix.
 import { sql } from "drizzle-orm";
 import { dbDir, ensureMigrated, getDb } from "@/db";
+import { backupBeforeMigration } from "./backup/files";
 import { demoSnapshot } from "./demo/generate";
 import { fixtureSnapshot } from "./demo/fixtures";
 import { altFixtureSnapshot } from "./demo/fixtures-alt";
@@ -34,6 +35,10 @@ export function seedSnapshot(seed: DemoSeed) {
 /** Migrate, then seed demo data into an empty cache if asked to. */
 export async function prepareDatabase(): Promise<{ seeded: boolean }> {
   if (!dbDir()) return { seeded: false };
+  // Forces the database open: a damaged one fails here, before anything else.
+  await getDb().execute(sql`SELECT 1`);
+  // Pending migrations on a database with data: a backup first (SPEC §4.7).
+  await backupBeforeMigration();
   await ensureMigrated();
   const seed = demoSeed();
   if (!seed) return { seeded: false };

@@ -89,7 +89,7 @@ All under `~/Library/Application Support/Deska/`, readable only by the user's ma
 |---|---|---|
 | Encrypted token | app data folder (`github-token.bin`) | `safeStorage` ciphertext only |
 | Local database | `db/` | A cache of the repository's issues and project values, the token owner's login, name and avatar URL, plus personal tasks, saved views, snoozes, watches and settings. **No token** |
-| Backups | `backups/` | JSON of local-only data (tasks, projects, labels, sections, views, snoozes, watches, settings). Daily and before each migration; the last 14 are kept. **No token** |
+| Backups | `backups/` | JSON of local-only data (tasks, projects, labels, sections, views, snoozes, watches, settings). Daily, before each migration and before "Reset everything"; the newest 14 are kept. Files are owner-only (0600). **No token**, and any token-shaped text in a task is replaced by `[redacted]` |
 | Settings | in the database (`app_settings`) | Repo, org, project number and pinned node ID, project title, field mapping by field ID (with the Priority order and the Status options that count as done), toggles. **No token** |
 
 Exports from Settings contain the same data as a backup, and never the token.

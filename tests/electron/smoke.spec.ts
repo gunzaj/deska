@@ -537,6 +537,56 @@ test.describe("desktop shell", () => {
     }
   });
 
+  test("D8: backups are written without the token; export → Reset everything → import restores local data", async () => {
+    const { app, win, origin } = await launch(userData, github);
+    try {
+      await connect(win, origin);
+      const call = (url: string, method: string, body?: unknown) =>
+        win.evaluate(
+          async ([u, m, b]) => {
+            const r = await fetch(u as string, { method: m as string, headers: { "content-type": "application/json" }, body: b === undefined ? undefined : JSON.stringify(b) });
+            return { status: r.status, body: await r.json().catch(() => null) };
+          },
+          [url, method, body] as const,
+        );
+      const task = await call("/api/tasks", "POST", { title: "Survives a reset" });
+      expect(task.status).toBeLessThan(300);
+      const view = await call("/api/views", "POST", { name: "D8 view", layout: "list", filters: [], sort: [] });
+      expect(view.status).toBeLessThan(300);
+
+      // The daily backup taken at launch and one on demand; neither holds the token.
+      expect((await call("/api/local-data/backup", "POST")).status).toBe(200);
+      const dir = path.join(userData, "backups");
+      const files = readdirSync(dir).filter((f) => f.endsWith(".json"));
+      expect(files.some((f) => f.endsWith("-daily.json"))).toBe(true);
+      expect(files.some((f) => f.endsWith("-manual.json"))).toBe(true);
+      expect(filesContaining(dir, TOKEN)).toEqual([]);
+
+      const exported = await win.evaluate(() => fetch("/api/local-data/export").then((r) => r.text()));
+      expect(exported).not.toContain(TOKEN);
+      expect(exported).toContain("Survives a reset");
+
+      // Reset everything needs its confirmation, then local data is gone...
+      expect((await call("/api/local-data/reset-all", "POST", {})).status).toBe(400);
+      expect((await call("/api/local-data/reset-all", "POST", { confirm: "reset-everything" })).status).toBe(200);
+      expect(readdirSync(dir).some((f) => f.endsWith("-reset.json"))).toBe(true);
+      const empty = await win.evaluate(() => fetch("/api/data").then((r) => r.status));
+      expect(empty).toBeLessThan(500);
+      // ...and import brings it back.
+      const imported = await win.evaluate(async (text) => {
+        const r = await fetch("/api/local-data/import", { method: "POST", headers: { "content-type": "application/json" }, body: text });
+        return { status: r.status, body: await r.json() };
+      }, exported);
+      expect(imported.status).toBe(200);
+      expect(imported.body.added).toBeGreaterThan(0);
+      const back = await win.evaluate(() => fetch("/api/local-data/export").then((r) => r.text()));
+      expect(back).toContain("Survives a reset");
+      expect(back).toContain("D8 view");
+    } finally {
+      await app.close();
+    }
+  });
+
   test("the connection and a saved view survive a relaunch; disconnecting returns to onboarding", async () => {
     const view = { name: "Smoke: open bugs", layout: "list", filters: [{ field: "state", op: "in", values: ["open"] }], sort: [] };
     const first = await launch(userData, github);
