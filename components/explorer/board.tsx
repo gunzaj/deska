@@ -230,12 +230,20 @@ export function BoardLayout({
   return (
     <DndContext sensors={sensors} collisionDetection={collisions} onDragStart={onDragStart} onDragEnd={onDragEnd} onDragCancel={() => setDragging(null)}>
       <div className="flex h-full flex-col">
-        {planInto && !disabledReason && (
+        {planInto && (
           <div className="flex shrink-0 items-center gap-2 px-3 pt-3">
-            <button type="button" aria-pressed={backlogOpen} onClick={() => setBacklogOpen((o) => !o)} className={btn.outline}>
-              <Icon name="inbox" size={13} /> Backlog <span className="tabular-nums text-faint">{backlog.length}</span>
+            <button
+              type="button"
+              aria-pressed={backlogOpen && !disabledReason}
+              disabled={!!disabledReason}
+              data-planning-disabled={disabledReason ? "" : undefined}
+              title={disabledReason ?? undefined}
+              onClick={() => setBacklogOpen((o) => !o)}
+              className={btn.outline}
+            >
+              <Icon name={disabledReason ? "lock" : "inbox"} size={13} /> Backlog <span className="tabular-nums text-faint">{backlog.length}</span>
             </button>
-            {backlogOpen && <span className="text-[12px] text-faint">Drag an issue onto the board to plan it into the Release.</span>}
+            {disabledReason ? <span className="text-[12px] text-faint">{disabledReason}: dragging and the backlog drawer are off.</span> : backlogOpen && <span className="text-[12px] text-faint">Drag an issue onto the board to plan it into the Release.</span>}
           </div>
         )}
         <div className="flex min-h-0 flex-1 gap-2.5 overflow-x-auto p-3">

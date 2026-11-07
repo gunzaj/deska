@@ -86,7 +86,8 @@ export function Explorer({
   defaults: ExplorerState;
   view?: View;
   headerExtra?: ReactNode;
-  summary?: ReactNode;
+  /** A band under the toolbar. A function gets the rows as filtered, so it can say what the filters did. */
+  summary?: ReactNode | ((ctx: { rows: ClientIssue[]; filtered: boolean; filters: Filter[] }) => ReactNode);
   /** Issues kept out of the list (the viewer's triage snoozes, F3). */
   hideIds?: ReadonlySet<string>;
   emptyTitle?: string;
@@ -367,7 +368,7 @@ export function Explorer({
       icon={icon}
       actions={actions}
       toolbar={toolbar}
-      summary={summary}
+      summary={typeof summary === "function" ? summary({ rows, filtered: rows.length < pool.length, filters: state.filters }) : summary}
     >
       <div ref={scrollRef} className="absolute inset-0 overflow-auto">
         {rows.length === 0 && connectionProblem(connection) ? (

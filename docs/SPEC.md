@@ -322,6 +322,8 @@ A sprint is one iteration of the mapped Sprint field. Build on the predecessor's
 - **Planning actions** (drag between columns, backlog drawer, move carry-over, bulk edit, triage keys) are visible but disabled with the reason until writes are on.
 - Keep planning (current vs next with carry-over), risk (without PR rules) and the release-notes draft (without PR lines).
 
+**[D10]** The sprint page is still `/releases/[id]` (the UI keeps saying "Release" for now). Closed as "not planned" and as "duplicate" both count as Not planned. Header numbers are computed from the rows after filters (`lib/client/sprint.ts`); a filter adds "<values> · 12 / 30 (filtered)". `[` / `]` and the two arrow buttons step through sprints by date. The list layout groups by the new `sprintState` grouping (Remaining, Done, Not planned collapsed); the board stays by Status. An unreadable project (connection problem and nothing cached for the sprint) shows the §3.3 message, never "Nothing planned". Bulk edit, the Backlog drawer, board drag and "Move all to next" stay visible while writes are off, disabled with the token's reason.
+
 ## 4.6 Personal tasks (Todoist-like)
 
 Keep for one person: Inbox, Today, Upcoming, projects (with an optional GitHub source filter), labels, natural-language quick add, priorities, due dates and times, recurrence, reminders, sub-tasks, manual ordering, drag and drop, comments (as notes), issue links and "Add to tasks" from issues, undo toasts.

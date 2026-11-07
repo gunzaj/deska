@@ -3,10 +3,11 @@
 import { dimFieldId, isDimKey, MISSING_FIELD } from "../sync/field-map";
 import { runView, type ViewContext } from "../views/engine";
 import type { Filter, View } from "../views/view";
+import { BUCKET_LABEL, BUCKET_ORDER, sprintBucket, type SprintBucket } from "./sprint-bucket";
 import type { ClientDimension, ClientIssue, ClientMeta, DimKey, SingleSelectKey } from "./types";
 
 export type Layout = View["layout"];
-export type GroupField = "status" | "priority" | "release" | "type" | "assignee" | "label" | "milestone" | "parent" | DimKey;
+export type GroupField = "status" | "priority" | "release" | "type" | "assignee" | "label" | "milestone" | "parent" | "sprintState" | DimKey;
 export type BoardField = NonNullable<View["boardColumnsField"]>;
 export type SortField = "priority" | "status" | "updated" | "created" | "number" | "title" | "release" | "progress" | DimKey;
 
@@ -34,7 +35,7 @@ export function primaryDimension(meta: Pick<ClientMeta, "dimensions">): ClientDi
 /** Usable dimensions (deleted ones are reported, not offered). */
 const liveDims = (meta: Pick<ClientMeta, "dimensions">) => meta.dimensions.filter((d) => !d.missing);
 /** Leave the Sprint entries out when no Sprint field is mapped. */
-const withSprint = <T extends { key: string }>(meta: Pick<ClientMeta, "mapping">, list: T[]) => (sprintOn(meta) ? list : list.filter((x) => x.key !== "release"));
+const withSprint = <T extends { key: string }>(meta: Pick<ClientMeta, "mapping">, list: T[]) => (sprintOn(meta) ? list : list.filter((x) => x.key !== "release" && x.key !== "sprintState"));
 
 /** Properties a row/card/table can show: fixed ones, then one per dimension. */
 const BASE_PROPS = [
@@ -67,6 +68,7 @@ export function groupOptions(meta: Pick<ClientMeta, "dimensions" | "mapping">): 
     { key: "priority", label: "Priority" },
     ...liveDims(meta).map((d) => ({ key: d.key, label: d.name })),
     { key: "release", label: "Release" },
+    { key: "sprintState", label: "Remaining / Done" },
     { key: "type", label: "Type" },
     { key: "assignee", label: "Assignee" },
     { key: "label", label: "Label" },
@@ -271,7 +273,7 @@ export function runExplorer(issues: ClientIssue[], filters: Filter[], sort: View
   return runView(view, viewContext(meta), issues) as ClientIssue[];
 }
 
-export type Group = { key: string; label: string; color?: string | null; field: string; rows: ClientIssue[] };
+export type Group = { key: string; label: string; color?: string | null; field: string; rows: ClientIssue[]; /** Starts collapsed (the sprint's "Not planned"). */ collapsed?: boolean };
 
 /** Label for a value whose option was deleted in GitHub (SPEC §4). */
 const MISSING = "Missing option";
@@ -329,6 +331,11 @@ export function groupIssues(rows: ClientIssue[], groupBy: string | undefined, me
         add(id ?? "∅", name ?? (id ? MISSING : `No ${groupBy}`), id ? optColor(groupBy, id) : null, r);
         break;
       }
+      case "sprintState": {
+        const b = sprintBucket(r, meta.mapping.doneStatusIds);
+        add(b, BUCKET_LABEL[b], null, r);
+        break;
+      }
       case "release":
         add(r.releaseId ?? "∅", r.releaseName ?? (r.releaseId ? MISSING : "No release"), null, r);
         break;
@@ -354,10 +361,13 @@ export function groupIssues(rows: ClientIssue[], groupBy: string | undefined, me
     }
   }
   const groups = [...map.values()];
+  if (groupBy === "sprintState") for (const g of groups) if (g.key === "notPlanned") g.collapsed = true;
   const order = (g: Group): number => {
     if (g.key === "∅") return 1e9;
     if (isSingleSelect(groupBy)) return optionRank(meta, groupBy, g.key);
     switch (groupBy) {
+      case "sprintState":
+        return BUCKET_ORDER.indexOf(g.key as SprintBucket);
       case "release": {
         const at = meta.releases.findIndex((r) => r.id === g.key);
         return at < 0 ? UNKNOWN : -at;

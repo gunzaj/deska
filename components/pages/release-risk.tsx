@@ -13,7 +13,7 @@ import { useAppData } from "../app/provider";
 import { Icon } from "../icons";
 
 /** Issues F0 saw set to this Release on or after its start. A failed load just means none are shown. */
-function useScopeAdded(release: ClientRelease): { ids: string[]; loaded: boolean } {
+export function useScopeAdded(release: ClientRelease): { ids: string[]; loaded: boolean } {
   const [state, setState] = useState<{ key: string; ids: string[] } | null>(null);
   const key = `${release.id}:${release.startDate}`;
   useEffect(() => {
