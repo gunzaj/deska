@@ -28,10 +28,10 @@ export const IMPORT_COPY = {
   resumed: (issues: number) => `Resuming · ${issues.toLocaleString()} issues already copied`,
   /**
    * A resume that has not re-read its first page yet (it quit during metadata), so
-   * there is no number to show. Still a resume, so it must not say "Starting…".
-   * Designer owns these words; this is a placeholder that is true, not a choice.
+   * there is no number to show. Still a resume, so it must not say "Starting…", and
+   * the same shape as `resumed(n)` so only the count clause changes (Designer, D5).
    */
-  resumedNoCount: "Resuming…",
+  resumedNoCount: "Resuming · no issues copied yet",
   /** The alert's headline when no more specific reason is available (§3.3). */
   failed: "The import stopped",
 } as const;

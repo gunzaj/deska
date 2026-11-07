@@ -86,7 +86,9 @@ describe("importView", () => {
   it("says a resume continues rather than restarts", () => {
     expect(IMPORT_COPY.starting).toBe("Starting…");
     expect(IMPORT_COPY.resumed(4812)).toBe("Resuming · 4,812 issues already copied");
-    // The count-less resume must not fall back to the starting sentence.
-    expect(IMPORT_COPY.resumedNoCount).not.toBe(IMPORT_COPY.starting);
+    // Exact, not "different from starting": a reword has to be deliberate, and the
+    // pair keeps the same shape so only the count clause changes.
+    expect(IMPORT_COPY.resumedNoCount).toBe("Resuming · no issues copied yet");
+    expect(IMPORT_COPY.resumed(0)).toBe("Resuming · 0 issues already copied");
   });
 });
