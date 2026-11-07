@@ -14,7 +14,7 @@
 | D9 | done | [#16](https://github.com/gunzaj/deska/pull/16) | GitHub's `subIssuesSummary` synced and shown (`50% · 2/4`); live paged children list; Progress sort; migration 0005 |
 | D10 | done | [#17](https://github.com/gunzaj/deska/pull/17) | Sprint header (done X / Y, %, days left, by Status, scope added), Remaining/Done/Not planned, `[`/`]` picker, disabled planning controls; no migration |
 | D11 | done | [#18](https://github.com/gunzaj/deska/pull/18) | Author, In project, Closed reason, Sub-issue progress filters; visible default chip; Clear all; loading/empty/error list states; no migration |
-| D12 | todo | | |
+| D12 | done | [#19](https://github.com/gunzaj/deska/pull/19) | Global quick-add shortcut + floating window, native reminder notifications (Complete / Snooze 1 h / Tomorrow), Dock badge, Settings → Desktop; no migration |
 | D13 | todo | | |
 | D14 | todo | | |
 
@@ -111,6 +111,13 @@
 - D11: "Clear all (N)" replaces "Clear" and now also removes the State filter and the search. Empty lists name the active filters (default included) and offer "Clear filters". Lists mark `data-list-state` = loading / empty / error; loading shows while the first import runs with nothing cached.
 - D11: Read-only triage already toasted the reason on T/R/A/1–4 and showed a footer note; D11 added the E2E for it, no code change.
 - D11: Ran this milestone on Sonnet 5.5 (§0.6 recommends it). The connection, smoke "planning pages" and sprint `[`/`]` e2e specs failed once on timing and passed on rerun.
+- D12: Desktop settings (shortcut, notifications, launch at login, Dock badge) live in `desktop-prefs.json` in the profile, owned by main (it registers the shortcut, shows banners, sets the badge and has no DB access). Not in backups/exports; no secret in it.
+- D12: Reminders fire from a 30 s timer in the server process (`lib/desktop/reminders.ts`), independent of page polling. Each new reminder notification is handed to main once, whoever created it (page poll or timer); the in-app bell always gets it. The page's own browser notifications are skipped in the desktop app to avoid doubles.
+- D12: Snooze = a new absolute reminder (1 h, or 09:00 tomorrow in the task's zone) via `POST /api/tasks/[id]/snooze`; passed absolute reminders are dropped. The Dock badge uses `dueCount` (shared with the sidebar's Today count) and follows task edits within ~0.5 s.
+- D12: Tests trigger the shortcut and notification buttons through app events (`deska:quick-add`, `deska:reminder-action`), since CI has no keyboard or notification centre.
+- D12: Playwright's Electron driver lets the process exit a few seconds after the last window closes (reproduced with an empty Electron app), so no automated test waits with zero windows; the no-window case is a manual check below.
+- D12: Page code must tolerate a bridge without the newer methods (a connection e2e spec fakes an older bridge); caught a regression there.
+- D12: Ran this milestone on Sonnet 5.5, though §0.6 recommends Opus 5.5 for D12. The connection, smoke and tasks e2e specs timing-flaked once and passed on rerun.
 
 ## Maintainer to-do
 - [ ] Create a **read-only** fine-grained PAT: resource owner = the org, repository access = only the one repo; Repository → Metadata: Read, Repository → Issues: Read, Organization → Projects: Read, Organization → Issue types: Read (optional); nothing else. Then run the probe (report lands in `private/findings/`):
@@ -121,6 +128,7 @@
 - [ ] Try the D2 build on your Mac: `pnpm desktop:build`, then open `release/Deska-0.0.0-universal.dmg`. The app is unsigned, so the first time, right-click Deska.app → Open (or allow it under System Settings → Privacy & Security). Since D3 it opens on "Connect GitHub": paste a read-only fine-grained PAT (see the first item). The issue list still shows the fictional sample data until D5. Since D4, after the token it asks for the repository and project (step 2) and lets you map the fields; try it against your real project with the read-only PAT (reads only), and check Settings → Project and fields.
 - [ ] Review open [#12](https://github.com/gunzaj/deska/pull/12) (ADR-001: theme and density in app_settings, from another agent; outside the SPEC plan). `docs/UI-PASS.md` still describes PR rows.
 - [ ] Try the D8 recovery dialog by hand (not automated): quit Deska, overwrite `~/Library/Application Support/Deska/db/PG_VERSION` with junk, launch. It should offer "Restore from latest backup"; the damaged folder stays as `db.damaged-<time>`. Back up the folder first if it holds data you care about.
+- [ ] Try D12 by hand on the built app: the shortcut (⌃⌥Space) opens quick add over another app; close the window and check Deska stays in the Dock; a reminder due in a minute shows as a macOS notification with the window closed (allow notifications for Deska when macOS asks), and check whether the Complete / Snooze buttons appear on the unsigned build.
 - [ ] Optional: add a `.env.example` if you want one (the agent could not write `.env.*` files). Use only fictional values.
 
 ## Blockers
