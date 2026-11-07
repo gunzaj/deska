@@ -130,7 +130,7 @@ When resuming a paused milestone, use that milestone's model.
 
 **Deska** (Czech for "board") is a standalone **macOS desktop app** that:
 
-1. Reads one GitHub repository and one **org Project (v2)** directly from GitHub with the user's **fine-grained personal access token** (PAT). No backend, no hosting.
+1. Reads one GitHub repository and one **Project (v2)** owned by an organization or, **[changed after D14]**, by a user directly from GitHub with the user's **fine-grained personal access token** (PAT). No backend, no hosting.
 2. Gives better filtering, fast triage, **parent issue progress** and a **sprint view**.
 3. Has Todoist-like **personal tasks**, stored locally, linkable to GitHub issues.
 4. Is **read-only first**. Writes (planning edits, close/reopen, create issue) come in Phase C and work only with a token that has write permissions.

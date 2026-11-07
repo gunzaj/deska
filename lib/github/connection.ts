@@ -133,11 +133,11 @@ export type CheckOptions = {
 };
 
 const PROJECT_QUERY = `query DeskaProjectCheck($org: String!, $number: Int!) {
-  organization(login: $org) { projectV2(number: $number) { id } }
+  organization: repositoryOwner(login: $org) { ... on ProjectV2Owner { projectV2(number: $number) { id } } }
 }`;
 
 const ISSUE_TYPES_QUERY = `query DeskaIssueTypesCheck($org: String!) {
-  organization(login: $org) { issueTypes(first: 1) { totalCount } }
+  organization: repositoryOwner(login: $org) { ... on Organization { issueTypes(first: 1) { totalCount } } }
 }`;
 
 function base(now: Date): ConnectionStatus {

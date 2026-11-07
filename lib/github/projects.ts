@@ -53,10 +53,12 @@ async function call(fn: () => Promise<ProbeResponse>): Promise<ProbeResponse> {
 }
 
 const PROJECTS_QUERY = `query DeskaOrgProjects($org: String!, $after: String) {
-  organization(login: $org) {
-    projectsV2(first: 50, after: $after, orderBy: { field: TITLE, direction: ASC }) {
-      pageInfo { hasNextPage endCursor }
-      nodes { id number title closed }
+  organization: repositoryOwner(login: $org) {
+    ... on ProjectV2Owner {
+      projectsV2(first: 50, after: $after, orderBy: { field: TITLE, direction: ASC }) {
+        pageInfo { hasNextPage endCursor }
+        nodes { id number title closed }
+      }
     }
   }
 }`;
@@ -66,9 +68,9 @@ export async function listOrgProjects(client: ReadOnlyClient, org: string): Prom
   const out: OrgProject[] = [];
   let after: string | null = null;
   for (let page = 0; page < 20; page++) {
-    const data = dataOf(await call(() => client.graphql(PROJECTS_QUERY, { org, after })), `Organization "${org}"`);
+    const data = dataOf(await call(() => client.graphql(PROJECTS_QUERY, { org, after })), `Organization or user "${org}"`);
     const conn = (data.organization as { projectsV2?: { pageInfo: { hasNextPage: boolean; endCursor: string }; nodes: (OrgProject | null)[] } } | null)?.projectsV2;
-    if (!conn) throw new ProjectReadError(`Organization "${org}" not found, or not visible to this token.`, 404);
+    if (!conn) throw new ProjectReadError(`Organization or user "${org}" not found, or not visible to this token.`, 404);
     for (const n of conn.nodes) if (n?.id) out.push({ id: n.id, number: n.number, title: n.title, closed: !!n.closed });
     if (!conn.pageInfo.hasNextPage) break;
     after = conn.pageInfo.endCursor;
@@ -77,15 +79,17 @@ export async function listOrgProjects(client: ReadOnlyClient, org: string): Prom
 }
 
 const FIELDS_QUERY = `query DeskaProjectFields($org: String!, $number: Int!, $after: String) {
-  organization(login: $org) {
-    projectV2(number: $number) {
-      id number title
-      fields(first: 50, after: $after) {
-        pageInfo { hasNextPage endCursor }
-        nodes {
-          ... on ProjectV2FieldCommon { id name dataType }
-          ... on ProjectV2SingleSelectField { options { id name color } }
-          ... on ProjectV2IterationField { configuration { iterations { id title startDate duration } completedIterations { id title startDate duration } } }
+  organization: repositoryOwner(login: $org) {
+    ... on ProjectV2Owner {
+      projectV2(number: $number) {
+        id number title
+        fields(first: 50, after: $after) {
+          pageInfo { hasNextPage endCursor }
+          nodes {
+            ... on ProjectV2FieldCommon { id name dataType }
+            ... on ProjectV2SingleSelectField { options { id name color } }
+            ... on ProjectV2IterationField { configuration { iterations { id title startDate duration } completedIterations { id title startDate duration } } }
+          }
         }
       }
     }

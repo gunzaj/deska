@@ -26,7 +26,7 @@ function ProjectStep({ onBack }: { onBack: () => void }) {
         <p className="mt-5 text-[12px] font-medium uppercase tracking-wide text-faint">Step 2 of 2 · Project and fields</p>
         <h1 className="mt-1 text-[22px] font-medium tracking-tight">Choose your project</h1>
         <p className="mt-1.5 text-[13.5px] text-muted">
-          The repository Deska reads issues from, and the organization project that plans them. Then tell Deska which project field is which: it keeps the
+          The repository Deska reads issues from, and the project (owned by an organization or by a user) that plans them. Then tell Deska which project field is which: it keeps the
           mapping by field ID, so renaming a field on GitHub changes nothing here.
         </p>
         {error && (
@@ -96,7 +96,7 @@ export function Onboarding() {
         <Logo size={36} />
         <p className="mt-5 text-[12px] font-medium uppercase tracking-wide text-faint">Step 1 of 2 · GitHub token</p>
         <h1 className="mt-1 text-[22px] font-medium tracking-tight">Connect GitHub</h1>
-        <p className="mt-1.5 text-[13.5px] text-muted">Deska reads one repository and one organization project with your own fine-grained token. No account, no server.</p>
+        <p className="mt-1.5 text-[13.5px] text-muted">Deska reads one repository and one project (organization or personal) with your own GitHub token. No account, no server.</p>
 
         {desktop === false ? (
           <p role="status" className="mt-6 rounded-md border border-line bg-hover p-3 text-[12.5px]">

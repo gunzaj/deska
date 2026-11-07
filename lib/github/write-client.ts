@@ -62,7 +62,7 @@ export class GitHubWriteClient implements WriteClient {
         for (;;) {
           const res: any = await this.gql(
             `query($org:String!, $num:Int!, $after:String) {
-              organization(login:$org) { projectV2(number:$num) {
+              organization: repositoryOwner(login:$org) { ... on ProjectV2Owner { projectV2(number:$num) {
                 id
                 fields(first:100, after:$after) {
                   pageInfo { hasNextPage endCursor }
@@ -72,7 +72,7 @@ export class GitHubWriteClient implements WriteClient {
                     ... on ProjectV2Field { id name dataType }
                   }
                 }
-              } }
+              } } }
             }`,
             { org: this.org, num: this.projectNumber, after },
           );

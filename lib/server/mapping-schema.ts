@@ -18,7 +18,7 @@ export const mappingSchema = z
 export const targetSchema = z
   .object({
     repo: z.string().regex(/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/, "must look like owner/repo"),
-    org: z.string().regex(/^[A-Za-z0-9_.-]+$/, "must be an organization login"),
+    org: z.string().regex(/^[A-Za-z0-9_.-]+$/, "must be an organization or user login"),
     projectNumber: z.number().int().positive(),
   })
   .strict();
