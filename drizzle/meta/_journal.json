@@ -43,6 +43,13 @@
       "when": 1794035860123,
       "tag": "0005_d9_sub_issue_progress",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1794046046880,
+      "tag": "0006_d13_sections",
+      "breakpoints": true
     }
   ]
 }

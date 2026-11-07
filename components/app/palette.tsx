@@ -5,10 +5,10 @@ import { useCallback, useEffect, useId, useMemo, useRef, useState, type ReactNod
 import { encodeState, primaryDimension, sprintOn } from "@/lib/client/explorer";
 import { plainName } from "@/lib/client/format";
 import { PRESETS } from "@/lib/client/presets";
-import { newIssueUrl, searchTasks } from "@/lib/client/palette";
+import { mergeTaskHits, newIssueUrl, searchTasks } from "@/lib/client/palette";
 import { matchesCommand, searchIssues } from "@/lib/client/search";
 import type { ClientIssue } from "@/lib/client/types";
-import type { Task } from "@/lib/tasks/model";
+import type { SearchHit, Task } from "@/lib/tasks/model";
 import { useCells } from "../explorer/cells";
 import { Icon, type IconName } from "../icons";
 import { Kbd, OptionDot } from "../props";
@@ -28,6 +28,8 @@ type Item = {
   keywords?: string;
   issue?: ClientIssue;
   task?: Task;
+  /** Where a task's words were found, when not in its title. */
+  taskIn?: SearchHit["in"];
   run: (opts: { meta: boolean }) => void;
 };
 
@@ -49,11 +51,12 @@ function IssueLine({ issue }: { issue: ClientIssue }) {
   );
 }
 
-function TaskLine({ task }: { task: Task }) {
+function TaskLine({ task, where }: { task: Task; where?: SearchHit["in"] }) {
   return (
     <>
       <Icon name="circleCheck" size={15} className="text-faint" />
       <span className={`min-w-0 flex-1 truncate ${task.completedAt ? "text-muted line-through" : ""}`}>{task.title}</span>
+      {where && where !== "title" && <span className="shrink-0 text-[11.5px] text-faint">in {where === "comment" ? "a comment" : "description"}</span>}
     </>
   );
 }
@@ -67,6 +70,8 @@ export function CommandPalette() {
   const [open, setOpen] = useState(false);
   const [q, setQ] = useState("");
   const [active, setActive] = useState(0);
+  // What the server found in task descriptions and comments for the query it answered.
+  const [remote, setRemote] = useState<{ q: string; hits: SearchHit[] }>({ q: "", hits: [] });
   const listRef = useRef<HTMLDivElement>(null);
   // Unique per instance, so two palettes don't share option ids.
   const listboxId = useId();
@@ -99,6 +104,25 @@ export function CommandPalette() {
     };
   }, [open]);
 
+  // Task descriptions and comments live on the server: ask once typing pauses.
+  useEffect(() => {
+    const query = q.trim();
+    if (!open || !query) return;
+    const ctl = new AbortController();
+    const timer = setTimeout(() => {
+      fetch(`/api/tasks/search?q=${encodeURIComponent(query)}`, { signal: ctl.signal, cache: "no-store" })
+        .then((res) => (res.ok ? (res.json() as Promise<{ hits: SearchHit[] }>) : null))
+        .then((body) => body && setRemote({ q: query, hits: body.hits }))
+        .catch(() => {
+          // Aborted by the next keystroke, or offline: the title matches stay.
+        });
+    }, 150);
+    return () => {
+      clearTimeout(timer);
+      ctl.abort();
+    };
+  }, [q, open]);
+
   const go = useCallback((href: string) => () => router.push(href), [router]);
   const ico = (name: IconName) => <Icon name={name} size={15} className="text-faint" />;
 
@@ -113,6 +137,7 @@ export function CommandPalette() {
       { id: "nav:tasks", section: "Go to", label: "Tasks inbox", keywords: "todo to-do my tasks", icon: ico("inbox"), hint: <Kbd>G D</Kbd>, run: go("/tasks") },
       { id: "nav:today", section: "Go to", label: "Tasks due today", keywords: "todo today overdue", icon: ico("star"), run: go("/tasks/today") },
       { id: "nav:upcoming", section: "Go to", label: "Upcoming tasks", keywords: "todo week schedule", icon: ico("calendar"), run: go("/tasks/upcoming") },
+      { id: "nav:completed", section: "Go to", label: "Completed tasks", keywords: "todo done finished history", icon: ico("circleCheck"), run: go("/tasks/completed") },
       { id: "nav:all", section: "Go to", label: "All issues", icon: ico("layers"), hint: <Kbd>G I</Kbd>, run: go("/issues") },
       { id: "nav:backlog", section: "Go to", label: "Backlog", icon: ico("list"), hint: <Kbd>G B</Kbd>, run: go("/backlog") },
       ...(cur ? [{ id: "nav:cur", section: "Go to", label: `Current release · ${cur.title}`, keywords: "board sprint", icon: ico("calendar"), hint: <Kbd>G R</Kbd>, run: go(`/releases/${cur.id}`) }] : []),
@@ -226,12 +251,13 @@ export function CommandPalette() {
       return [...targetActions, ...rec, ...commands.filter((c) => c.section === "Go to" || c.section === "Actions")];
     }
     const issues = searchIssues(data.issues, query, 8).map((i) => issueItem(i, "Issues"));
-    const taskItems: Item[] = searchTasks(tasks, query, 5).map((t) => ({
+    const taskItems: Item[] = mergeTaskHits(searchTasks(tasks, query, 5), remote.q === query ? remote.hits : [], 6).map(({ task: t, in: where }) => ({
       id: `task:${t.id}`,
       section: "Tasks",
       label: t.title,
       icon: null,
       task: t,
+      taskIn: where,
       run: () => openTask(t.id),
     }));
     const cmds = commands.filter((c) => matchesCommand(c.label, c.keywords ?? "", query)).slice(0, 10);
@@ -248,7 +274,7 @@ export function CommandPalette() {
     return isNumber ? [...issues, ...cmds, ...taskItems, searchAll] : [...cmds, ...issues, ...taskItems, searchAll];
     // openIssue and router are used above: without them the memo keeps a stale
     // openIssue after a client-side navigation.
-  }, [q, commands, data.issues, data.meta.demo, recent, byNumber, tasks, targetActions, openIssue, router]);
+  }, [q, commands, data.issues, data.meta.demo, recent, byNumber, tasks, remote, targetActions, openIssue, router]);
 
   useEffect(() => setActive(0), [q]);
   useEffect(() => {
@@ -311,7 +337,7 @@ export function CommandPalette() {
                 {it.issue ? (
                   <IssueLine issue={it.issue} />
                 ) : it.task ? (
-                  <TaskLine task={it.task} />
+                  <TaskLine task={it.task} where={it.taskIn} />
                 ) : (
                   <>
                     <span className="grid w-4 place-items-center">{it.icon}</span>

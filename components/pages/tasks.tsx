@@ -3,13 +3,14 @@
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useMemo, useState, type ReactNode } from "react";
 import { addDays, dueLabel } from "@/lib/tasks/dates";
-import { compareCompleted, compareTasks, type Task } from "@/lib/tasks/model";
+import { compareCompleted, compareTasks, type PatchTaskInput, type Task, type TaskSection } from "@/lib/tasks/model";
 import { Page } from "../app/shell";
 import { Icon, type IconName } from "../icons";
 import { EmptyHint } from "../props";
 import { btn } from "../ui/popover";
 import { TaskErrorBanner } from "../tasks/bits";
 import { ColorDot, LabelDialog, ProjectDialog } from "../tasks/organize";
+import { DeleteSectionDialog, movedPosition, SectionDialog, SectionMenu } from "../tasks/sections";
 import { NEW_SOURCE } from "@/lib/client/project-source";
 import { ProjectSourceSection } from "../tasks/project-source";
 import { useToday } from "../tasks/notifications";
@@ -17,8 +18,12 @@ import { useTasks, type ComposePrefill } from "../tasks/store";
 import { useToast } from "../ui/toast";
 import { GroupSection, subCounts, TaskRow } from "../tasks/task-row";
 
-/** `keepEmpty` keeps a header when the group has no tasks: Upcoming's days, and a project that also lists GitHub items. */
-type Group = { key: string; title: string; tasks: Task[]; keepEmpty?: boolean };
+/**
+ * `keepEmpty` keeps a header when the group has no tasks: Upcoming's days, and a project that also lists GitHub items.
+ * `sectionId` marks a group of a project with sections (null = the tasks in none): dropping a task there files it
+ * in that section. `section` makes the header a collapsible section header with `actions`.
+ */
+type Group = { key: string; title: string; tasks: Task[]; keepEmpty?: boolean; sectionId?: string | null; section?: TaskSection; actions?: ReactNode };
 
 type Ctx = { today: string; byId: Map<string, Task> };
 
@@ -53,7 +58,7 @@ function overdueSplit(open: Task[], today: string, restTitle: string): Group[] {
 }
 
 function TaskList({ def }: { def: ViewDef }) {
-  const { tasks, projects, loaded, openCompose, update } = useTasks();
+  const { tasks, projects, loaded, openCompose, update, updateSection } = useTasks();
   const { toast } = useToast();
   const [showDone, setShowDone] = useState(false);
   const [dragId, setDragId] = useState<string | null>(null);
@@ -80,17 +85,34 @@ function TaskList({ def }: { def: ViewDef }) {
   const openCount = groups.reduce((n, g) => n + g.tasks.length, 0);
   const prefill = def.prefill?.(c) ?? {};
 
-  /** Drop the dragged task just above `target`. */
-  const dropOn = (target: Task, list: Task[]) => {
+  /** Move a dragged task: new position, and the section when it crossed into another group. Undo puts it back (U1). */
+  const moveTask = (moved: Task | undefined, patch: PatchTaskInput) => {
+    if (!moved) return;
+    const undo: PatchTaskInput = { position: moved.position, ...(patch.sectionId !== undefined ? { sectionId: moved.sectionId } : {}) };
+    void update(moved.id, patch).then((res) => {
+      if (res) toast({ message: `Moved “${moved.title}”`, action: { label: "Undo", run: () => void update(moved.id, undo) } });
+    });
+  };
+
+  /** Drop the dragged task just above `target`, in its group `g`. */
+  const dropOn = (target: Task, list: Task[], g: Group) => {
     if (!dragId || dragId === target.id) return;
     const rest = list.filter((t) => t.id !== dragId);
     const prev = rest[rest.findIndex((t) => t.id === target.id) - 1];
-    const moved = list.find((t) => t.id === dragId);
-    void update(dragId, { position: prev ? (prev.position + target.position) / 2 : target.position - 1 }).then((res) => {
-      // Undo puts it back where it was (U1).
-      if (res && moved) toast({ message: `Moved “${moved.title}”`, action: { label: "Undo", run: () => void update(moved.id, { position: moved.position }) } });
-    });
+    const moved = c.byId.get(dragId);
+    const patch: PatchTaskInput = { position: prev ? (prev.position + target.position) / 2 : target.position - 1 };
+    if (g.sectionId !== undefined && moved && moved.sectionId !== g.sectionId) patch.sectionId = g.sectionId;
+    moveTask(moved, patch);
     setDragId(null);
+  };
+
+  /** Drop the dragged task on a group's header: it goes to the end of that group. */
+  const dropInto = (g: Group) => {
+    const moved = dragId ? c.byId.get(dragId) : undefined;
+    setDragId(null);
+    setOverId(null);
+    if (!moved || g.sectionId === undefined || moved.sectionId === g.sectionId) return;
+    moveTask(moved, { sectionId: g.sectionId, position: (g.tasks[g.tasks.length - 1]?.position ?? 0) + 1 });
   };
 
   const parentTitle = (t: Task) => (t.parentId ? (c.byId.get(t.parentId)?.title ?? null) : null);
@@ -110,8 +132,10 @@ function TaskList({ def }: { def: ViewDef }) {
     });
     requestAnimationFrame(() => document.querySelector<HTMLElement>(`[data-task-row="${CSS.escape(t.id)}"]`)?.focus());
   };
-  const firstOpenId = groups.find((g) => g.tasks.length)?.tasks[0]?.id ?? null;
-  const tabTaskId = focusTaskId && groups.some((g) => g.tasks.some((t) => t.id === focusTaskId)) ? focusTaskId : firstOpenId;
+  // A collapsed section hides its rows: Tab must land on one that is shown.
+  const shown = groups.filter((g) => !g.section?.collapsed);
+  const firstOpenId = shown.find((g) => g.tasks.length)?.tasks[0]?.id ?? null;
+  const tabTaskId = focusTaskId && shown.some((g) => g.tasks.some((t) => t.id === focusTaskId)) ? focusTaskId : firstOpenId;
 
   return (
     <Page
@@ -150,7 +174,18 @@ function TaskList({ def }: { def: ViewDef }) {
       ) : (
         <>
           {groups.map((g) => (
-            <GroupSection key={g.key} title={g.title} count={g.tasks.length}>
+            <GroupSection
+              key={g.key}
+              title={g.title}
+              count={g.tasks.length}
+              collapse={g.section ? { collapsed: g.section.collapsed, toggle: () => void updateSection(g.section!.id, { collapsed: !g.section!.collapsed }) } : undefined}
+              actions={g.actions}
+              drop={
+                def.manual && !showDone && g.sectionId !== undefined && dragId
+                  ? { onDrop: () => dropInto(g), over: overId === `h:${g.key}`, setOver: (v) => setOverId(v ? `h:${g.key}` : null) }
+                  : undefined
+              }
+            >
               {g.tasks.map((t) => (
                 <TaskRow
                   key={t.id}
@@ -171,13 +206,15 @@ function TaskList({ def }: { def: ViewDef }) {
                             setDragId(null);
                             setOverId(null);
                           },
-                          onDrop: () => dropOn(t, g.tasks),
+                          onDrop: () => dropOn(t, g.tasks, g),
                           over: overId === t.id && dragId !== t.id,
                           setOver: (v) => setOverId(v ? t.id : null),
                           touchOver: setOverId,
                           touchDrop: (id) => {
-                            const target = g.tasks.find((x) => x.id === id);
-                            if (target) dropOn(target, g.tasks);
+                            // The row under the finger may sit in another section.
+                            const tg = groups.find((x) => x.tasks.some((y) => y.id === id));
+                            const target = tg?.tasks.find((x) => x.id === id);
+                            if (tg && target) dropOn(target, tg.tasks, tg);
                             setDragId(null);
                             setOverId(null);
                           },
@@ -304,10 +341,14 @@ export function TaskUpcomingPage() {
 
 /** One of my projects, in manual order (§12.3, §12.8). */
 export function TaskProjectPage({ id }: { id: string }) {
-  const { projects, tasks, loaded, updateProject } = useTasks();
+  const { projects, tasks, sections, loaded, updateProject, updateSection, openCompose } = useTasks();
   const [editing, setEditing] = useState(false);
+  // Naming a new section or renaming one; asking before deleting one.
+  const [naming, setNaming] = useState<TaskSection | "new" | null>(null);
+  const [deleting, setDeleting] = useState<TaskSection | null>(null);
   const project = projects.find((p) => p.id === id);
   const placed = useMemo(() => tasks.filter((t) => t.projectId === id), [tasks, id]);
+  const mine = useMemo(() => sections.filter((s) => s.projectId === id).sort((a, b) => a.position - b.position), [sections, id]);
   const def = useMemo<ViewDef | null>(() => (project ? {
           title: project.name,
           icon: <ColorDot color={project.color} size={10} />,
@@ -316,7 +357,35 @@ export function TaskProjectPage({ id }: { id: string }) {
           hideProject: true,
           filter: (t) => t.projectId === id,
           // With GitHub items below, an empty project still shows its Tasks header.
-          group: (open) => [{ key: project.source ? "tasks" : "all", title: "Tasks", tasks: open, keepEmpty: Boolean(project.source) }],
+          group: (open) => {
+            // Without sections this is the one list it always was; with them, tasks in no section come first.
+            if (!mine.length) return [{ key: project.source ? "tasks" : "all", title: "Tasks", tasks: open, keepEmpty: Boolean(project.source) }];
+            return [
+              { key: "none", title: "Tasks", tasks: open.filter((t) => !t.sectionId || !mine.some((s) => s.id === t.sectionId)), keepEmpty: true, sectionId: null },
+              ...mine.map((s, i) => ({
+                key: `s:${s.id}`,
+                title: s.name,
+                tasks: open.filter((t) => t.sectionId === s.id),
+                keepEmpty: true,
+                sectionId: s.id,
+                section: s,
+                actions: (
+                  <SectionMenu
+                    section={s}
+                    first={i === 0}
+                    last={i === mine.length - 1}
+                    onRename={() => setNaming(s)}
+                    onDelete={() => setDeleting(s)}
+                    onMove={(dir) => {
+                      const position = movedPosition(mine, s.id, dir);
+                      if (position != null) void updateSection(s.id, { position });
+                    }}
+                    onAddTask={() => openCompose({ projectId: id, sectionId: s.id })}
+                  />
+                ),
+              })),
+            ];
+          },
           prefill: () => ({ projectId: id }),
           empty: { title: "No tasks here yet", hint: "Add one, or move tasks here from the task panel. Drag to reorder.", icon: "list" },
           banner: project.archived ? (
@@ -331,6 +400,11 @@ export function TaskProjectPage({ id }: { id: string }) {
           footer: <ProjectSourceSection project={project} tasks={placed} />,
           actions: (
             <>
+              {!project.archived && (
+                <button type="button" onClick={() => setNaming("new")} className={btn.ghost}>
+                  <Icon name="plus" size={13} /> Add section
+                </button>
+              )}
               {!project.source && (
                 <button
                   type="button"
@@ -351,7 +425,7 @@ export function TaskProjectPage({ id }: { id: string }) {
               )}
             </>
           ),
-        } : null), [project, id, placed, updateProject]);
+        } : null), [project, id, placed, mine, updateProject, updateSection, openCompose]);
   if (!project || !def) {
     return loaded ? <EmptyHint icon="list" title="Project not found" hint="It doesn't exist, or it belongs to someone else." /> : <p className="p-6 text-muted">Loading…</p>;
   }
@@ -359,6 +433,8 @@ export function TaskProjectPage({ id }: { id: string }) {
     <>
       <TaskList def={def} />
       <ProjectDialog open={editing} onClose={() => setEditing(false)} project={project} />
+      <SectionDialog open={naming != null} onClose={() => setNaming(null)} projectId={id} section={naming === "new" ? null : naming} />
+      <DeleteSectionDialog section={deleting} onClose={() => setDeleting(null)} />
     </>
   );
 }

@@ -320,6 +320,9 @@ export const tasks = pgTable(
     recurrenceRule: text("recurrence_rule"),
     recurrenceText: text("recurrence_text"),
     recurrenceFromCompletion: boolean("recurrence_from_completion").notNull().default(false),
+    // The section of its project the task sits in (D13); the service keeps it
+    // in the task's own project. Deleting a section leaves its tasks unsectioned.
+    sectionId: uuid("section_id").references((): AnyPgColumn => taskSections.id, { onDelete: "set null" }),
     completedAt: timestamp("completed_at", { withTimezone: true }),
     completedBy: text("completed_by"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
@@ -376,6 +379,23 @@ export const taskProjects = pgTable(
     // direct SQL writer must not be able to create a duplicate.
     uniqueIndex("task_projects_owner_name_uniq").on(t.ownerLogin, sql`lower(${t.name})`),
   ],
+);
+
+// Sections of a project (D13, SPEC §4.6): named groups tasks are filed under.
+export const taskSections = pgTable(
+  "task_sections",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    ownerLogin: text("owner_login").notNull(),
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => taskProjects.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    position: doublePrecision("position").notNull().default(0),
+    collapsed: boolean("collapsed").notNull().default(false),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("task_sections_project_idx").on(t.projectId, t.position)],
 );
 
 // Where a task is filed: one placement per task (project and manual order).

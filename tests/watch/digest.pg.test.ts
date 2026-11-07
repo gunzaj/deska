@@ -13,7 +13,7 @@ describe("watch digest notifications (Postgres)", () => {
 
   it("stores and lists a digest without a task and dedupes it; a deleted task's notification stays out", async () => {
     const now = new Date().toISOString();
-    const mine: StoredTask = { id: crypto.randomUUID(), creator: "alice", parentId: null, title: "mine", description: "", priority: 4, dueDate: null, dueTime: null, dueTz: null, recurrence: null, reminders: [], completedAt: null, completedBy: null, links: [], createdAt: now, updatedAt: now, deletedAt: null };
+    const mine: StoredTask = { id: crypto.randomUUID(), creator: "alice", parentId: null, sectionId: null, title: "mine", description: "", priority: 4, dueDate: null, dueTime: null, dueTz: null, recurrence: null, reminders: [], completedAt: null, completedBy: null, links: [], createdAt: now, updatedAt: now, deletedAt: null };
     const theirs = { ...mine, id: crypto.randomUUID(), title: "theirs", deletedAt: now };
     await repo.insert(mine);
     await repo.insert(theirs);

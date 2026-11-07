@@ -211,14 +211,56 @@ export function TaskRow({
   );
 }
 
-export function GroupSection({ title, count, children }: { title: string; count: number; children: ReactNode }) {
+/** A task dragged onto a group's header lands at the end of that group (sections, D13). */
+export type HeaderDrop = { onDrop: () => void; over: boolean; setOver: (v: boolean) => void };
+
+export function GroupSection({
+  title,
+  count,
+  children,
+  collapse,
+  actions,
+  drop,
+}: {
+  title: string;
+  count: number;
+  children: ReactNode;
+  /** A collapsible group (a section): the header toggles its tasks. */
+  collapse?: { collapsed: boolean; toggle: () => void };
+  /** Buttons at the end of the header. */
+  actions?: ReactNode;
+  drop?: HeaderDrop;
+}) {
+  const collapsed = collapse?.collapsed ?? false;
   return (
     <section aria-label={title}>
-      <h2 className="sticky top-0 z-10 flex h-8 items-center gap-2 border-b border-line bg-surface px-4 text-[12px] font-semibold text-muted">
-        {title}
+      <h2
+        className={`sticky top-0 z-10 flex h-8 items-center gap-2 border-b border-line bg-surface px-4 text-[12px] font-semibold text-muted ${drop?.over ? "shadow-[inset_0_-2px_0_var(--brand-border)]" : ""}`}
+        onDragOver={(e) => {
+          if (!drop) return;
+          e.preventDefault();
+          drop.setOver(true);
+        }}
+        onDragLeave={() => drop?.setOver(false)}
+        onDrop={(e) => {
+          if (!drop) return;
+          e.preventDefault();
+          drop.setOver(false);
+          drop.onDrop();
+        }}
+      >
+        {collapse ? (
+          <button type="button" onClick={collapse.toggle} aria-expanded={!collapsed} className="-ml-1 flex h-6 items-center gap-1 rounded px-1 hover:bg-hover hover:text-fg">
+            <Icon name={collapsed ? "chevronRight" : "chevronDown"} size={13} />
+            {title}
+          </button>
+        ) : (
+          title
+        )}
         <span className="font-normal tabular-nums text-faint">{count}</span>
+        {actions && <span className="ml-auto flex items-center gap-0.5 font-normal">{actions}</span>}
       </h2>
-      <ul>{children}</ul>
+      {!collapsed && <ul>{children}</ul>}
     </section>
   );
 }

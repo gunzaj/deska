@@ -12,6 +12,7 @@ function row(p: Partial<StoredTask>): StoredTask {
     id: crypto.randomUUID(),
     creator: "alice",
     parentId: null,
+    sectionId: null,
     title: "t",
     description: "",
     priority: 4,

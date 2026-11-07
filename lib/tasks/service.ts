@@ -2,9 +2,12 @@ import { randomUUID } from "node:crypto";
 import { addDays, daysBetween, localToday, shiftInstant, zonedToUtc } from "./dates";
 import { tasksChanged } from "../desktop/events";
 import {
+  COMPLETED_DAYS,
   type AppNotification,
+  type CompletedItem,
   type CreateTaskInput,
   type PatchTaskInput,
+  type SearchHit,
   type Prefs,
   type ProjectSource,
   type Reminder,
@@ -14,11 +17,12 @@ import {
   type TaskLabel,
   type TaskLink,
   type TaskProject,
+  type TaskSection,
 } from "./model";
 import { fireWatchDigest } from "../watch/digest";
 import { DEFAULT_REMINDER_TIME, fireReminders } from "./notify";
 import { nextOccurrence, pinMonthDay } from "./recurrence";
-import { taskRepo, type Placement, type StoredTask, type TaskRepo } from "./repo";
+import { SEARCH_LIMIT, taskRepo, type Placement, type StoredSection, type StoredTask, type TaskRepo } from "./repo";
 
 /**
  * Task operations for the API (SPEC §12). Nothing here calls GitHub or depends
@@ -124,19 +128,28 @@ async function ownProject(repo: TaskRepo, me: string, id: string | null): Promis
   return (await repo.projects(me)).some((p) => p.id === id && !p.archived);
 }
 
-export async function listTasks(me: string): Promise<{ tasks: Task[]; projects: TaskProject[]; labels: TaskLabel[] }> {
+/** A section the viewer owns, in the project it belongs to. */
+async function ownSection(repo: TaskRepo, me: string, id: string): Promise<StoredSection | null> {
+  return (await repo.sections(me)).find((s) => s.id === id) ?? null;
+}
+
+const publicSection = ({ owner: _o, ...s }: StoredSection): TaskSection => s;
+
+export async function listTasks(me: string): Promise<{ tasks: Task[]; projects: TaskProject[]; labels: TaskLabel[]; sections: TaskSection[] }> {
   const repo = taskRepo();
-  const [stored, placements, labelLinks, projects, labels] = await Promise.all([
+  const [stored, placements, labelLinks, projects, labels, sections] = await Promise.all([
     repo.list(),
     repo.placements(me),
     repo.labelLinks(me),
     repo.projects(me),
     repo.labels(me),
+    repo.sections(me),
   ]);
   return {
     tasks: stored.map((t) => view(t, placements.get(t.id), labelLinks.get(t.id))),
     projects: projects.map(({ owner: _o, ...p }) => p).sort((a, b) => a.position - b.position),
     labels: labels.map(({ owner: _o, ...l }) => l).sort((a, b) => a.name.localeCompare(b.name)),
+    sections: sections.map(publicSection).sort((a, b) => a.position - b.position),
   };
 }
 
@@ -156,6 +169,10 @@ export async function createTask(me: string, input: CreateTaskInput, resolve: Re
     if (parent.parentId) return bad("sub-tasks can't have sub-tasks");
   }
   if (!(await ownProject(repo, me, input.projectId))) return bad("unknown project");
+  if (input.sectionId) {
+    const section = await ownSection(repo, me, input.sectionId);
+    if (input.parentId || !section || section.projectId !== input.projectId) return bad("unknown section");
+  }
   // An empty title takes the first linked item's title (§12.1).
   const title = input.title || (links[0] ? resolve(links[0].number)?.title : "") || "";
   if (!title) return bad("title required");
@@ -166,6 +183,7 @@ export async function createTask(me: string, input: CreateTaskInput, resolve: Re
     id: randomUUID(),
     creator: me,
     parentId: input.parentId,
+    sectionId: input.sectionId,
     title,
     description: input.description,
     priority: input.priority,
@@ -196,7 +214,7 @@ export async function createTask(me: string, input: CreateTaskInput, resolve: Re
 }
 
 // Filing changes (project, position, labels) are never refused for a stale task.
-const FILING_FIELDS = new Set<keyof PatchTaskInput>(["projectId", "position", "labels", "expectedUpdatedAt"]);
+const FILING_FIELDS = new Set<keyof PatchTaskInput>(["projectId", "position", "sectionId", "labels", "expectedUpdatedAt"]);
 
 /**
  * Update a task. The read, the checks and every write run under the task's
@@ -260,6 +278,18 @@ async function applyUpdate(repo: TaskRepo, me: string, id: string, patch: PatchT
     next.links = links;
   }
   if (patch.projectId !== undefined && !(await ownProject(repo, me, patch.projectId))) return bad("unknown project");
+  // Where it is filed now, and where it will be: a section only fits its own project.
+  const filing = patch.projectId !== undefined || patch.sectionId !== undefined || patch.position !== undefined ? ((await repo.placements(me)).get(id) ?? { projectId: null, position: 0 }) : null;
+  if (filing && (patch.projectId !== undefined || patch.sectionId !== undefined)) {
+    const projectId = patch.projectId !== undefined ? patch.projectId : filing.projectId;
+    // Moving to another project drops the old section unless the patch names one in the new project.
+    const sectionId = patch.sectionId !== undefined ? patch.sectionId : projectId !== filing.projectId ? null : prev.sectionId;
+    if (sectionId) {
+      const section = await ownSection(repo, me, sectionId);
+      if (prev.parentId || !section || section.projectId !== projectId) return bad("unknown section");
+    }
+    if (sectionId !== prev.sectionId) next.sectionId = sectionId;
+  }
 
   if (patch.undoOccurrence !== undefined && prev.recurrence && prev.dueDate) {
     // Drop its completion row and move the date (and absolute reminders) back to it.
@@ -310,8 +340,8 @@ async function applyUpdate(repo: TaskRepo, me: string, id: string, patch: PatchT
       if (!c.completedAt) await repo.update(c.id, { completedAt: now, completedBy: me, updatedAt: now });
     }
   }
-  if (patch.projectId !== undefined || patch.position !== undefined) {
-    const current = (await repo.placements(me)).get(id) ?? { projectId: null, position: 0 };
+  if (filing && (patch.projectId !== undefined || patch.position !== undefined)) {
+    const current = filing;
     const projectId = patch.projectId !== undefined ? patch.projectId : current.projectId;
     const moved = projectId !== current.projectId;
     const position = patch.position ?? (moved ? (await repo.maxPosition(me, projectId)) + 1 : current.position);
@@ -457,6 +487,84 @@ export async function updateProject(
   await repo.updateProject(id, patch);
   const { owner: _o, ...out } = { ...prev, ...patch };
   return { ok: true, value: out };
+}
+
+// --- sections (§4.6, D13) ---------------------------------------------------------
+
+export async function createSection(me: string, input: { projectId: string; name: string }): Promise<Result<TaskSection>> {
+  const repo = taskRepo();
+  if (!(await ownProject(repo, me, input.projectId)) || input.projectId == null) return bad("unknown project");
+  const s: StoredSection = { id: randomUUID(), owner: me, projectId: input.projectId, name: input.name, position: (await repo.maxSectionPosition(me, input.projectId)) + 1, collapsed: false };
+  await repo.insertSection(s);
+  return { ok: true, value: publicSection(s) };
+}
+
+export async function updateSection(me: string, id: string, patch: Partial<{ name: string; position: number; collapsed: boolean }>): Promise<Result<TaskSection>> {
+  const repo = taskRepo();
+  const prev = await ownSection(repo, me, id);
+  if (!prev) return { ok: false, status: 404, error: "section not found" };
+  await repo.updateSection(id, patch);
+  return { ok: true, value: publicSection({ ...prev, ...patch }) };
+}
+
+/** Its tasks stay in the project, without a section. */
+export async function deleteSection(me: string, id: string): Promise<Result<true>> {
+  const repo = taskRepo();
+  if (!(await ownSection(repo, me, id))) return { ok: false, status: 404, error: "section not found" };
+  await repo.deleteSection(id);
+  return { ok: true, value: true };
+}
+
+// --- completed view and search (§4.6, D13) -----------------------------------------
+
+/** Most lines either source adds to the Completed view. */
+const COMPLETED_CAP = 1000;
+
+/**
+ * The last COMPLETED_DAYS days of completions: tasks completed in that time,
+ * and occurrences of recurring tasks (which stay open), newest first. Only the
+ * newest occurrence of a task can be undone, and only while its due date is
+ * still ahead of it.
+ */
+export async function listCompleted(me: string, now = new Date()): Promise<{ items: CompletedItem[] }> {
+  const repo = taskRepo();
+  const since = new Date(now.getTime() - COMPLETED_DAYS * 86_400_000).toISOString();
+  const [done, occurrences, placements, labelLinks] = await Promise.all([repo.completedSince(since, COMPLETED_CAP), repo.completionsSince(since, COMPLETED_CAP), repo.placements(me), repo.labelLinks(me)]);
+  const items: CompletedItem[] = done.map((t) => ({ key: `t:${t.id}`, task: view(t, placements.get(t.id), labelLinks.get(t.id)), at: t.completedAt!, occurrence: null, undoable: true }));
+  const seen = new Set<string>();
+  const byId = new Map<string, StoredTask | null>();
+  for (const o of occurrences) {
+    if (!byId.has(o.taskId)) byId.set(o.taskId, await repo.get(o.taskId));
+    const t = byId.get(o.taskId);
+    if (!t) continue;
+    // `occurrences` is newest first: the first one seen for a task is its latest.
+    const latest = !seen.has(o.taskId);
+    seen.add(o.taskId);
+    items.push({
+      key: `o:${o.taskId}:${o.dueDate ?? ""}:${o.at}`,
+      task: view(t, placements.get(t.id), labelLinks.get(t.id)),
+      at: o.at,
+      occurrence: o.dueDate,
+      undoable: latest && Boolean(t.recurrence && t.dueDate && o.dueDate && o.dueDate < t.dueDate),
+    });
+  }
+  return { items: items.sort((a, b) => b.at.localeCompare(a.at)).slice(0, COMPLETED_CAP) };
+}
+
+/** Tasks whose title, description or comments contain every word of `query` (⌘K, §4.6). */
+export async function searchTasks(me: string, query: string): Promise<{ hits: SearchHit[] }> {
+  const repo = taskRepo();
+  const words = [...new Set(query.toLowerCase().split(/\s+/).filter(Boolean).map((w) => w.slice(0, 100)))].slice(0, 8);
+  if (!words.length) return { hits: [] };
+  const [found, placements, labelLinks] = await Promise.all([repo.search(words, SEARCH_LIMIT), repo.placements(me), repo.labelLinks(me)]);
+  const all = (text: string) => words.every((w) => text.includes(w));
+  return {
+    hits: found.map((t) => {
+      const title = t.title.toLowerCase();
+      const where = all(title) ? "title" : all(`${title}\n${t.description.toLowerCase()}`) ? "description" : "comment";
+      return { task: view(t, placements.get(t.id), labelLinks.get(t.id)), in: where };
+    }),
+  };
 }
 
 export async function createLabel(me: string, input: { name: string; color: string }): Promise<Result<TaskLabel>> {

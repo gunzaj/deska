@@ -4,13 +4,13 @@ import { fetchPreloaded } from "@/lib/client/preload";
 import { createContext, useCallback, useContext, useMemo, useRef, useState, type ReactNode } from "react";
 import { isUnauthorized } from "@/lib/client/session";
 import { usePoll } from "@/lib/client/poll";
-import type { CreateTaskInput, PatchTaskInput, Task, TaskLabel, TaskProject } from "@/lib/tasks/model";
+import type { CreateTaskInput, PatchTaskInput, Task, TaskLabel, TaskProject, TaskSection } from "@/lib/tasks/model";
 import { Dialog } from "../ui/dialog";
 import { useToast } from "../ui/toast";
 import { btn } from "../ui/popover";
 
 /** What quick add opens with: the issue it came from, the view's project or date (§12.4). */
-export type ComposePrefill = { links?: number[]; projectId?: string | null; dueDate?: string | null; parentId?: string | null };
+export type ComposePrefill = { links?: number[]; projectId?: string | null; sectionId?: string | null; dueDate?: string | null; parentId?: string | null };
 
 type CreateInput = Partial<CreateTaskInput> & { title: string };
 
@@ -23,6 +23,7 @@ type TasksCtx = {
   tasks: Task[];
   projects: TaskProject[];
   labels: TaskLabel[];
+  sections: TaskSection[];
   loaded: boolean;
   error: string | null;
   clearError: () => void;
@@ -34,6 +35,10 @@ type TasksCtx = {
   reload: () => Promise<void>;
   createProject: (name: string, color: string) => Promise<TaskProject | null>;
   updateProject: (id: string, patch: Partial<Omit<TaskProject, "id">>) => Promise<boolean>;
+  createSection: (projectId: string, name: string) => Promise<TaskSection | null>;
+  updateSection: (id: string, patch: Partial<Pick<TaskSection, "name" | "position" | "collapsed">>) => Promise<boolean>;
+  /** Its tasks stay in the project, without a section. */
+  deleteSection: (id: string) => Promise<boolean>;
   updateLabel: (id: string, patch: Partial<Omit<TaskLabel, "id">>) => Promise<boolean>;
   deleteLabel: (id: string) => Promise<boolean>;
   /** Both are stable; the compose dialog's own state is in `useComposeState` so opening it re-renders no task list. */
@@ -72,6 +77,7 @@ export function TasksProvider({ children }: { children: ReactNode }) {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [projects, setProjects] = useState<TaskProject[]>([]);
   const [labels, setLabels] = useState<TaskLabel[]>([]);
+  const [sections, setSections] = useState<TaskSection[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [composeOpen, setComposeOpen] = useState(false);
@@ -82,6 +88,8 @@ export function TasksProvider({ children }: { children: ReactNode }) {
   // Latest committed list, so callbacks stay stable and never act on a stale closure.
   const tasksRef = useRef(tasks);
   tasksRef.current = tasks;
+  const sectionsRef = useRef(sections);
+  sectionsRef.current = sections;
   // Edits in flight: a reload that lands meanwhile must not overwrite them, so
   // it is dropped and repeated once the last edit settles.
   const pending = useRef(0);
@@ -98,7 +106,7 @@ export function TasksProvider({ children }: { children: ReactNode }) {
       const res = await fetchPreloaded("/api/tasks", { cache: "no-store" });
       if (isUnauthorized(res)) return;
       if (!res.ok) throw new Error(await errorOf(res));
-      const body = (await res.json()) as { tasks: Task[]; projects: TaskProject[]; labels: TaskLabel[] };
+      const body = (await res.json()) as { tasks: Task[]; projects: TaskProject[]; labels: TaskLabel[]; sections: TaskSection[] };
       if (seq !== loadSeq.current) return;
       lastLoad.current = Date.now();
       if (pending.current > 0) {
@@ -108,6 +116,7 @@ export function TasksProvider({ children }: { children: ReactNode }) {
       setTasks(body.tasks);
       setProjects(body.projects);
       setLabels(body.labels);
+      setSections(body.sections ?? []);
       setLoaded(true);
     } catch (e) {
       if (seq === loadSeq.current) setError(`Could not load tasks: ${e instanceof Error ? e.message : String(e)}`);
@@ -223,6 +232,9 @@ export function TasksProvider({ children }: { children: ReactNode }) {
         if (patch.dueDate === null) Object.assign(o, { dueTime: null, recurrence: null });
         if (patch.recurrence !== undefined) o.recurrence = patch.recurrence;
         if (patch.projectId !== undefined) o.projectId = patch.projectId;
+        // Another project drops the old section, unless the patch names one (the server does the same).
+        if (patch.sectionId !== undefined) o.sectionId = patch.sectionId;
+        else if (patch.projectId !== undefined && patch.projectId !== before.projectId) o.sectionId = null;
         if (patch.position !== undefined) o.position = patch.position;
         // A recurring task doesn't close: the server moves its date instead (§12.5).
         if (patch.completed !== undefined && !recurs) o.completedAt = patch.completed ? new Date().toISOString() : null;
@@ -375,6 +387,40 @@ export function TasksProvider({ children }: { children: ReactNode }) {
     [send],
   );
 
+  const createSection = useCallback(
+    async (projectId: string, name: string) => {
+      const s = await send<TaskSection>("/api/task-sections", json("POST", { projectId, name }), "create section");
+      if (s) setSections((prev) => [...prev, s].sort((a, b) => a.position - b.position));
+      return s;
+    },
+    [send],
+  );
+
+  const updateSection = useCallback(
+    async (id: string, patch: Partial<Pick<TaskSection, "name" | "position" | "collapsed">>) => {
+      // Collapsing and reordering show at once; the server's copy replaces it.
+      const before = sectionsRef.current.find((x) => x.id === id);
+      setSections((prev) => prev.map((x) => (x.id === id ? { ...x, ...patch } : x)).sort((a, b) => a.position - b.position));
+      const s = await send<TaskSection>(`/api/task-sections/${id}`, json("PATCH", patch), "update section");
+      if (s) setSections((prev) => prev.map((x) => (x.id === id ? s : x)).sort((a, b) => a.position - b.position));
+      else if (before) setSections((prev) => prev.map((x) => (x.id === id ? before : x)).sort((a, b) => a.position - b.position));
+      return Boolean(s);
+    },
+    [send],
+  );
+
+  const deleteSection = useCallback(
+    async (id: string) => {
+      const ok = await send<{ ok: true }>(`/api/task-sections/${id}`, { method: "DELETE" }, "delete section");
+      if (ok) {
+        setSections((prev) => prev.filter((x) => x.id !== id));
+        setTasks((prev) => prev.map((t) => (t.sectionId === id ? { ...t, sectionId: null } : t)));
+      }
+      return Boolean(ok);
+    },
+    [send],
+  );
+
   const updateLabel = useCallback(
     async (id: string, patch: Partial<Omit<TaskLabel, "id">>) => {
       const l = await send<TaskLabel>(`/api/task-labels/${id}`, json("PATCH", patch), "update label");
@@ -408,6 +454,7 @@ export function TasksProvider({ children }: { children: ReactNode }) {
       tasks,
       projects,
       labels,
+      sections,
       loaded,
       error,
       clearError,
@@ -418,12 +465,15 @@ export function TasksProvider({ children }: { children: ReactNode }) {
       reload,
       createProject,
       updateProject,
+      createSection,
+      updateSection,
+      deleteSection,
       updateLabel,
       deleteLabel,
       openCompose,
       closeCompose,
     }),
-    [tasks, projects, labels, loaded, error, clearError, create, update, toggleComplete, remove, reload, createProject, updateProject, updateLabel, deleteLabel, openCompose, closeCompose],
+    [tasks, projects, labels, sections, loaded, error, clearError, create, update, toggleComplete, remove, reload, createProject, updateProject, createSection, updateSection, deleteSection, updateLabel, deleteLabel, openCompose, closeCompose],
   );
   const composeValue = useMemo<ComposeState>(() => ({ composeOpen, composePrefill }), [composeOpen, composePrefill]);
 

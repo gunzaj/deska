@@ -123,7 +123,7 @@ export function ComposeTask() {
     if (!canSubmit || submitting.current) return;
     submitting.current = true;
     setBusy(true);
-    const t = await create({ title, description, dueDate, dueTime, tz, recurrence, priority, links, projectId, labels: labelNames, parentId: composePrefill.parentId ?? null });
+    const t = await create({ title, description, dueDate, dueTime, tz, recurrence, priority, links, projectId, labels: labelNames, parentId: composePrefill.parentId ?? null, sectionId: projectId && projectId === composePrefill.projectId ? (composePrefill.sectionId ?? null) : null });
     submitting.current = false;
     setBusy(false);
     if (!t) return;

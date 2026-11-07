@@ -13,6 +13,7 @@ function task(p: Partial<StoredTask> = {}): StoredTask {
     id: crypto.randomUUID(),
     creator: "alice",
     parentId: null,
+    sectionId: null,
     title: "Weekly report",
     description: "",
     priority: 4,

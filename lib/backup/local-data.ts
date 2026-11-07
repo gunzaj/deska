@@ -46,9 +46,10 @@ export const LOCAL_TABLES: readonly LocalTable[] = [
   { name: "views" },
   { name: "task_projects" },
   { name: "task_labels" },
+  { name: "task_sections", where: `EXISTS (SELECT 1 FROM task_projects p WHERE p.id = r.project_id)` },
   {
     name: "tasks",
-    where: `r.parent_id IS NULL OR EXISTS (SELECT 1 FROM tasks p WHERE p.id = r.parent_id) OR r.parent_id IN (SELECT (x->>'id')::uuid FROM jsonb_array_elements($1::jsonb) x)`,
+    where: `(r.parent_id IS NULL OR EXISTS (SELECT 1 FROM tasks p WHERE p.id = r.parent_id) OR r.parent_id IN (SELECT (x->>'id')::uuid FROM jsonb_array_elements($1::jsonb) x WHERE x->>'section_id' IS NULL OR EXISTS (SELECT 1 FROM task_sections s WHERE s.id = (x->>'section_id')::uuid))) AND (r.section_id IS NULL OR EXISTS (SELECT 1 FROM task_sections s WHERE s.id = r.section_id))`,
   },
   { name: "task_placements", where: `${taskExists("task_id")} AND (r.project_id IS NULL OR EXISTS (SELECT 1 FROM task_projects p WHERE p.id = r.project_id))` },
   { name: "task_links", where: taskExists("task_id") },

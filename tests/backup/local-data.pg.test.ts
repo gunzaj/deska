@@ -13,6 +13,7 @@ const count = async (table: string) => Number((await q(`SELECT count(*)::int AS 
 const T1 = "60000000-0000-0000-0000-000000000001";
 const T2 = "60000000-0000-0000-0000-000000000002";
 const P1 = "60000000-0000-0000-0000-0000000000a1";
+const S1 = "60000000-0000-0000-0000-0000000000c1";
 const L1 = "60000000-0000-0000-0000-0000000000b1";
 // Built at run time so no token-shaped literal sits in the repo (the leak guard).
 const TOKEN = ["github", "pat", "11AAAAAAA0abcdefghijklmnopqrstuvwxyz0123456789"].join("_");
@@ -20,7 +21,8 @@ const TOKEN = ["github", "pat", "11AAAAAAA0abcdefghijklmnopqrstuvwxyz0123456789"
 async function seedLocal() {
   await q(`INSERT INTO task_projects (id, owner_login, name, color) VALUES ('${P1}', 'local', 'Errands', 'blue')`);
   await q(`INSERT INTO task_labels (id, owner_login, name) VALUES ('${L1}', 'local', 'home')`);
-  await q(`INSERT INTO tasks (id, creator_login, title, due_date, priority) VALUES ('${T1}', 'local', 'Buy milk', '2026-11-09', 2)`);
+  await q(`INSERT INTO task_sections (id, owner_login, project_id, name, position, collapsed) VALUES ('${S1}', 'local', '${P1}', 'Dairy', 2.5, true)`);
+  await q(`INSERT INTO tasks (id, creator_login, title, due_date, priority, section_id) VALUES ('${T1}', 'local', 'Buy milk', '2026-11-09', 2, '${S1}')`);
   await q(`INSERT INTO tasks (id, creator_login, title, parent_id) VALUES ('${T2}', 'local', 'Oat milk', '${T1}')`);
   await q(`INSERT INTO task_placements (task_id, login, project_id, position) VALUES ('${T1}', 'local', '${P1}', 1.5)`);
   await q(`INSERT INTO task_label_links (task_id, label_id) VALUES ('${T1}', '${L1}')`);
@@ -52,6 +54,8 @@ describe("export", () => {
     expect(Object.keys(doc.tables).sort()).toEqual(LOCAL_TABLES.map((t) => t.name).sort());
     expect(doc.tables.tasks!.map((r) => r.title).sort()).toEqual(["Buy milk", "Oat milk"]);
     expect(doc.tables.task_projects).toHaveLength(1);
+    expect(doc.tables.task_sections).toMatchObject([{ id: S1, name: "Dairy", collapsed: true }]);
+    expect(doc.tables.tasks!.find((r) => r.id === T1)).toMatchObject({ section_id: S1 });
     expect(doc.tables.app_settings!.map((r) => r.key).sort()).toEqual(["github.target", "project.mapping"]);
     expect(JSON.stringify(doc)).not.toContain("Cached");
   });
@@ -81,6 +85,27 @@ describe("import", () => {
     expect(after.tables).toEqual(before.tables);
     expect((await readTarget())?.repo).toBe("acme/widgets");
     expect(await readMapping()).not.toBeNull();
+  });
+
+  it("restores sections, their order and collapsed state, and which tasks sit in them", async () => {
+    await seedLocal();
+    const before = await exportLocalData();
+    await resetEverything();
+    expect(await count("task_sections")).toBe(0);
+    await importLocalData(JSON.parse(JSON.stringify(before)));
+    expect(await q(`SELECT name, position, collapsed FROM task_sections`)).toEqual([{ name: "Dairy", position: 2.5, collapsed: true }]);
+    expect((await q(`SELECT section_id FROM tasks WHERE id = '${T1}'`))[0]!.section_id).toBe(S1);
+  });
+
+  it("skips a task whose section is in neither the file nor the database", async () => {
+    await seedLocal();
+    const doc = await exportLocalData();
+    await resetEverything();
+    doc.tables.task_sections = [];
+    await importLocalData(doc);
+    // The task in the missing section (and what hangs off it) is dropped; the unsectioned sub-task's parent is gone too.
+    expect(await count("task_sections")).toBe(0);
+    expect((await q(`SELECT id FROM tasks WHERE id = '${T1}'`))).toEqual([]);
   });
 
   it("merges by ID: existing rows stay as they are, new ones are added", async () => {

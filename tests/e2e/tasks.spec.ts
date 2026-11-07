@@ -377,3 +377,79 @@ test("a failed save rolls the optimistic change back and says so", async ({ brow
   await expect(row.getByRole("checkbox", { name: `Complete "${title}"` })).toBeVisible();
   await context.close();
 });
+
+test("sections: add one, file tasks in it, collapse it (kept after reload), move a task, delete the section", async ({ browser }) => {
+  const { context, page } = await as(browser);
+  const name = unique("Launch");
+  const project = (await (await page.request.post("/api/task-projects", { data: { name, color: "blue" } })).json()) as { id: string };
+  await page.goto(`/tasks/p/${project.id}`);
+
+  // Add a section from the page.
+  await page.getByRole("button", { name: "Add section" }).click();
+  const naming = page.getByRole("dialog", { name: "New section" });
+  await naming.getByLabel("Section name").fill("Design");
+  await naming.getByRole("button", { name: "Add section" }).click();
+  const design = page.getByRole("region", { name: "Design" });
+  await expect(design).toBeVisible();
+
+  // Add a task straight into it.
+  const title = unique("Mock the flow");
+  await design.getByRole("button", { name: "Add task to Design" }).click();
+  const dialog = page.getByRole("dialog", { name: "New task" });
+  await dialog.getByRole("combobox", { name: "Task" }).fill(title);
+  await dialog.getByRole("button", { name: "Add task" }).click();
+  const panel = page.getByRole("complementary", { name: "Task" });
+  await expect(panel.getByLabel("Title")).toHaveValue(title);
+  await expect(panel.getByRole("button", { name: "Section: Design" })).toBeVisible();
+  await expect(design.getByRole("listitem").filter({ hasText: title })).toBeVisible();
+
+  // Move it to another section from the panel.
+  await page.request.post("/api/task-sections", { data: { projectId: project.id, name: "Build" } });
+  await page.reload();
+  await page.getByRole("listitem").filter({ hasText: title }).getByRole("button", { name: title }).click();
+  await panel.getByRole("button", { name: "Section: Design" }).click();
+  await page.getByRole("option", { name: "Build" }).click();
+  const build = page.getByRole("region", { name: "Build" });
+  await expect(build.getByRole("listitem").filter({ hasText: title })).toBeVisible();
+  await expect(design.getByRole("listitem")).toHaveCount(0);
+
+  // Collapse hides the tasks, and the choice survives a reload.
+  await page.keyboard.press("Escape");
+  const saved = page.waitForResponse((r) => r.url().includes("/api/task-sections/") && r.request().method() === "PATCH");
+  await build.getByRole("button", { name: "Build", exact: true }).click();
+  await expect(build.getByRole("listitem")).toHaveCount(0);
+  expect((await saved).status()).toBe(200);
+  await page.reload();
+  await expect(page.getByRole("region", { name: "Build" }).getByRole("button", { name: "Build", exact: true })).toHaveAttribute("aria-expanded", "false");
+  await page.getByRole("region", { name: "Build" }).getByRole("button", { name: "Build", exact: true }).click();
+  await expect(page.getByRole("region", { name: "Build" }).getByRole("listitem").filter({ hasText: title })).toBeVisible();
+
+  // Deleting a section keeps its task, in the project without a section.
+  await page.getByRole("button", { name: "Section options: Build" }).click();
+  await page.getByRole("option", { name: "Delete section" }).click();
+  await page.getByRole("dialog", { name: "Delete section" }).getByRole("button", { name: "Delete section" }).click();
+  await expect(page.getByRole("region", { name: "Build" })).toHaveCount(0);
+  await expect(page.getByRole("region", { name: "Tasks" }).getByRole("listitem").filter({ hasText: title })).toBeVisible();
+  await context.close();
+});
+
+test("Completed: grouped by day; un-completing returns the task to its project and section", async ({ browser }) => {
+  const { context, page } = await as(browser);
+  const project = (await (await page.request.post("/api/task-projects", { data: { name: unique("Ops"), color: "green" } })).json()) as { id: string };
+  const section = (await (await page.request.post("/api/task-sections", { data: { projectId: project.id, name: "Waiting" } })).json()) as { id: string };
+  const title = unique("Chase the invoice");
+  const created = (await (await page.request.post("/api/tasks", { data: { title, projectId: project.id, sectionId: section.id } })).json()) as { task: { id: string } };
+  expect((await page.request.patch(`/api/tasks/${created.task.id}`, { data: { completed: true } })).status()).toBe(200);
+
+  await page.goto("/tasks/completed");
+  await expect(page.getByRole("heading", { level: 1, name: "Completed" })).toBeVisible();
+  await expect(page.getByRole("heading", { level: 2, name: /^Today/ })).toBeVisible();
+  const row = page.locator(`[data-completed-row="${created.task.id}"]`);
+  await expect(row).toContainText(title);
+  await row.getByRole("checkbox", { name: `Mark "${title}" as not done` }).click();
+  await expect(row).toHaveCount(0);
+
+  await page.goto(`/tasks/p/${project.id}`);
+  await expect(page.getByRole("region", { name: "Waiting" }).getByRole("listitem").filter({ hasText: title })).toBeVisible();
+  await context.close();
+});
