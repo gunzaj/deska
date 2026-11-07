@@ -1,10 +1,11 @@
 // What the desktop server does once it is up (instrumentation-node.ts, and
-// again after a database recovery): open the database, then run the sync and
-// the daily backup check.
+// again after a database recovery): open the database, then run the sync, the
+// daily backup check and the reminder loop.
 import { prepareDatabase } from "../db-bootstrap";
 import { backupDir, backupIfDue } from "../backup/files";
 import { setDbState } from "../backup/recover";
 import { syncService } from "../sync/service";
+import { startReminderService } from "./reminders";
 
 const CHECK_EVERY_MS = 60 * 60 * 1000;
 const SCHEDULE = Symbol.for("deska.backupSchedule");
@@ -37,8 +38,9 @@ function startBackupSchedule(): void {
   g[SCHEDULE] = timer;
 }
 
-/** The sync loop (D5) and the backup schedule (D8); both need an open database. */
+/** The sync loop (D5), the backup schedule (D8) and reminders with the Dock badge (D12); all need an open database. */
 export function startDesktopServices(): void {
   startBackupSchedule();
+  startReminderService();
   syncService().start();
 }

@@ -192,7 +192,7 @@ This reuses the Next.js app, API routes and Postgres SQL almost as-is. **[Defaul
 - **Per-launch secret:** main generates 256 random bits, passes them to the server over IPC and sets them as an `HttpOnly`, `SameSite=Strict` cookie on the window session before the first load. Every request (pages and API) without it gets 403.
 - Any `Host` other than `127.0.0.1:<port>` gets 403.
 - Origin check on mutating requests and a strict CSP (both exist in the predecessor).
-- Renderer: `contextIsolation: true`, `sandbox: true`, `nodeIntegration: false`, a minimal typed preload bridge (token entry, notifications, open-external, app info) and nothing else.
+- Renderer: `contextIsolation: true`, `sandbox: true`, `nodeIntegration: false`, a minimal typed preload bridge (token entry, notifications, open-external, app info; **[D12]** the desktop settings, closing the quick-add window and a "open this task" event) and nothing else.
 - Navigation locked to the app origin. `https://github.com/*` opens in the default browser via `shell.openExternal`. Every other external URL is blocked.
 - Nothing is loaded from the network at runtime except the GitHub API. (Automated tests may point the API at a mock on `http://127.0.0.1:<port>` with `DESKA_GITHUB_API_URL`; any other value is ignored.)
 
@@ -337,6 +337,8 @@ Add — desktop-native (D12):
 - **Native notifications** for reminders with Complete, Snooze 1 h and Tomorrow. Clicking opens the task.
 - **Dock badge:** overdue + today count (toggle).
 - Closing the window keeps Deska running so sync and reminders continue; ⌘Q quits. Opt-in launch at login.
+
+**[D12]** The desktop settings (shortcut, notifications, launch at login, Dock badge) are kept by the main process in `desktop-prefs.json` in the profile (no secret in it), not in the database, because main is what registers the shortcut, shows banners and sets the badge. Defaults: `⌃⌥Space` (`Control+Alt+Space`), notifications on, badge on, launch at login off (and only offered in the installed app). A shortcut needs Control, Command or Alt plus one key; one another app holds is refused and the previous one stays. The quick-add window is `/quick-add` in a small always-on-top frameless window: same parser as in-app quick add (dates, times, recurrence, priority, `+label`, `=Project`; `#issue` links stay text), Enter saves and closes, Esc closes. Reminders fire from a 30 s timer in the server process (`lib/desktop/reminders.ts`), whether or not a page polls; each new reminder notification is handed to main once and shown natively with Complete, Snooze 1 h and Tomorrow (clicking opens the task). Snooze adds an absolute reminder (1 h from now, or 09:00 tomorrow in the task's zone) through `POST /api/tasks/[id]/snooze`; all three actions also mark the notification read. If macOS blocks notifications, or they are off, the bell still has every reminder. The Dock badge is `dueCount` (`lib/tasks/counts.ts`, also the sidebar's Today count: open, not in an archived project, due today or earlier, sub-tasks included), refreshed within a second of a task edit and on every tick. Closing the window keeps the app running; the Dock icon opens a window again; a launch by "launch at login" opens none.
 
 Add — Todoist parity (D13):
 - **Sections** in a project (create, rename, reorder, collapse, drag tasks between them).

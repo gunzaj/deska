@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
-import { daysBetween, localToday, shiftInstant } from "./dates";
+import { addDays, daysBetween, localToday, shiftInstant, zonedToUtc } from "./dates";
+import { tasksChanged } from "../desktop/events";
 import {
   type AppNotification,
   type CreateTaskInput,
@@ -15,7 +16,7 @@ import {
   type TaskProject,
 } from "./model";
 import { fireWatchDigest } from "../watch/digest";
-import { fireReminders } from "./notify";
+import { DEFAULT_REMINDER_TIME, fireReminders } from "./notify";
 import { nextOccurrence, pinMonthDay } from "./recurrence";
 import { taskRepo, type Placement, type StoredTask, type TaskRepo } from "./repo";
 
@@ -190,6 +191,7 @@ export async function createTask(me: string, input: CreateTaskInput, resolve: Re
     }
     if (input.labels.length) await repo.setLabelLinks(task.id, me, await ensureLabels(repo, me, input.labels));
   });
+  tasksChanged();
   return { ok: true, value: await viewOne(repo, me, task) };
 }
 
@@ -203,7 +205,27 @@ const FILING_FIELDS = new Set<keyof PatchTaskInput>(["projectId", "position", "l
  */
 export async function updateTask(me: string, id: string, patch: PatchTaskInput, resolve: Resolve = noResolve): Promise<Result<Task>> {
   const repo = taskRepo();
-  return repo.locked(id, () => applyUpdate(repo, me, id, patch, resolve));
+  const r = await repo.locked(id, () => applyUpdate(repo, me, id, patch, resolve));
+  if (r.ok) tasksChanged();
+  return r;
+}
+
+/**
+ * Snooze a reminder (SPEC §4.6): remind again in an hour, or tomorrow morning
+ * (09:00 in the task's time zone). It adds an absolute reminder, so the next
+ * firing is an ordinary reminder with its own dedupe key. Reminders already in
+ * the past have fired and are dropped, so repeated snoozes don't pile up.
+ */
+export async function snoozeTask(me: string, id: string, when: "1h" | "tomorrow", now = new Date()): Promise<Result<Task>> {
+  const repo = taskRepo();
+  const t = await repo.get(id);
+  if (!t) return notFound;
+  if (t.completedAt) return bad("task is completed");
+  const tz = t.dueTz ?? (await repo.prefs(me)).tz ?? "UTC";
+  const at = when === "1h" ? new Date(now.getTime() + 60 * 60_000) : zonedToUtc(addDays(localToday(now, tz), 1), DEFAULT_REMINDER_TIME, tz);
+  const keep = t.reminders.filter((r) => r.kind === "relative" || Date.parse(r.at) > now.getTime());
+  const reminders = [...keep.map((r): ReminderInput => (r.kind === "relative" ? { kind: "relative", offsetMin: r.offsetMin } : { kind: "absolute", at: r.at })), { kind: "absolute" as const, at: at.toISOString() }].slice(-10);
+  return updateTask(me, id, { reminders });
 }
 
 async function applyUpdate(repo: TaskRepo, me: string, id: string, patch: PatchTaskInput, resolve: Resolve): Promise<Result<Task>> {
@@ -305,7 +327,7 @@ export async function deleteTask(_me: string, id: string): Promise<Result<true>>
   // The whole delete runs under the task's row lock in one transaction (S9),
   // so a crash can't leave the parent deleted and its sub-tasks or comments
   // behind, and a concurrent restore can't race it.
-  return repo.locked(id, async () => {
+  const r = await repo.locked(id, async (): Promise<Result<true>> => {
     const t = await repo.get(id);
     if (!t) return notFound;
     const now = new Date().toISOString();
@@ -321,8 +343,10 @@ export async function deleteTask(_me: string, id: string): Promise<Result<true>>
     }
     await repo.deleteCommentsForTask(id, now);
     await repo.deleteNotificationsForTask(id);
-    return { ok: true, value: true } as const;
+    return { ok: true, value: true };
   });
+  if (r.ok) tasksChanged();
+  return r;
 }
 
 // --- comments (§12.7) ------------------------------------------------------------
@@ -335,13 +359,15 @@ export async function deleteTask(_me: string, id: string): Promise<Result<true>>
  */
 export async function restoreTask(me: string, id: string): Promise<Result<Task>> {
   const repo = taskRepo();
-  return repo.locked(id, async () => {
+  const r = await repo.locked(id, async (): Promise<Result<Task>> => {
     const t = await repo.getDeleted(id);
     if (!t?.deletedAt) return notFound;
     await repo.restoreTask(id, t.deletedAt);
     const back = await repo.get(id);
     return back ? { ok: true, value: await viewOne(repo, me, back) } : notFound;
   });
+  if (r.ok) tasksChanged();
+  return r;
 }
 
 export async function listComments(_me: string, taskId: string): Promise<Result<TaskComment[]>> {

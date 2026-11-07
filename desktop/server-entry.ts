@@ -31,6 +31,9 @@ const TOKEN_STATE = Symbol.for("deska.githubTokenState");
 const DB = Symbol.for("deska.db");
 // lib/sync/service.ts, registered when the Next server starts.
 const SYNC = Symbol.for("deska.syncService");
+// lib/desktop/reminders.ts sends reminders and the badge count to main through this.
+const MAIN = Symbol.for("deska.mainChannel");
+(globalThis as Record<symbol, unknown>)[MAIN] = (msg: ServerReply) => reply(msg);
 let started = false;
 
 type SyncHandle = { request(reason: string): Promise<unknown>; stop(): Promise<void> };

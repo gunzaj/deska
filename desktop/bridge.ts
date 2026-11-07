@@ -6,12 +6,53 @@ export type AppInfo = { name: string; version: string; platform: string };
 
 export type TokenStatus = { stored: boolean; encryptionAvailable: boolean };
 
+/**
+ * Desktop-only settings (SPEC §2.4, §4.6): kept by the main process in a small
+ * file in the profile, because main is what registers the shortcut, shows the
+ * notifications and sets the Dock badge (it has no database access).
+ */
+export type DesktopPrefs = {
+  /** Electron accelerator of the global quick-add shortcut; "" = none. */
+  shortcut: string;
+  /** Native notifications for reminders (the in-app bell always works). */
+  notifications: boolean;
+  /** Open Deska when the user logs in. Off until the user opts in. */
+  launchAtLogin: boolean;
+  /** Dock badge: overdue + due today. */
+  dockBadge: boolean;
+};
+
+export const DEFAULT_SHORTCUT = "Control+Alt+Space";
+
+export const DEFAULT_DESKTOP_PREFS: DesktopPrefs = { shortcut: DEFAULT_SHORTCUT, notifications: true, launchAtLogin: false, dockBadge: true };
+
+/** What Settings shows: the prefs plus whether the shortcut is registered right now. */
+export type DesktopState = { prefs: DesktopPrefs; shortcutActive: boolean; notificationsSupported: boolean; canLaunchAtLogin: boolean };
+
+/** A native-notification action on a reminder (SPEC §4.6). */
+export type ReminderAction = "complete" | "snooze1h" | "tomorrow";
+
+/** A reminder that just fired: the server hands these to main to show. */
+export type ReminderItem = { notificationId: string; taskId: string; title: string };
+
 export interface DeskaBridge {
   appInfo(): Promise<AppInfo>;
   /** Opens a https://github.com/ URL in the default browser; anything else is refused (false). */
   openExternal(url: string): Promise<boolean>;
   /** A native notification. */
   notify(notification: { title: string; body?: string }): Promise<void>;
+  /** Desktop-only settings; `set` reports a shortcut that could not be registered. */
+  desktop: {
+    get(): Promise<DesktopState>;
+    set(patch: Partial<DesktopPrefs>): Promise<{ state: DesktopState; error: string | null }>;
+  };
+  /** The floating quick-add window (§4.6). */
+  quickAdd: {
+    /** Closes the quick-add window (Esc, or after saving). */
+    close(): Promise<void>;
+  };
+  /** A native notification asked to open this task. Returns an unsubscribe. */
+  onOpenTask(listener: (taskId: string) => void): () => void;
   token: {
     /**
      * Encrypts the GitHub token with the OS keychain and hands it to the local
@@ -33,6 +74,11 @@ export const CHANNELS = {
   tokenSet: "deska:token-set",
   tokenClear: "deska:token-clear",
   tokenStatus: "deska:token-status",
+  desktopGet: "deska:desktop-get",
+  desktopSet: "deska:desktop-set",
+  quickAddClose: "deska:quick-add-close",
+  /** main → renderer */
+  openTask: "deska:open-task",
 } as const;
 
 /** Messages from main to the server process. The secret and token travel only this way. */
@@ -54,7 +100,12 @@ export type ServerMessage =
   | { type: "stop" };
 
 /** Messages from the server process to main. */
-export type ServerReply = { type: "token-ack"; id: number };
+export type ServerReply =
+  | { type: "token-ack"; id: number }
+  /** Reminders that just fired, to show as native notifications (D12). */
+  | { type: "reminders"; items: ReminderItem[] }
+  /** The Dock badge: open tasks overdue or due today (D12). */
+  | { type: "badge"; count: number };
 
 /** What main accepts as a token: a fine-grained PAT only (SPEC §3.1). */
 export const FINE_GRAINED_TOKEN = /^github_pat_[A-Za-z0-9_]{20,250}$/;

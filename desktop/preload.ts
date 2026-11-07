@@ -11,6 +11,16 @@ const bridge: DeskaBridge = {
   appInfo: () => invoke("deska:app-info"),
   openExternal: (url) => invoke("deska:open-external", String(url)),
   notify: (n) => invoke("deska:notify", { title: String(n?.title ?? ""), body: n?.body === undefined ? undefined : String(n.body) }),
+  desktop: {
+    get: () => invoke("deska:desktop-get"),
+    set: (patch) => invoke("deska:desktop-set", patch && typeof patch === "object" ? { ...patch } : {}),
+  },
+  quickAdd: { close: () => invoke("deska:quick-add-close") },
+  onOpenTask: (listener) => {
+    const handler = (_e: unknown, id: unknown) => typeof id === "string" && listener(id);
+    ipcRenderer.on("deska:open-task", handler);
+    return () => void ipcRenderer.removeListener("deska:open-task", handler);
+  },
   token: {
     set: (token) => invoke("deska:token-set", String(token)),
     clear: () => invoke("deska:token-clear"),
@@ -18,4 +28,7 @@ const bridge: DeskaBridge = {
   },
 };
 
-contextBridge.exposeInMainWorld("deska", Object.freeze({ ...bridge, token: Object.freeze(bridge.token) }));
+contextBridge.exposeInMainWorld(
+  "deska",
+  Object.freeze({ ...bridge, token: Object.freeze(bridge.token), desktop: Object.freeze(bridge.desktop), quickAdd: Object.freeze(bridge.quickAdd) }),
+);

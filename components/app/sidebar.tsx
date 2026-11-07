@@ -19,6 +19,7 @@ import { primaryDimension, sprintOn } from "@/lib/client/explorer";
 import { UserMenu } from "./user-menu";
 import { type SidebarSection } from "@/lib/tasks/model";
 import { ColorDot, ProjectDialog } from "../tasks/organize";
+import { dueCount } from "@/lib/tasks/counts";
 import { NotificationBell, useToday } from "../tasks/notifications";
 import { PALETTE_EVENT } from "./palette";
 import { useAppData, useAppSync, useAppViews } from "./provider";
@@ -152,14 +153,13 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
   const taskCounts = useMemo(() => {
     const archived = new Set(projects.filter((p) => p.archived).map((p) => p.id));
     let inbox = 0;
-    let due = 0;
     const perProject = new Map<string, number>();
     for (const t of tasks) {
       if (t.completedAt || (t.projectId && archived.has(t.projectId))) continue;
       if (t.projectId) perProject.set(t.projectId, (perProject.get(t.projectId) ?? 0) + 1);
       if (!t.parentId) inbox++;
-      if (t.dueDate && t.dueDate <= today) due++;
     }
+    const due = dueCount(tasks, projects, today);
     return { inbox, due, perProject };
   }, [tasks, projects, today]);
   const taskNav: NavItem[] = [
