@@ -5,9 +5,12 @@ tasks and quick add, PR filters in project sources, PR views, PR tiles, PR risk 
 PR lines in release notes, PR fixtures and tests. Keep shared building blocks issues
 still use."
 
-Most of that is a `rm`. This note records the five places where PR code lives inside
+Most of that is a `rm`. This note records the places where PR code lives inside
 something issues still need, because those are the ones a reviewer would otherwise
-re-derive by hand — and two of them fail silently if they are missed.
+re-derive by hand — and several of them fail silently or at runtime if they are missed
+rather than at the compiler. The first five were written from the SPEC; items 6–11 came
+out of reading the tree against them, and every one of those is a *deletion* inside D6's
+scope, not a change to it.
 
 ## Delete whole
 
@@ -26,7 +29,7 @@ and the `pulls` section at `:221`, `components/app/sidebar-customize.tsx:14`,
 `components/app/palette.tsx:133-135`, and `components/app/shortcuts.tsx:82` — `G P`
 leaves with the routes it jumps to.
 
-## The five that are not a `rm`
+## What is not a plain `rm`
 
 1. **`lib/client/insights.ts` is an issue-side module.** Delete `waitingSince`,
    `waitingForReview`, `prsForIssues`, the `ReviewerWait` type and `WAIT_DAYS`.
@@ -59,6 +62,63 @@ leaves with the routes it jumps to.
    failure mode. The D6 acceptance test is a request-log test: a full cycle against the
    mock makes no PR-shaped call.
 
+6. **`lib/sync/pg/metadata.ts` is the one that breaks at runtime, not at the
+   compiler.** `rekey()` and `referenced()` join the PR child tables by raw SQL
+   (`:20` `pr_labels`, `:25` `pr_assignees`, `:29` `pull_requests` for the milestone
+   rekey; `:44` `prLabels`, `:48` `prAssignees` in `referenced()`), so `sql.raw` keeps
+   compiling after the tables drop and every label, user and milestone rekey throws
+   `relation "pr_labels" does not exist` on the first rename GitHub reports. Drop those
+   three branches from `rekey()` and the second half of each `Promise.all` in
+   `referenced()`, and the import at `:3` loses `prAssignees`, `prLabels`,
+   `pullRequests`. Nothing else in the file is PR-shaped.
+
+7. **`lib/views/view.ts` imports the file being deleted.** `:3` takes
+   `prViewStateSchema` from `./pr-view`; `:70` is `entity: z.enum(["issue", "pr"])`;
+   `:71` is the `pr` state field. After the deletion `entity` is `z.enum(["issue"])`
+   and `pr` is gone, or the build fails on a missing module. Four readers then lose a
+   guard that can no longer be false — `components/explorer/view-menu.tsx:102`,
+   `components/pages/views.tsx:24`, `components/pages/insights.tsx:209` and
+   `lib/watch/changes.ts:40` all test `view.entity !== "pr"`. Delete the guards with
+   the field: leaving `entity !== "pr"` in place compiles and reads as if PRs are
+   still a case.
+
+8. **Four server-side readers sit outside `lib/server/prs.ts`.** `lib/server/bodies.ts`
+   (`:7` import, `:16` the PR body by node ID, `:35-37` the deleted-PR body by number),
+   `lib/server/issue-detail.ts:259-277` (`cachedPrDetail` and `demoPrDetail`),
+   `lib/server/detail-route.ts` (`:9` import, `:14` the `pr` entry in the kind table,
+   `:43` the PR half of the stored-URL lookup), and `lib/tasks/http.ts:46` (the `#123`
+   resolver indexes PRs by number). Each keeps its issue half and loses its PR half;
+   `detail-route.ts`'s kind table narrows to `issue` alone. This is why `rm lib/server/prs.ts`
+   is not the whole job: the detail route reaches PR bodies without going through it.
+
+9. **`db/schema.ts:520-572` moves with the migration, or CI fails on drift.**
+   `pullRequests` (`:522`), `prLabels` (`:555`), `prAssignees` (`:556`),
+   `prReviewRequests` (`:557`), `prReviews` (`:562`), `prIssueLinks` (`:567`) and
+   `ghTeamMembers` (`:572`) all go, with the comment block at `:520-521`. The `ci.yml`
+   drift step runs `drizzle-kit check`, then `db:generate`, then `git diff --exit-code
+   drizzle/` — a dropped table in SQL with the Drizzle definition left behind regenerates
+   a migration and fails the build. The SQL and the TypeScript move in one commit.
+
+10. **The demo data and the in-memory store carry `pullRequests`.** `lib/demo/fixtures.ts:182`
+    builds them, `lib/demo/generate.ts:345,366,411` generates them, and
+    `lib/sync/store-memory.ts` imports (`:62`), rekeys (`:188-251`, three sites) and
+    upserts (`:318-325`) them. Once `SnapshotPullRequest` leaves `lib/sync/types.ts`
+    these stop typechecking, so they are not optional cleanup — but the fixture PR is
+    also the only PR-shaped row in the demo dataset, and deleting it is what makes
+    `I_pr` stop existing as a comment in the fixtures.
+
+11. **A whole step of the sync cycle is PR-only.** `lib/sync/cycle.ts` has
+    `scanPullRequests` (`:61-73`), `prScanDue` (`:56-58`), the `prs` field on
+    `CycleResult` (`:45`), the `prs.lastScan` arm of `scanOlderThan` (`:51`), and the
+    `prs` step itself (`:183,189-191`); `lib/sync/initial.ts:37` and
+    `lib/sync/runtime.ts:100` seed and share `prs.lastScan`. Removing the scan without
+    removing the key leaves a cursor nothing reads and nothing advances. The same edit
+    takes `SnapshotPullRequest`/`SnapshotTeam` (`lib/sync/types.ts:84-118,129-132`),
+    `pullRequests` in `lib/sync/poll.ts:7,64` and `lib/sync/read-model.ts:60,124`, the
+    fetch path (`lib/sync/live.ts:243-262`, `lib/sync/source-github.ts:6,77,153,268,311,324,461-469`),
+    and `lib/sync/pg-batch.ts:102`. This is item 5's failure mode at its widest: the
+    cycle must still poll and reconcile issues with no `pullRequests` field to pass.
+
 ## Migration
 
 `drizzle/0003_drop_prs.sql`, additive to history — `0000`–`0002` are never edited:
@@ -84,6 +144,22 @@ DROP TABLE pull_requests;
 `/pulls`, `Pull requests`, `pullRequests`, `pull_requests`, `PrStateIcon` or
 `usePrs` token left in `app/`, `components/` or `lib/`. A grep-shaped test is the only
 gate that keeps the removal from growing back, and it costs a second to run.
+
+Items 6–11 add tokens to that list, all of them in the same three directories:
+`pr_labels`, `pr_assignees`, `pull_requests`, `prViewStateSchema`, `PullRequest`
+(the capital P the snapshot types use), `SnapshotTeam`, `prs.lastScan`,
+`prScanDue`, `scanPullRequests`, `PrExplorer`. The test should also assert the seven
+tables are absent from `drizzle/0000_baseline.sql`'s live schema — a cheap
+`db:generate` + `git diff --exit-code drizzle/` in the same test is what CI already
+runs, so the test only needs to say so.
+
+Outside the grep's three directories, and so checked by the existing suites instead:
+`tests/e2e/pulls.spec.ts` (whole file), `tests/e2e/palette.spec.ts:26,29`,
+`tests/e2e/health.spec.ts:19`, `tests/e2e/warmup.ts:7` (`/pulls`, `/pulls/review`,
+`/api/prs`), and the ten suites that build snapshots with `pullRequests` —
+`tests/client/explorer.test.ts`, `tests/client/notes.test.ts`, `tests/sync/batch.pg.test.ts`,
+`cycle.test.ts`, `integrity.pg.test.ts`, `payload.pg.test.ts`, `prs.test.ts`,
+`read-model.test.ts`, `reconcile.pg.test.ts`, `store-postgres.pg.test.ts`.
 
 ## §13 — What the screens look like after the deletion
 
