@@ -11,7 +11,6 @@ import { useOpenIssue } from "../app/open-issue";
 import { useCells } from "../explorer/cells";
 import { Icon } from "../icons";
 import { Avatar, EmptyHint, OptionDot } from "../props";
-import { LinkedPrs } from "../prs/issue-prs";
 import { LinkedTasks } from "../tasks/issue-tasks";
 import { btn } from "../ui/popover";
 import { useIssueEdits } from "./edits";
@@ -279,7 +278,7 @@ export function IssueDetailView({ number, mode, onClose }: { number: number; mod
             </button>
           </div>
         )}
-        <EmptyHint icon="search" title={`Issue #${number} is not in the Deska cache`} hint="It may be a pull request, or closed for longer than the import window." />
+        <EmptyHint icon="search" title={`Issue #${number} is not in the Deska cache`} hint="It may not be an issue, or it was closed before the import window." />
       </div>
     );
   }
@@ -359,7 +358,6 @@ export function IssueDetailView({ number, mode, onClose }: { number: number; mod
 
           <LinkedTasks nodeId={issue.nodeId} number={issue.number} />
 
-          <LinkedPrs nodeId={issue.nodeId} />
           <PossibleDuplicates number={issue.number} />
 
           <SubIssues issue={issue} />

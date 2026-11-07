@@ -18,8 +18,6 @@ function source(fail: () => boolean) {
       return { kind: "not-modified" as const };
     }),
     scanProjectItems: vi.fn(async () => ({ items: [], nextCursor: null, total: 0 })),
-    scanOpenPullRequests: vi.fn(async () => []),
-    teamMembers: vi.fn(async () => []),
   };
 }
 

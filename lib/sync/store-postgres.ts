@@ -2,11 +2,10 @@
 // and the pages read, in the app's own PGlite database (SPEC §2.1). The
 // in-memory store stays the read model (see readCache()) so the view engine is
 // unchanged.
-import { and, eq, getTableColumns, inArray, isNotNull, isNull, lt, sql } from "drizzle-orm";
+import { and, eq, getTableColumns, isNotNull, isNull, lt, sql } from "drizzle-orm";
 import { getDb } from "@/db";
 import {
   fieldOptions,
-  ghTeamMembers,
   ghUsers,
   issueAssignees,
   issueLabels,
@@ -16,16 +15,10 @@ import {
   iterations,
   labels,
   milestones,
-  prAssignees,
-  prIssueLinks,
-  prLabels,
-  prReviewRequests,
-  prReviews,
   projectFields,
   projectItemDims,
   projectItems,
   projectScanSeen,
-  pullRequests,
 } from "@/db/schema";
 import type { ImportStore, StoreStats } from "./import";
 import { normDims, type ImportOptions } from "./changes";
@@ -37,8 +30,6 @@ import type {
   SnapshotIssue,
   SnapshotMilestone,
   SnapshotProjectItem,
-  SnapshotPullRequest,
-  SnapshotTeam,
 } from "./types";
 
 type Result = "inserted" | "updated" | "unchanged";
@@ -102,14 +93,6 @@ export class PostgresStore implements ImportStore, IdResolver {
 
   private txChanged<T>(fn: (tx: Tx) => Promise<T>, changed: (r: T) => boolean): Promise<T> {
     return writeTx(getDb(), fn, changed);
-  }
-
-  async upsertPullRequest(pr: SnapshotPullRequest): Promise<Result> {
-    return single(await this.tx((tx) => pgWrite.prPage(tx, [pr])));
-  }
-
-  async setTeamMembers(t: SnapshotTeam): Promise<Result> {
-    return single(await this.tx((tx) => pgWrite.teams(tx, [t])));
   }
 
   async upsertField(f: SnapshotField, projectId: string, position: number): Promise<Result> {
@@ -303,16 +286,15 @@ export class PostgresStore implements ImportStore, IdResolver {
   }
 }
 
-// The read model carries no issue or PR bodies (S5): at ~3k issues and ~2.6k
-// PRs they were several MB per instance, rebuilt in the request path. The
+// The read model carries no issue bodies (S5): at a few thousand issues
+// they were several MB per instance, rebuilt in the request path. The
 // panels read one body at a time (lib/server/bodies.ts).
 const { body: _issueBody, ...issueColumns } = getTableColumns(issues);
-const { body: _prBody, ...prColumns } = getTableColumns(pullRequests);
 
 /** Hydrate the in-memory read model from Postgres for the app to render. */
 export async function readSnapshot(): Promise<FullSnapshot> {
   const db = getDb();
-  const [fields, types, labelRows, milestoneRows, userRows, issueRows, itemRows, prRows, teamRows] = await Promise.all([
+  const [fields, types, labelRows, milestoneRows, userRows, issueRows, itemRows] = await Promise.all([
     // A field GitHub no longer lists (deleted) stays out: a mapping to it is "missing" (§4.1).
     db.select().from(projectFields).where(isNull(projectFields.missingAt)),
     db.select().from(issueTypes),
@@ -332,31 +314,7 @@ export async function readSnapshot(): Promise<FullSnapshot> {
       .from(projectItems)
       .innerJoin(issues, eq(issues.id, projectItems.issueId))
       .where(eq(issues.deleted, false)),
-    db.select(prColumns).from(pullRequests).where(eq(pullRequests.deleted, false)),
-    db.select().from(ghTeamMembers),
   ]);
-  const prIds = prRows.map((p) => p.id);
-  const [prLabelRows, prAssigneeRows, prRequestRows, prReviewRows, prLinkRows] = prIds.length
-    ? await Promise.all([
-        db.select().from(prLabels).where(inArray(prLabels.prId, prIds)),
-        db.select().from(prAssignees).where(inArray(prAssignees.prId, prIds)),
-        db.select().from(prReviewRequests).where(inArray(prReviewRequests.prId, prIds)),
-        db.select().from(prReviews).where(inArray(prReviews.prId, prIds)),
-        db.select().from(prIssueLinks).where(inArray(prIssueLinks.prId, prIds)),
-      ])
-    : [[], [], [], [], []];
-  const group = <T extends { prId: string }, V>(rows: T[], f: (r: T) => V) => {
-    const m = new Map<string, V[]>();
-    for (const r of rows) m.set(r.prId, [...(m.get(r.prId) ?? []), f(r)]);
-    return m;
-  };
-  const prLabelsBy = group(prLabelRows, (r) => r.labelId);
-  const prAssigneesBy = group(prAssigneeRows, (r) => r.ghUserId);
-  const prRequestsBy = group(prRequestRows, (r) => ({ kind: r.reviewerKind === "team" ? ("team" as const) : ("user" as const), reviewer: r.reviewer }));
-  const prReviewsBy = group(prReviewRows, (r) => ({ author: r.authorLogin, state: r.state, submittedAt: r.submittedAt?.toISOString() ?? null }));
-  const prLinksBy = group(prLinkRows, (r) => r.issueNodeId);
-  const teamsBy = new Map<string, string[]>();
-  for (const t of teamRows) teamsBy.set(t.teamSlug, [...(teamsBy.get(t.teamSlug) ?? []), t.login]);
   // Options and iterations GitHub no longer lists stay out (S6): views that
   // use them show "missing option".
   const optionRows = fields.length ? await db.select().from(fieldOptions).where(isNull(fieldOptions.missingAt)) : [];
@@ -447,34 +405,6 @@ export async function readSnapshot(): Promise<FullSnapshot> {
         labelIds: labelsBy.get(i.id) ?? [],
         assigneeIds: assigneesBy.get(i.id) ?? [],
       })),
-    pullRequests: prRows
-      .sort((a, b) => a.number - b.number)
-      .map((p) => ({
-        nodeId: p.ghNodeId,
-        number: p.number,
-        title: p.title,
-        state: p.state === "merged" ? "merged" : p.state === "closed" ? "closed" : "open",
-        isDraft: p.isDraft,
-        authorLogin: p.authorLogin,
-        url: p.url,
-        headRef: p.headRef,
-        baseRef: p.baseRef,
-        reviewDecision: p.reviewDecision,
-        checksState: p.checksState,
-        milestoneId: p.milestoneId,
-        additions: p.additions,
-        deletions: p.deletions,
-        createdAt: p.createdAt.toISOString(),
-        updatedAt: p.updatedAt.toISOString(),
-        closedAt: p.closedAt?.toISOString() ?? null,
-        mergedAt: p.mergedAt?.toISOString() ?? null,
-        labelIds: prLabelsBy.get(p.id) ?? [],
-        assigneeIds: prAssigneesBy.get(p.id) ?? [],
-        reviewRequests: prRequestsBy.get(p.id) ?? [],
-        reviews: prReviewsBy.get(p.id) ?? [],
-        closingIssueNodeIds: prLinksBy.get(p.id) ?? [],
-      })),
-    teams: [...teamsBy.entries()].map(([slug, members]) => ({ slug, members })),
     projectItems: itemRows
       .filter((p) => p.ghItemId != null && p.issueNodeId != null)
       .sort((a, b) => a.ghItemId!.localeCompare(b.ghItemId!))

@@ -115,8 +115,6 @@ export function fakeGitHub(opts: { extra?: number; pageSize?: number } = {}) {
           return { kind: "changed", issues: rows, items: [], etag: "", since: newest };
         },
         scanProjectItems: (cursor) => gh.scanProjectItems(cursor),
-        scanOpenPullRequests: async () => [],
-        teamMembers: async () => [],
       };
     },
     reconcileSource(): ReconcileSource {
@@ -127,7 +125,7 @@ export function fakeGitHub(opts: { extra?: number; pageSize?: number } = {}) {
           return { projectId: fx.projectId, fields: fx.fields, issueTypes: fx.issueTypes, labels: fx.labels, milestones: fx.milestones };
         },
         async listOpenNodeIds() {
-          return { issues: gh.issues.filter((i) => i.state === "open").map((i) => i.nodeId), pullRequests: [] };
+          return { issues: gh.issues.filter((i) => i.state === "open").map((i) => i.nodeId) };
         },
         async fetchNodes(ids) {
           return new Map<string, FetchedNode | null>(ids.map((id) => [id, null]));

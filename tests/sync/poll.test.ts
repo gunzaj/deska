@@ -32,14 +32,11 @@ describe("polling without a cursor (S2)", () => {
     const source = {
       checkChanges: vi.fn(async () => ({ kind: "not-modified" as const })),
       scanProjectItems: vi.fn(async () => ({ items: [], nextCursor: null, total: 0 })),
-      scanOpenPullRequests: vi.fn(async () => []),
-      teamMembers: vi.fn(async () => []),
     };
     const res = await runSyncCycle(source, new MemoryStore(), new MapKv(), { forceProjectScan: true });
-    expect(res).toEqual({ issues: { applied: false, reason: "needs-initial-import" }, project: null, prs: null });
+    expect(res).toEqual({ issues: { applied: false, reason: "needs-initial-import" }, project: null });
     expect(source.checkChanges).not.toHaveBeenCalled();
     expect(source.scanProjectItems).not.toHaveBeenCalled();
-    expect(source.scanOpenPullRequests).not.toHaveBeenCalled();
   });
 });
 

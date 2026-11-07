@@ -45,12 +45,6 @@ vi.mock("@/lib/sync/source-github", async (orig) => {
       calls.scan++;
       return { items: [], nextCursor: null, total: 0 };
     }
-    async scanOpenPullRequests() {
-      return [];
-    }
-    async teamMembers() {
-      return [];
-    }
   }
   return { ...real, GitHubSource: FakeGitHubSource };
 });
@@ -74,7 +68,7 @@ vi.mock("@/lib/sync/live", async (orig) => {
   }
   const reconcileSource = () => ({
     fetchMetadata: async () => ({ projectId: "PVT_acme_widgets_roadmap", fields: [], issueTypes: [], labels: [], milestones: [] }),
-    listOpenNodeIds: async () => ({ issues: [], pullRequests: [] }),
+    listOpenNodeIds: async () => ({ issues: [] }),
     fetchNodes: async () => new Map(),
     repoName: "acme/widgets",
   });

@@ -4,7 +4,6 @@
 import { z } from "zod";
 import { isIsoDate, isTimeZone } from "./dates";
 import { isValidRule } from "./recurrence";
-import { prFilterSchema, type PrFilter } from "../views/pr-view";
 import { filterSchema, type Filter } from "../views/view";
 
 /** Deska's own scale (§12.1): P1 Urgent … P4 Low. Independent of project Priority. */
@@ -22,8 +21,8 @@ export type Reminder = { id: string; kind: "relative"; offsetMin: number } | { i
 
 export type Recurrence = { rule: string; text: string; fromCompletion: boolean };
 
-/** A link to a GitHub issue or PR, by node ID plus number (§12.1). */
-export type TaskLink = { kind: "issue" | "pr"; nodeId: string; number: number };
+/** A link to a GitHub issue, by node ID plus number (§12.1). */
+export type TaskLink = { kind: "issue"; nodeId: string; number: number };
 
 /** Fields every viewer of a task shares. */
 export type TaskCore = {
@@ -60,11 +59,11 @@ export type Task = TaskCore & {
 };
 
 /**
- * GitHub items a project pulls in (§12.3): issues matching `issues` and PRs
- * matching `prs`, shown live from the cache next to the project's tasks.
- * null = that kind isn't pulled in. Uses the explorers' own filter models.
+ * GitHub issues a project pulls in (§12.3): those matching `issues`, shown
+ * live from the cache next to the project's tasks. Uses the explorer's own
+ * filter model.
  */
-export type ProjectSource = { issues: Filter[] | null; prs: PrFilter[] | null };
+export type ProjectSource = { issues: Filter[] | null };
 
 export type TaskProject = { id: string; name: string; color: string; position: number; archived: boolean; source: ProjectSource | null };
 export type TaskLabel = { id: string; name: string; color: string };
@@ -177,7 +176,7 @@ const uuid = z.string().uuid();
 const name = z.string().trim().min(1, "name required").max(NAME_MAX);
 const labelNames = z.array(name).max(LABELS_MAX);
 
-// Issue/PR numbers to link; resolved against the cache by the server.
+// Issue numbers to link; resolved against the cache by the server.
 const linkNumbers = z.array(z.number().int().positive()).max(LINKS_MAX);
 
 export const createTaskSchema = z
@@ -249,10 +248,10 @@ const color = z.enum(TASK_COLORS);
 
 export const projectInputSchema = z.object({ name, color: color.default("grey") });
 export const projectSourceSchema = z
-  .object({ issues: z.array(filterSchema).max(30).nullable(), prs: z.array(prFilterSchema).max(30).nullable() })
+  .object({ issues: z.array(filterSchema).max(30).nullable() })
   .strict()
-  // Both kinds off is the same as no source.
-  .transform((s): ProjectSource | null => (s.issues || s.prs ? s : null));
+  // No issue filter is the same as no source.
+  .transform((s): ProjectSource | null => (s.issues ? s : null));
 export const projectPatchSchema = z
   .object({ name, color, position: z.number().finite(), archived: z.boolean(), source: projectSourceSchema.nullable() })
   .partial()
@@ -261,7 +260,7 @@ export const labelInputSchema = z.object({ name, color: color.default("grey") })
 export const labelPatchSchema = z.object({ name, color }).partial().strict();
 
 /** Sidebar sections a user can reorder or hide, in their default order. */
-export const SIDEBAR_SECTIONS = ["tasks", "pulls", "projects", "labels", "workspace", "views", "teams"] as const;
+export const SIDEBAR_SECTIONS = ["tasks", "projects", "labels", "workspace", "views", "teams"] as const;
 export type SidebarSection = (typeof SIDEBAR_SECTIONS)[number];
 export type SidebarLayout = { order: SidebarSection[]; hidden: SidebarSection[] };
 const sidebarSection = z.enum(SIDEBAR_SECTIONS);

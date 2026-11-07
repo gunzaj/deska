@@ -88,8 +88,8 @@ describe("PostgresTaskRepo", () => {
     const t = row({ links: [{ kind: "issue", nodeId: "I_2", number: 2 }, { kind: "issue", nodeId: "I_1", number: 1 }] });
     await repo.insert(t);
     expect((await repo.getVisible("alice", t.id))?.links.map((l) => l.number)).toEqual([2, 1]);
-    await repo.update(t.id, { links: [{ kind: "pr", nodeId: "PR_9", number: 9 }] });
-    expect((await repo.getVisible("alice", t.id))?.links).toEqual([{ kind: "pr", nodeId: "PR_9", number: 9 }]);
+    await repo.update(t.id, { links: [{ kind: "issue", nodeId: "I_9", number: 9 }] });
+    expect((await repo.getVisible("alice", t.id))?.links).toEqual([{ kind: "issue", nodeId: "I_9", number: 9 }]);
     expect((await repo.listVisible("alice")).find((x) => x.id === t.id)?.links).toHaveLength(1);
   });
 
@@ -202,7 +202,7 @@ describe("PostgresTaskRepo", () => {
     expect(await repo.prefs("pp")).toEqual({ tz: null, browserNotifications: false, sidebar: null, defaultTeam: null });
     await repo.setPrefs("pp", { tz: "Europe/Prague" });
     expect(await repo.setPrefs("pp", { browserNotifications: true })).toEqual({ tz: "Europe/Prague", browserNotifications: true, sidebar: null, defaultTeam: null });
-    const sidebar = { order: ["views" as const, "tasks" as const], hidden: ["pulls" as const] };
+    const sidebar = { order: ["views" as const, "tasks" as const], hidden: ["labels" as const] };
     await repo.setPrefs("pp", { sidebar });
     expect((await repo.prefs("pp")).sidebar).toEqual(sidebar);
     expect((await repo.setPrefs("pp", { defaultTeam: "c0000001" })).defaultTeam).toBe("c0000001");

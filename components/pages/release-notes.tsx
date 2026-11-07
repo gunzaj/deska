@@ -7,20 +7,18 @@ import { labelsInUse, releaseNotes, shippedIssues } from "@/lib/client/notes";
 import type { ClientRelease } from "@/lib/client/types";
 import { useAppData } from "../app/provider";
 import { Icon } from "../icons";
-import { usePrs } from "../prs/store";
 import { Dialog } from "../ui/dialog";
 import { btn } from "../ui/popover";
 import { useToast } from "../ui/toast";
 
 export function ReleaseNotesButton({ release }: { release: ClientRelease }) {
   const { data } = useAppData();
-  const { prs, loaded } = usePrs();
   const { toast } = useToast();
   const [open, setOpen] = useState(false);
   const [labelSet, setLabelSet] = useState<string[]>([]);
   const shipped = useMemo(() => shippedIssues(data.issues, release.id), [data.issues, release.id]);
   const labels = useMemo(() => labelsInUse(shipped, data.meta), [shipped, data.meta]);
-  const text = useMemo(() => releaseNotes({ release, issues: data.issues, prs, meta: data.meta, labelSet }), [release, data.issues, prs, data.meta, labelSet]);
+  const text = useMemo(() => releaseNotes({ release, issues: data.issues, meta: data.meta, labelSet }), [release, data.issues, data.meta, labelSet]);
 
   const toggle = (id: string) => setLabelSet((s) => (s.includes(id) ? s.filter((x) => x !== id) : [...s, id]));
   const copy = async () => {
@@ -43,7 +41,7 @@ export function ReleaseNotesButton({ release }: { release: ClientRelease }) {
           <div>
             <p className="text-[14px] font-semibold">Release notes · {release.title}</p>
             <p className="text-[12px] text-faint">
-              {shipped.length} issue{shipped.length === 1 ? "" : "s"} closed{loaded ? "" : " · loading pull requests…"}. Issues closed as not planned are left out.
+              {shipped.length} issue{shipped.length === 1 ? "" : "s"} closed. Issues closed as not planned are left out.
             </p>
           </div>
           <button type="button" className={btn.primary} onClick={() => void copy()} data-copy-notes>

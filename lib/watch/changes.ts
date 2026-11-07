@@ -36,8 +36,7 @@ export async function watchCoverage(login: string, watches: Watch[]): Promise<Ma
     const view = views.find((v) => v.id === w.targetId);
     coverage.set(
       keyOf(w.kind, w.targetId),
-      // A PR view has no issue field changes to report.
-      view && view.entity !== "pr" ? runView(view, { viewerLogin: login, todayIso, store }, rows).map((r) => r.nodeId) : [],
+      view ? runView(view, { viewerLogin: login, todayIso, store }, rows).map((r) => r.nodeId) : [],
     );
   }
   return coverage;

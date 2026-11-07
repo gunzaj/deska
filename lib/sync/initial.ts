@@ -16,8 +16,8 @@ export const SYNC_FULL_LOCK_WAIT_MS = 10 * 60_000;
 /**
  * Import a full snapshot, then set the cursors a later poll and the scans
  * start from: `issues.since` (newest `updatedAt` in the snapshot),
- * `sync.lastSync`, `project.lastScan` and `prs.lastScan` (the snapshot holds
- * every project item and the open PRs). Flushes the KV before returning.
+ * `sync.lastSync` and `project.lastScan` (the snapshot holds every project
+ * item). Flushes the KV before returning.
  * Callers hold the sync lock.
  */
 export async function initialImport(snapshot: FullSnapshot, store: ImportStore, kv: Kv, nowIso = new Date().toISOString()): Promise<StoreStats> {
@@ -34,7 +34,6 @@ export function seedCursors(snapshot: FullSnapshot, kv: Kv, nowIso: string): voi
   kv.set("issues.etag", "");
   kv.set("sync.lastSync", nowIso);
   kv.set("project.lastScan", nowIso);
-  kv.set("prs.lastScan", nowIso);
 }
 
 /**

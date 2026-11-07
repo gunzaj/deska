@@ -50,7 +50,6 @@ export function useOpenIssue() {
       url.searchParams.set(PEEK_PARAM, String(n));
       // One side panel at a time: opening an issue replaces an open task.
       url.searchParams.delete("task");
-      url.searchParams.delete("pr");
       if (already) window.history.replaceState(null, "", url);
       else window.history.pushState(null, "", url);
     },

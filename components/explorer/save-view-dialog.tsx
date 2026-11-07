@@ -6,7 +6,7 @@ import { Icon } from "../icons";
 import { Dialog } from "../ui/dialog";
 import { btn } from "../ui/popover";
 
-/** The dialog behind "Save view", "Duplicate" and "Rename", for issue and PR views alike (v5 4.6). */
+/** The dialog behind "Save view", "Duplicate" and "Rename". */
 export function SaveViewDialog({
   open,
   onClose,

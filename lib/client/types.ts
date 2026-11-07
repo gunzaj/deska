@@ -131,33 +131,3 @@ export type IssueDetail = {
   commentsError: string | null;
   source: "github" | "cache" | "demo";
 };
-
-/** A pull request as the PR lens shows it (SPEC §13.3). No body: fetched on open. */
-export type ClientPr = {
-  nodeId: string;
-  number: number;
-  title: string;
-  state: "open" | "closed" | "merged";
-  isDraft: boolean;
-  author: string;
-  url: string;
-  headRef: string;
-  baseRef: string;
-  reviewDecision: string | null;
-  checksState: string | null;
-  milestoneId: string | null;
-  additions: number;
-  deletions: number;
-  createdAt: string;
-  updatedAt: string;
-  closedAt: string | null;
-  mergedAt: string | null;
-  labelIds: string[];
-  assignees: string[];
-  reviewRequests: { kind: "user" | "team"; reviewer: string }[];
-  reviews: { author: string; state: string; submittedAt: string | null }[];
-  /** Node IDs of issues in this repo the PR closes. */
-  closingIssues: string[];
-};
-
-export type PrData = { prs: ClientPr[]; /** Slugs of teams the viewer is in. */ myTeams: string[] };

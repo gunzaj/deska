@@ -37,7 +37,7 @@ export const ghUsers = pgTable(
   },
   // A lookup index only, not unique: a GitHub login rename can briefly leave
   // two rows for one lowercased login, and a unique index would need a
-  // repoint-and-dedupe of every issue/PR assignee. `userId` picks one
+  // repoint-and-dedupe of every issue assignee. `userId` picks one
   // deterministically and the nightly metadata upsert keys by githubId.
   (t) => [index("gh_users_login_lower_idx").on(sql`lower(${t.login})`)],
 );
@@ -345,7 +345,7 @@ export const tasks = pgTable(
   ],
 );
 
-// A task's links to GitHub issues and PRs (SPEC §12.1). Keyed by GitHub node ID,
+// A task's links to GitHub issues (SPEC §12.1). Keyed by GitHub node ID,
 // like the read model: internal issues.id rows are recreated by a cache rebuild,
 // node IDs are not. The number is kept so a link still reads "#1234" when the
 // item has left the cache.
@@ -355,7 +355,7 @@ export const taskLinks = pgTable(
     taskId: uuid("task_id")
       .notNull()
       .references(() => tasks.id, { onDelete: "cascade" }),
-    targetKind: text("target_kind").notNull(), // issue | pr
+    targetKind: text("target_kind").notNull(), // issue (pull request links went in D6)
     targetNodeId: text("target_node_id").notNull(),
     targetNumber: integer("target_number").notNull(),
     position: integer("position").notNull().default(0),
@@ -516,60 +516,6 @@ export const taskComments = pgTable(
   },
   (t) => [index("task_comments_task_idx").on(t.taskId, t.createdAt), index("task_comments_deleted_idx").on(t.deletedAt)],
 );
-
-// --- Pull requests (SPEC §13), read-only lens. Child rows reference the PR by
-// internal id; links to issues use the issue's node ID, like task links.
-export const pullRequests = pgTable(
-  "pull_requests",
-  {
-    id: uuid("id").defaultRandom().primaryKey(),
-    ghNodeId: text("gh_node_id").notNull().unique(),
-    number: integer("number").notNull(),
-    title: text("title").notNull().default(""),
-    body: text("body"),
-    state: text("state").notNull(), // open | closed | merged
-    isDraft: boolean("is_draft").notNull().default(false),
-    authorLogin: text("author_login").notNull(),
-    url: text("url").notNull(),
-    headRef: text("head_ref").notNull().default(""),
-    baseRef: text("base_ref").notNull().default(""),
-    reviewDecision: text("review_decision"),
-    checksState: text("checks_state"),
-    milestoneId: text("milestone_id"),
-    additions: integer("additions").notNull().default(0),
-    deletions: integer("deletions").notNull().default(0),
-    createdAt: timestamp("created_at", { withTimezone: true }).notNull(),
-    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull(),
-    closedAt: timestamp("closed_at", { withTimezone: true }),
-    mergedAt: timestamp("merged_at", { withTimezone: true }),
-    /** Hash of the normalised snapshot: an identical re-import writes nothing. */
-    fingerprint: text("fingerprint").notNull(),
-    syncedAt: timestamp("synced_at", { withTimezone: true }).notNull().defaultNow(),
-    deleted: boolean("deleted").notNull().default(false),
-    /** Why `deleted` is set (S6): deleted | transferred | aged-out. */
-    deletedReason: text("deleted_reason"),
-  },
-  (t) => [index("pull_requests_state_updated_idx").on(t.state, t.updatedAt), index("pull_requests_number_idx").on(t.number)],
-);
-
-export const prLabels = pgTable("pr_labels", { prId: uuid("pr_id").notNull().references(() => pullRequests.id, { onDelete: "cascade" }), labelId: text("label_id").notNull() }, (t) => [primaryKey({ columns: [t.prId, t.labelId] })]);
-export const prAssignees = pgTable("pr_assignees", { prId: uuid("pr_id").notNull().references(() => pullRequests.id, { onDelete: "cascade" }), ghUserId: text("gh_user_id").notNull() }, (t) => [primaryKey({ columns: [t.prId, t.ghUserId] })]);
-export const prReviewRequests = pgTable(
-  "pr_review_requests",
-  { prId: uuid("pr_id").notNull().references(() => pullRequests.id, { onDelete: "cascade" }), reviewerKind: text("reviewer_kind").notNull(), reviewer: text("reviewer").notNull() },
-  (t) => [primaryKey({ columns: [t.prId, t.reviewerKind, t.reviewer] }), index("pr_review_requests_reviewer_idx").on(t.reviewer)],
-);
-export const prReviews = pgTable(
-  "pr_reviews",
-  { prId: uuid("pr_id").notNull().references(() => pullRequests.id, { onDelete: "cascade" }), authorLogin: text("author_login").notNull(), state: text("state").notNull(), submittedAt: timestamp("submitted_at", { withTimezone: true }) },
-  (t) => [primaryKey({ columns: [t.prId, t.authorLogin] })],
-);
-export const prIssueLinks = pgTable(
-  "pr_issue_links",
-  { prId: uuid("pr_id").notNull().references(() => pullRequests.id, { onDelete: "cascade" }), issueNodeId: text("issue_node_id").notNull() },
-  (t) => [primaryKey({ columns: [t.prId, t.issueNodeId] }), index("pr_issue_links_issue_idx").on(t.issueNodeId)],
-);
-export const ghTeamMembers = pgTable("gh_team_members", { teamSlug: text("team_slug").notNull(), login: text("login").notNull() }, (t) => [primaryKey({ columns: [t.teamSlug, t.login] })]);
 
 /**
  * Field change history (IMPROVEMENTS F0): what a project field or issue state

@@ -363,7 +363,7 @@ export function TaskProjectPage({ id }: { id: string }) {
                   type="button"
                   onClick={() => void updateProject(id, { source: NEW_SOURCE })}
                   className={btn.ghost}
-                  title="Show GitHub issues and pull requests that match a filter in this project"
+                  title="Show GitHub issues that match a filter in this project"
                 >
                   <Icon name="git" size={13} /> Pull in from GitHub
                 </button>

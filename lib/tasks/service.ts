@@ -41,7 +41,7 @@ export type Result<T> =
 /** Who may be assigned: a known GitHub user (gh_users) or the viewer. */
 export type Assignable = (login: string) => boolean;
 
-/** Look up an issue or PR in the cache by number. */
+/** Look up an issue in the cache by number. */
 export type Resolve = (n: number) => (TaskLink & { title: string }) | null;
 
 const noResolve: Resolve = () => null;
@@ -160,7 +160,7 @@ export async function createTask(viewer: string, input: CreateTaskInput, assigna
   const me = normLogin(viewer);
   if (input.assignee && input.assignee !== me && !assignable(input.assignee)) return bad(`unknown assignee: ${input.assignee}`);
   const { links, missing } = resolveLinks(input.links, resolve);
-  if (missing.length) return bad(`unknown issue or PR: #${missing.join(", #")}`);
+  if (missing.length) return bad(`unknown issue: #${missing.join(", #")}`);
   if (input.parentId) {
     const parent = await repo.getVisible(me, input.parentId);
     if (!parent) return bad("unknown parent task");
@@ -276,7 +276,7 @@ async function applyUpdate(
   }
   if (patch.links !== undefined) {
     const { links, missing } = resolveLinks(patch.links, resolve, prev.links);
-    if (missing.length) return { result: bad(`unknown issue or PR: #${missing.join(", #")}`) };
+    if (missing.length) return { result: bad(`unknown issue: #${missing.join(", #")}`) };
     next.links = links;
   }
   if (patch.projectId !== undefined && !(await ownProject(repo, me, patch.projectId))) return { result: bad("unknown project") };

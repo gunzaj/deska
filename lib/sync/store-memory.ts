@@ -1,11 +1,10 @@
 import { dimChanges, ITEM_FIELD_PROPS, normDims, RESTORE_WINDOW_MS, setValue, type ChangeSource, type ImportOptions, type TrackedField } from "./changes";
 import type { ImportStore, StoreStats } from "./import";
 import { newerItem } from "./item-rules";
-import { normalizePullRequest } from "./prs";
 import { fieldRow, ReadModel } from "./read-model";
 import type { IdResolver } from "./poll";
 import type { IssueRow } from "./read-model";
-import type { FullSnapshot, SnapshotField, SnapshotIssue, SnapshotProjectItem, SnapshotPullRequest, SnapshotTeam } from "./types";
+import type { FullSnapshot, SnapshotField, SnapshotIssue, SnapshotProjectItem } from "./types";
 
 function same(a: unknown, b: unknown): boolean {
   return JSON.stringify(a) === JSON.stringify(b);
@@ -23,7 +22,7 @@ export class MemoryStore extends ReadModel implements ImportStore, IdResolver {
 
   /**
    * Row by row, in the order PostgresStore writes a snapshot: metadata, issues
-   * and their relations, project items, pull requests, teams. The change
+   * and their relations, and project items. The change
    * tracking (F0) and the scan's seen list are part of the same call.
    */
   async importSnapshot(snapshot: FullSnapshot, opts: ImportOptions = {}): Promise<StoreStats> {
@@ -59,8 +58,6 @@ export class MemoryStore extends ReadModel implements ImportStore, IdResolver {
       tally(this.setIssueAssignees(i.nodeId, i.assigneeIds));
     }
     for (const p of snapshot.projectItems) tally(this.upsertProjectItem(p));
-    for (const pr of snapshot.pullRequests ?? []) tally(this.upsertPullRequest(pr));
-    for (const t of snapshot.teams ?? []) tally(this.setTeamMembers(t));
     // Every item the page listed counts as seen, including ones skipped above.
     if (opts.scanId) this.markScanSeen(opts.scanId, snapshot.projectItems.map((p) => p.itemId));
     return stats;
@@ -185,11 +182,6 @@ export class MemoryStore extends ReadModel implements ImportStore, IdResolver {
       const i = issue.labelIds.indexOf(fromId);
       if (i !== -1) issue.labelIds[i] = toId;
     }
-    for (const [id, pr] of this.pullRequests) {
-      if (pr.labelIds.includes(fromId)) {
-        this.pullRequests.set(id, normalizePullRequest({ ...pr, labelIds: pr.labelIds.map((l) => (l === fromId ? toId : l)) }));
-      }
-    }
   }
 
   upsertMilestone(m: { id: string; number: number; title: string; state: string; dueOn: string | null }) {
@@ -216,11 +208,6 @@ export class MemoryStore extends ReadModel implements ImportStore, IdResolver {
     for (const issue of this.issues.values()) {
       if (issue.milestoneId === fromId) issue.milestoneId = toId;
     }
-    for (const [id, pr] of this.pullRequests) {
-      if (pr.milestoneId === fromId) {
-        this.pullRequests.set(id, normalizePullRequest({ ...pr, milestoneId: toId }));
-      }
-    }
   }
 
   upsertGhUser(u: { githubId: string; login: string; avatarUrl: string | null }) {
@@ -245,11 +232,6 @@ export class MemoryStore extends ReadModel implements ImportStore, IdResolver {
     for (const issue of this.issues.values()) {
       const i = issue.assigneeIds.indexOf(fromId);
       if (i !== -1) issue.assigneeIds[i] = toId;
-    }
-    for (const [id, pr] of this.pullRequests) {
-      if (pr.assigneeIds.includes(fromId)) {
-        this.pullRequests.set(id, normalizePullRequest({ ...pr, assigneeIds: pr.assigneeIds.map((a) => (a === fromId ? toId : a)) }));
-      }
     }
   }
 
@@ -312,26 +294,6 @@ export class MemoryStore extends ReadModel implements ImportStore, IdResolver {
     this.record(nodeId, "assignees", setValue(row.assigneeIds), setValue(assigneeIds));
     row.assigneeIds = [...assigneeIds];
     return "updated" as const;
-  }
-
-  upsertPullRequest(pr: SnapshotPullRequest) {
-    const prev = this.pullRequests.get(pr.nodeId);
-    const next = normalizePullRequest(structuredClone(pr));
-    if (!prev) {
-      this.pullRequests.set(pr.nodeId, next);
-      return "inserted" as const;
-    }
-    if (same(prev, next)) return "unchanged" as const;
-    this.pullRequests.set(pr.nodeId, next);
-    return "updated" as const;
-  }
-
-  setTeamMembers(t: SnapshotTeam) {
-    const next = [...new Set(t.members.map((m) => m.toLowerCase()))].sort();
-    const prev = this.teams.get(t.slug);
-    if (same(prev, next)) return "unchanged" as const;
-    this.teams.set(t.slug, next);
-    return prev ? ("updated" as const) : ("inserted" as const);
   }
 
   private scanSeen = new Map<string, Set<string>>();

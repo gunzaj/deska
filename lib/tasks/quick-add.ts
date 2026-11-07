@@ -32,7 +32,7 @@ export type ParseContext = {
   projects?: readonly string[];
   /** Assignable logins (lowercase). */
   users?: readonly string[];
-  /** Whether `#n` is a known issue or PR. */
+  /** Whether `#n` is a known issue. */
   hasItem?: (n: number) => boolean;
   /** `owner/name`, for pasted URLs. */
   repo?: string;
@@ -243,7 +243,7 @@ export function parseQuickAdd(input: string, ctx: ParseContext): Parsed {
   take(
     "link",
     [
-      ...scan(input, new RegExp(`${START}https?://github\\.com/${repo}/(?:issues|pull)/(\\d+)[^\\s]*`, "i"), (m) => Number(m(1))),
+      ...scan(input, new RegExp(`${START}https?://github\\.com/${repo}/issues/(\\d+)[^\\s]*`, "i"), (m) => Number(m(1))),
       ...scan(input, new RegExp(`${START}#(\\d+)${END}`), (m) => Number(m(1))),
     ],
     (m) => {

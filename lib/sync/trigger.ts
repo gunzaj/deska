@@ -1,5 +1,5 @@
 // One sync run under the lock: the first import while the cache has none, else
-// a cycle (issue change check, project and PR scans when due) and the daily
+// a cycle (issue change check, project scan when due) and the daily
 // reconcile when due. The in-process sync service (lib/sync/service.ts) calls
 // it on an interval, on launch, on wake and on "Sync now"; "Sync now" is
 // throttled so pressing it repeatedly can't run scan after scan.

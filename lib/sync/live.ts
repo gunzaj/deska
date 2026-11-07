@@ -235,7 +235,7 @@ export class GitHubImportSource implements ImportSource {
     const issues: SnapshotIssue[] = [];
     const users = new Map<string, GhUser>();
     for (const i of raw) {
-      // The issues endpoint lists PRs too.
+      // The issues endpoint lists pull requests too; Deska skips them (D6).
       if (i.pull_request) continue;
       issues.push(restIssue(i, typeIdByName));
       // Assignees who are no longer assignable still appear on issues.
@@ -303,8 +303,8 @@ export async function fetchLiveSnapshot(token: string): Promise<FullSnapshot> {
     }
   }
 
-  // PRs report labels, assignees and milestones by name, login and number;
-  // map them onto the IDs this snapshot uses (REST IDs, as for issues).
+  // GraphQL reports labels, assignees and milestones by name, login and
+  // number; map them onto the IDs this snapshot uses (REST IDs, as for issues).
   const labelIdByName = new Map(labels.map((l) => [l.name.toLowerCase(), l.id]));
   const userIdByLogin = new Map(ghUsers.map((u) => [u.login.toLowerCase(), u.githubId]));
   const source = new GitHubSource(
@@ -326,7 +326,7 @@ export async function fetchLiveSnapshot(token: string): Promise<FullSnapshot> {
 
   // Assignees who are no longer assignable (ex-members, outside collaborators)
   // still appear on issues; without a user row they rendered as numeric IDs.
-  // Add them to the login -> ID map too: a PR assignee who is not in
+  // Add them to the login -> ID map too: an assignee who is not in
   // `listAssignees` must resolve to their githubId, not be keyed by login (F9).
   const knownUsers = new Set(ghUsers.map((u) => u.githubId));
   for (const u of extraAssignees.values()) {
@@ -342,15 +342,6 @@ export async function fetchLiveSnapshot(token: string): Promise<FullSnapshot> {
     seen.has(p.issueNodeId),
   );
 
-  // PRs (SPEC §13.1): every open one, plus those closed or merged within the
-  // same window as issues; then the members of teams asked to review.
-  const cutoffIso = new Date(cutoff).toISOString();
-  const pullRequests = [
-    ...(await source.listPullRequests(["OPEN"])),
-    ...(await source.listPullRequests(["CLOSED", "MERGED"], cutoffIso)),
-  ];
-  const teams = await source.teamMembers(pullRequests.flatMap((p) => p.reviewRequests.filter((r) => r.kind === "team").map((r) => r.reviewer)));
-
   return {
     projectId,
     fields,
@@ -360,8 +351,6 @@ export async function fetchLiveSnapshot(token: string): Promise<FullSnapshot> {
     ghUsers,
     issues,
     projectItems,
-    pullRequests,
-    teams,
   };
 }
 

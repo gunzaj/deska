@@ -14,8 +14,6 @@ import { accessHint, AssigneePicker, DueInput, priorityLabel, PriorityPicker } f
 import { AddLinkButton, LinkChip } from "./links";
 import { ColorDot, LabelPicker, ProjectPicker } from "./organize";
 import { openTask } from "./open-task";
-import { usePrs } from "../prs/store";
-import { PrStateIcon } from "../prs/bits";
 import { useToday } from "./notifications";
 import { QuickAddInput, type SuggestFn } from "./quick-add-input";
 import { RepeatPicker } from "./schedule";
@@ -47,7 +45,6 @@ export function ComposeTask() {
   const { composeOpen, composePrefill } = useComposeState();
   const { closeCompose, create, access, projects, labels, tasks } = useTasks();
   const { data, viewer, avatarOf, byNumber } = useAppData();
-  const { prs, byNumber: prByNumber } = usePrs();
   // Links attached outside the text: the item quick add was opened from, or picked by hand.
   const [attached, setAttached] = useState<number[]>([]);
   const [text, setText] = useState("");
@@ -76,8 +73,8 @@ export function ComposeTask() {
   const activeProjects = useMemo(() => projects.filter((p) => !p.archived), [projects]);
   const projectNames = useMemo(() => activeProjects.map((p) => p.name), [activeProjects]);
   const parsed = useMemo(
-    () => parseQuickAdd(text, { today, now, ignored, users, projects: projectNames, enabled: ENABLED, hasItem: (n) => byNumber.has(n) || prByNumber.has(n) }),
-    [text, today, now, ignored, users, projectNames, byNumber, prByNumber],
+    () => parseQuickAdd(text, { today, now, ignored, users, projects: projectNames, enabled: ENABLED, hasItem: (n) => byNumber.has(n) }),
+    [text, today, now, ignored, users, projectNames, byNumber],
   );
 
   const dueDate = over.dueDate !== undefined ? over.dueDate : (parsed.dueDate ?? composePrefill.dueDate ?? null);
@@ -93,7 +90,7 @@ export function ComposeTask() {
   const assignee = rawAssignee === me ? null : rawAssignee;
   const links = [...new Set([...attached, ...parsed.links])];
   // An empty title takes the first linked item's title (§12.1).
-  const fallbackTitle = links[0] != null ? (byNumber.get(links[0])?.title ?? prByNumber.get(links[0])?.title ?? "") : "";
+  const fallbackTitle = links[0] != null ? (byNumber.get(links[0])?.title ?? "") : "";
   const title = parsed.title;
   const canSubmit = Boolean(title || fallbackTitle);
 
@@ -104,8 +101,6 @@ export function ComposeTask() {
         .map((p) => ({ id: `p:${p.id}`, label: p.name, insert: `=${p.name}`, icon: <ColorDot color={p.color} /> }));
     }
     if (trigger === "#") {
-      // Issues and PRs share GitHub's number space: a number query lists both
-      // by number; a text query lists matching issues, then PRs.
       const digits = /^\d+$/.test(q);
       const issueHits = (digits ? data.issues.filter((i) => String(i.number).startsWith(q)) : q ? searchIssues(data.issues, q, 8) : []).slice(0, 8).map((i) => ({
         n: i.number,
@@ -115,10 +110,8 @@ export function ComposeTask() {
         icon: <span className="font-mono text-[11px] text-faint">#{i.number}</span>,
         hint: i.state === "closed" ? "closed" : undefined,
       }));
-      const prHits = (digits ? prs.filter((p) => String(p.number).startsWith(q)) : q ? prs.filter((p) => p.title.toLowerCase().includes(q.toLowerCase())) : [])
-        .slice(0, 5)
-        .map((p) => ({ n: p.number, id: `pr${p.number}`, label: p.title, insert: `#${p.number}`, icon: <PrStateIcon pr={p} size={13} />, hint: `PR #${p.number}` }));
-      const items = digits ? [...issueHits, ...prHits].sort((a, b) => a.n - b.n) : [...issueHits, ...prHits];
+      // A number query lists issues by number; a text query keeps the search ranking.
+      const items = digits ? [...issueHits].sort((a, b) => a.n - b.n) : issueHits;
       return items.map(({ n: _n, ...rest }) => rest);
     }
     if (trigger === "+") {
@@ -197,7 +190,7 @@ export function ComposeTask() {
             <div className="mt-2 flex flex-wrap gap-1.5" aria-label="Attached">
               {attached.map((n) => (
                 <span key={n} className="inline-flex items-center">
-                  <LinkChip link={prByNumber.has(n) ? { kind: "pr", nodeId: prByNumber.get(n)!.nodeId, number: n } : { kind: "issue", nodeId: byNumber.get(n)?.nodeId ?? "", number: n }} compact />
+                  <LinkChip link={{ kind: "issue", nodeId: byNumber.get(n)?.nodeId ?? "", number: n }} compact />
                   <button type="button" onClick={() => setAttached((a) => a.filter((x) => x !== n))} aria-label={`Detach #${n}`} className="grid size-5 place-items-center rounded-full text-faint hover:bg-hover hover:text-fg">
                     <Icon name="x" size={11} />
                   </button>

@@ -82,8 +82,8 @@ class DbKv implements Kv {
 
 /**
  * Every key a sync cycle reads. A key missing here is never re-read from the
- * database, so after a relaunch it would read as null (the predecessor
- * rescanned every open PR on each start that way).
+ * database, so after a relaunch it would read as null (and the scan it
+ * gates would run again on every start).
  */
 const SHARED_KEYS = [
   "issues.since",
@@ -97,7 +97,6 @@ const SHARED_KEYS = [
   "project.scanCursor",
   "project.scanId",
   "project.scanStartedAt",
-  "prs.lastScan",
   "reconcile.lastRun",
   "retention.lastRun",
   ...Object.values(IMPORT_KEYS),

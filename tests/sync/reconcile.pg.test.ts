@@ -34,7 +34,6 @@ describe("nightly reconcile (Postgres)", async () => {
       fetchMetadata: vi.fn(async () => ({ projectId: snap.projectId, fields: over.fields ?? snap.fields, issueTypes: snap.issueTypes, labels: snap.labels, milestones: snap.milestones })),
       listOpenNodeIds: vi.fn(async () => ({
         issues: over.open ?? realIssues.filter((i) => i.state === "open").map((i) => i.nodeId),
-        pullRequests: (snap.pullRequests ?? []).filter((p) => p.state === "open").map((p) => p.nodeId),
       })),
       fetchNodes: vi.fn(async (ids: string[]) => new Map(ids.map((id) => [id, over.nodes?.[id] ?? null] as const))),
     };
@@ -42,7 +41,7 @@ describe("nightly reconcile (Postgres)", async () => {
 
   async function reset() {
     await getDb().execute(
-      sql`TRUNCATE issues, issue_labels, issue_assignees, project_items, project_scan_seen, field_options, iterations, project_fields, labels, milestones, gh_users, issue_types, sync_state, pull_requests, pr_labels, pr_assignees, pr_review_requests, pr_reviews, pr_issue_links, gh_team_members, tasks, task_links RESTART IDENTITY CASCADE`,
+      sql`TRUNCATE issues, issue_labels, issue_assignees, project_items, project_scan_seen, field_options, iterations, project_fields, labels, milestones, gh_users, issue_types, sync_state, tasks, task_links RESTART IDENTITY CASCADE`,
     );
     await importFull(fixtureSnapshot(), new PostgresStore());
   }
@@ -86,7 +85,7 @@ describe("nightly reconcile (Postgres)", async () => {
     await importFull(snap, new PostgresStore());
     // A second old closed issue that a task links.
     const linked = { ...snap.issues.find((i) => i.nodeId === "I_bug")!, nodeId: "I_linked", number: 150, title: "Linked old issue" };
-    await importFull({ ...snap, issues: [linked], projectItems: [], pullRequests: [] }, new PostgresStore());
+    await importFull({ ...snap, issues: [linked], projectItems: [] }, new PostgresStore());
     await getDb().execute(sql`INSERT INTO tasks (id, creator_login, title) VALUES ('00000000-0000-0000-0000-000000000001', 'alice', 'Follow up')`);
     await getDb().execute(sql`INSERT INTO task_links (task_id, target_kind, target_node_id, target_number) VALUES ('00000000-0000-0000-0000-000000000001', 'issue', 'I_linked', 150)`);
 

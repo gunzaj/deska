@@ -61,7 +61,7 @@ export type SnapshotIssue = {
   closedAt: string | null;
   labelIds: string[];
   assigneeIds: string[];
-  /** REST payloads include pull_request for PRs — those are excluded. */
+  /** The REST issues endpoint lists pull requests too; Deska skips them (D6). */
   isPullRequest?: boolean;
 };
 export type SnapshotProjectItem = {
@@ -81,42 +81,6 @@ export type SnapshotProjectItem = {
   updatedAt?: string | null;
 };
 
-/** A widgets pull request (SPEC §13). Read-only; never written back. */
-export type SnapshotPullRequest = {
-  nodeId: string;
-  number: number;
-  title: string;
-  /** Absent in the app's read model, like SnapshotIssue.body. */
-  body?: string | null;
-  state: "open" | "closed" | "merged";
-  isDraft: boolean;
-  authorLogin: string;
-  url: string;
-  headRef: string;
-  baseRef: string;
-  /** APPROVED | CHANGES_REQUESTED | REVIEW_REQUIRED | null */
-  reviewDecision: string | null;
-  /** SUCCESS | FAILURE | PENDING | ERROR | EXPECTED | null */
-  checksState: string | null;
-  milestoneId: string | null;
-  additions: number;
-  deletions: number;
-  createdAt: string;
-  updatedAt: string;
-  closedAt: string | null;
-  mergedAt: string | null;
-  labelIds: string[];
-  assigneeIds: string[];
-  /** Pending review requests: a user login or a team slug. */
-  reviewRequests: { kind: "user" | "team"; reviewer: string }[];
-  /** Latest review per author. */
-  reviews: { author: string; state: string; submittedAt: string | null }[];
-  /** Issues in this repo the PR closes (closingIssuesReferences). */
-  closingIssueNodeIds: string[];
-};
-
-export type SnapshotTeam = { slug: string; members: string[] };
-
 export type FullSnapshot = {
   projectId: string;
   fields: SnapshotField[];
@@ -126,14 +90,10 @@ export type FullSnapshot = {
   ghUsers: { githubId: string; login: string; avatarUrl: string | null }[];
   issues: SnapshotIssue[];
   projectItems: SnapshotProjectItem[];
-  /** Absent in snapshots taken before PR sync (P1) and in issue-only polls. */
-  pullRequests?: SnapshotPullRequest[];
-  /** Members of teams that appear in review requests (needs read:org). */
-  teams?: SnapshotTeam[];
 };
 
 /**
- * A snapshot carrying only some parts (a poll, a PR or project scan). It has no
+ * A snapshot carrying only some parts (a poll or a project scan). It has no
  * fields, so `projectId` is never written and needs no real value.
  */
 export function partialSnapshot(parts: Partial<FullSnapshot>): FullSnapshot {

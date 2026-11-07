@@ -11,7 +11,7 @@ import { fixtureSnapshot } from "../fixtures/github";
 async function truncate() {
   const db = getDb();
   await db.execute(
-    sql`TRUNCATE issues, issue_labels, issue_assignees, project_items, project_scan_seen, field_options, iterations, project_fields, labels, milestones, gh_users, issue_types, sync_state, pull_requests, pr_labels, pr_assignees, pr_review_requests, pr_reviews, pr_issue_links, gh_team_members RESTART IDENTITY CASCADE`,
+    sql`TRUNCATE issues, issue_labels, issue_assignees, project_items, project_scan_seen, field_options, iterations, project_fields, labels, milestones, gh_users, issue_types, sync_state RESTART IDENTITY CASCADE`,
   );
 }
 
@@ -111,31 +111,17 @@ describe("PostgresStore round-trip", () => {
       fromMem.map((r) => [r.number, r.statusId, r.priorityId, r.releaseId]),
     );
   });
-  it("round-trips pull requests and team members, and a re-import writes nothing", async () => {
+  it("never stores the pull request the REST issue list carries, and a re-import writes nothing (D6)", async () => {
     const store = new PostgresStore();
     const snapshot = fixtureSnapshot();
+    expect(snapshot.issues.some((i) => i.isPullRequest)).toBe(true);
     await importFull(snapshot, store);
     const read = await readSnapshot();
-    expect(read.pullRequests?.map((p) => [p.number, p.state])).toEqual([
-      [103, "open"],
-      [104, "merged"],
-      [105, "open"],
-    ]);
-    expect(read.pullRequests?.[0]?.reviewRequests).toEqual(expect.arrayContaining([{ kind: "team", reviewer: "core" }]));
-    expect(read.teams).toEqual([{ slug: "core", members: ["alice"] }]);
+    expect(read.issues.map((i) => i.number)).not.toContain(103);
+    expect(Object.keys(read)).not.toContain("pullRequests");
     const again = await importFull(snapshot, store);
     expect(again.inserted).toBe(0);
     expect(again.updated).toBe(0);
-  });
-
-  it("re-keys a PR's provisional label to the real ID", async () => {
-    const store = new PostgresStore();
-    const pr = fixtureSnapshot().pullRequests![0]!;
-    await store.upsertPullRequest({ ...pr, labelIds: [await store.labelId("pr only")] });
-    await store.upsertLabel({ id: "LA_pr", name: "pr only", color: "", description: "" });
-    const read = await readSnapshot();
-    expect(read.pullRequests?.find((p) => p.nodeId === pr.nodeId)?.labelIds).toEqual(["LA_pr"]);
-    await importFull(fixtureSnapshot(), store);
   });
 
   it("prunes project items a full scan no longer lists, and never on an empty scan", async () => {
@@ -149,11 +135,11 @@ describe("PostgresStore round-trip", () => {
     await importFull(fixtureSnapshot(), store);
   });
 
-  it("shares the PR scan time across processes", async () => {
+  it("shares the project scan time across processes", async () => {
     const { getSyncKv } = await import("@/lib/sync/runtime");
-    await getDb().execute(sql`INSERT INTO sync_state (key, value) VALUES ('prs.lastScan', '2026-10-12T12:00:00Z') ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`);
+    await getDb().execute(sql`INSERT INTO sync_state (key, value) VALUES ('project.lastScan', '2026-10-12T12:00:00Z') ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`);
     const kv = await getSyncKv();
-    expect(kv.get("prs.lastScan")).toBe("2026-10-12T12:00:00Z");
+    expect(kv.get("project.lastScan")).toBe("2026-10-12T12:00:00Z");
   });
 });
 

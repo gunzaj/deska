@@ -23,8 +23,6 @@ const ORPHAN_CHECK = sql`
     (SELECT count(*) FROM issue_labels c WHERE NOT EXISTS (SELECT 1 FROM issues p WHERE p.id = c.issue_id))
   + (SELECT count(*) FROM issue_assignees c WHERE NOT EXISTS (SELECT 1 FROM issues p WHERE p.id = c.issue_id))
   + (SELECT count(*) FROM project_items c WHERE NOT EXISTS (SELECT 1 FROM issues p WHERE p.id = c.issue_id))
-  + (SELECT count(*) FROM pr_labels c WHERE NOT EXISTS (SELECT 1 FROM pull_requests p WHERE p.id = c.pr_id))
-  + (SELECT count(*) FROM pr_reviews c WHERE NOT EXISTS (SELECT 1 FROM pull_requests p WHERE p.id = c.pr_id))
   + (SELECT count(*) FROM task_links c WHERE NOT EXISTS (SELECT 1 FROM tasks p WHERE p.id = c.task_id))
   + (SELECT count(*) FROM task_placements c WHERE NOT EXISTS (SELECT 1 FROM tasks p WHERE p.id = c.task_id))
   + (SELECT count(*) FROM notifications c WHERE NOT EXISTS (SELECT 1 FROM tasks p WHERE p.id = c.task_id))
@@ -53,7 +51,7 @@ describe("schema integrity (Postgres)", () => {
   describe("on the test database", () => {
     beforeEach(async () => {
       await getDb().execute(
-        sql`TRUNCATE issues, issue_labels, issue_assignees, project_items, project_scan_seen, field_options, iterations, project_fields, labels, milestones, gh_users, issue_types, sync_state, pull_requests, pr_labels, pr_assignees, pr_review_requests, pr_reviews, pr_issue_links, gh_team_members, tasks, task_projects RESTART IDENTITY CASCADE`,
+        sql`TRUNCATE issues, issue_labels, issue_assignees, project_items, project_scan_seen, field_options, iterations, project_fields, labels, milestones, gh_users, issue_types, sync_state, tasks, task_projects RESTART IDENTITY CASCADE`,
       );
     });
 
@@ -110,12 +108,12 @@ describe("schema integrity (Postgres)", () => {
       });
       const items = async () => (await getDb().select({ id: projectItems.ghItemId, status: projectItems.statusOpt }).from(projectItems)).map((r) => `${r.id}:${r.status}`);
       // Two in one page: the newer wins.
-      await importFull({ ...fixtureSnapshot(), issues: [], pullRequests: [], projectItems: [item("PVTI_a", "2026-10-01T00:00:00Z", "a0000001"), item("PVTI_b", "2026-10-05T00:00:00Z", "a0000002")] }, store);
+      await importFull({ ...fixtureSnapshot(), issues: [], projectItems: [item("PVTI_a", "2026-10-01T00:00:00Z", "a0000001"), item("PVTI_b", "2026-10-05T00:00:00Z", "a0000002")] }, store);
       expect(await items()).toEqual(["PVTI_b:a0000002"]);
       // An older one later is ignored; a newer one replaces the stored item.
-      await importFull({ ...fixtureSnapshot(), issues: [], pullRequests: [], projectItems: [item("PVTI_c", "2026-09-01T00:00:00Z", "a0000001")] }, store);
+      await importFull({ ...fixtureSnapshot(), issues: [], projectItems: [item("PVTI_c", "2026-09-01T00:00:00Z", "a0000001")] }, store);
       expect(await items()).toEqual(["PVTI_b:a0000002"]);
-      await importFull({ ...fixtureSnapshot(), issues: [], pullRequests: [], projectItems: [item("PVTI_d", "2026-10-10T00:00:00Z", "a0000006")] }, store);
+      await importFull({ ...fixtureSnapshot(), issues: [], projectItems: [item("PVTI_d", "2026-10-10T00:00:00Z", "a0000006")] }, store);
       expect(await items()).toEqual(["PVTI_d:a0000006"]);
     });
 

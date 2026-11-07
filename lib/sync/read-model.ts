@@ -4,8 +4,7 @@
 // PostgresStore (production writes).
 import type { FieldChange } from "./changes";
 import { effectiveMapping, missingFields, type FieldMapping, type MissingField } from "./field-map";
-import { normalizePullRequest } from "./prs";
-import type { FullSnapshot, SnapshotField, SnapshotProjectItem, SnapshotPullRequest } from "./types";
+import type { FullSnapshot, SnapshotField, SnapshotProjectItem } from "./types";
 
 export type IssueRow = {
   nodeId: string;
@@ -57,8 +56,6 @@ export class ReadModel {
   ghUsers = new Map<string, { login: string; avatarUrl: string | null }>();
   issues = new Map<string, IssueRow>();
   projectItems = new Map<string, ItemRow>();
-  pullRequests = new Map<string, SnapshotPullRequest>();
-  teams = new Map<string, string[]>();
 
   /**
    * Field change history (F0) of the in-memory demo store, which `listFieldChanges`
@@ -121,8 +118,6 @@ export class ReadModel {
       itemOf.add(p.issueNodeId);
       this.putItem({ ...p });
     }
-    for (const pr of s.pullRequests ?? []) this.pullRequests.set(pr.nodeId, normalizePullRequest(pr));
-    for (const t of s.teams ?? []) this.teams.set(t.slug, [...new Set(t.members.map((m) => m.toLowerCase()))].sort());
   }
 
   listFields() {

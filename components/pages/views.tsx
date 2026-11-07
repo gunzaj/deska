@@ -6,8 +6,6 @@ import { SYSTEM_OWNER } from "@/lib/views/ids";
 import { useAppData, useAppViews } from "../app/provider";
 import { Page } from "../app/shell";
 import { Explorer } from "../explorer/explorer";
-import { PrExplorer } from "../prs/explorer";
-import { DEFAULT_PR_STATE } from "@/lib/client/prs";
 import { Icon } from "../icons";
 import { EmptyHint } from "../props";
 
@@ -21,7 +19,6 @@ export function ViewPage({ id }: { id: string }) {
       </Page>
     );
   }
-  if (view.entity === "pr") return <PrExplorer key={view.id} title={view.name} icon={<Icon name="git" size={15} />} view={view} defaults={view.pr ?? DEFAULT_PR_STATE} />;
   const icon = view.layout === "board" ? "board" : view.layout === "table" ? "table" : "list";
   return <Explorer key={view.id} title={view.name} icon={<Icon name={icon} size={15} />} view={view} defaults={PRESETS.blank} />;
 }

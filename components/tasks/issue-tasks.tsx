@@ -10,7 +10,7 @@ import { useToday } from "./notifications";
 import { openTask } from "./open-task";
 import { useTasks } from "./store";
 
-/** "Add to tasks" for an issue or PR: quick add with it attached and an empty title (§12.1). */
+/** "Add to tasks" for an issue: quick add with it attached and an empty title (§12.1). */
 function AddToTasksButton({ number }: { number: number }) {
   const { openCompose } = useTasks();
   return (

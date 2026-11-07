@@ -4,9 +4,8 @@ import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useMemo, useState, type ReactNode } from "react";
 import { encodeState, type ExplorerState } from "@/lib/client/explorer";
-import { insightStats, parseScope, parseWaitDays, prsForIssues, scopeFilters, scopeParam, scopedIssues, waitingForReview, WAIT_DAYS, type Scope } from "@/lib/client/insights";
-import { DEFAULT_PR_STATE } from "@/lib/client/prs";
-import { longAgo, plainName } from "@/lib/client/format";
+import { insightStats, parseScope, scopeFilters, scopeParam, scopedIssues, type Scope } from "@/lib/client/insights";
+import { plainName } from "@/lib/client/format";
 import { OPEN } from "@/lib/client/presets";
 import type { ClientIssue } from "@/lib/client/types";
 import type { Filter } from "@/lib/views/view";
@@ -15,7 +14,6 @@ import { useDefaultScope } from "../app/team-scope";
 import { Page } from "../app/shell";
 import { Icon } from "../icons";
 import { Avatar, OptionDot, PriorityIcon } from "../props";
-import { usePrs } from "../prs/store";
 import { triageTabs } from "../triage/queues";
 import { dimensionOf, primaryDimension, sprintOn } from "@/lib/client/explorer";
 import type { DimKey } from "@/lib/client/types";
@@ -205,64 +203,14 @@ function ScopePicker({ scope, onChange }: { scope: Scope; onChange: (s: Scope) =
           </optgroup>
         )}
         <optgroup label="Saved view">
-          {views
-            .filter((v) => v.entity !== "pr")
-            .map((v) => (
-              <option key={v.id} value={`view:${v.id}`}>
-                {v.name}
-              </option>
-            ))}
+          {views.map((v) => (
+            <option key={v.id} value={`view:${v.id}`}>
+              {v.name}
+            </option>
+          ))}
         </optgroup>
       </select>
     </label>
-  );
-}
-
-/** Open PRs waiting for review longer than N days, by who is asked. */
-function ReviewWait({ issues, scope, days, onDays }: { issues: ClientIssue[]; scope: Scope; days: number; onDays: (n: number) => void }) {
-  const { prs, loaded } = usePrs();
-  const { data } = useAppData();
-  const now = Date.parse(`${data.meta.today}T23:59:59Z`);
-  const groups = useMemo(() => waitingForReview(scope.kind === "all" ? prs : prsForIssues(prs, issues), days, now), [prs, issues, scope.kind, days, now]);
-  const total = new Set(groups.flatMap((g) => g.prs.map((p) => p.nodeId))).size;
-  const max = Math.max(1, ...groups.map((g) => g.prs.length));
-  const href = (reviewer: string, kind: "user" | "team") =>
-    `/pulls?s=${encodeState({ ...DEFAULT_PR_STATE, filters: [{ field: "state", values: ["open"] }, { field: "requested", values: [kind === "team" ? `team:${reviewer}` : reviewer] }] } as never)}`;
-  return (
-    <section className="rounded-xl border border-line bg-surface p-4 shadow-raised lg:col-span-2" data-review-wait>
-      <div className="flex flex-wrap items-start justify-between gap-2">
-        <div>
-          <h2 className="text-[13px] font-semibold">
-            Pull requests waiting for review <span className="font-normal text-faint tabular-nums" data-review-wait-total>{loaded ? total : "…"}</span>
-          </h2>
-          <p className="mt-0.5 text-[11.5px] text-faint">
-            Open, ready PRs with a pending review request, waiting more than {days} days since they were opened or last reviewed
-            {scope.kind === "all" ? "" : " · only PRs that close issues in this scope"}
-          </p>
-        </div>
-        <div role="group" aria-label="Waiting longer than" className="flex items-center gap-1 rounded-lg bg-hover p-1 text-[12px]">
-          {WAIT_DAYS.map((n) => (
-            <button key={n} type="button" aria-pressed={days === n} onClick={() => onDays(n)} className={`h-6 rounded-md px-2 font-medium ${days === n ? "bg-surface text-fg shadow-raised" : "text-muted hover:text-fg"}`}>
-              {n} days
-            </button>
-          ))}
-        </div>
-      </div>
-      <ul className="mt-3 space-y-1">
-        {groups.map((g) => (
-          <li key={g.key} data-reviewer={g.key}>
-            <Link href={href(g.label.replace(/^team\//, ""), g.kind)} className="group grid grid-cols-[minmax(0,10rem)_1fr_2.75rem] items-center gap-2.5 rounded-md px-1 py-1 hover:bg-hover" title={`${g.label}: oldest ${longAgo(g.prs[0]!.createdAt)}`}>
-              <span className="truncate text-[12.5px] text-muted group-hover:text-fg">{g.label}</span>
-              <span className="h-3.5">
-                <span className="block h-full rounded-r-[4px] bg-series-1" style={{ width: `${(g.prs.length / max) * 100}%`, minWidth: 3 }} />
-              </span>
-              <span className="text-right text-[12px] tabular-nums text-muted">{g.prs.length}</span>
-            </Link>
-          </li>
-        ))}
-        {loaded && groups.length === 0 && <li className="py-3 text-center text-[12px] text-faint">Nobody is waiting longer than {days} days.</li>}
-      </ul>
-    </section>
   );
 }
 
@@ -281,7 +229,6 @@ export function InsightsPage() {
   );
   const tabs = useMemo(() => triageTabs(meta), [meta]);
   const sprints = sprintOn(meta);
-  const days = parseWaitDays(params.get("days"));
   const missingView = scope.kind === "view" && scopeFilters(scope, views) === null;
   const scoped = useMemo(() => scopedIssues(issues, scope, views, meta), [issues, scope, views, meta]);
   // Links keep the scope's filters, so a number opens exactly the issues it counts.
@@ -368,7 +315,6 @@ export function InsightsPage() {
               ...(s.byAssignee.get("∅") ? [{ key: "∅", label: "Unassigned", icon: <Icon name="user" size={13} className="text-faint" />, n: s.byAssignee.get("∅")!, href: href([OPEN, { field: "assignee", op: "empty" }]) }] : []),
             ]}
           />
-          <ReviewWait issues={scoped} scope={scope} days={days} onDays={(n) => setParam("days", n === 5 ? null : String(n))} />
           <BarList
             title="Open issues by label"
             note="Top 10"

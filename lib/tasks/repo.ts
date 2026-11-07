@@ -413,7 +413,7 @@ async function linksFor(ids: string[]): Promise<Map<string, TaskLink[]>> {
   const rows = await conn().select().from(taskLinks).where(inArray(taskLinks.taskId, ids)).orderBy(asc(taskLinks.position));
   for (const r of rows) {
     const list = out.get(r.taskId) ?? [];
-    list.push({ kind: r.targetKind === "pr" ? "pr" : "issue", nodeId: r.targetNodeId, number: r.targetNumber });
+    list.push({ kind: "issue", nodeId: r.targetNodeId, number: r.targetNumber });
     out.set(r.taskId, list);
   }
   return out;

@@ -4,7 +4,7 @@
 import type { Filter, View } from "../views/view";
 import { dimKey } from "../sync/field-map";
 import { runExplorer } from "./explorer";
-import type { ClientIssue, ClientMeta, ClientPr } from "./types";
+import type { ClientIssue, ClientMeta } from "./types";
 
 const DAY = 86_400_000;
 
@@ -25,7 +25,7 @@ export function scopeParam(s: Scope): string | null {
 }
 
 /** The filters a scope means. A saved view runs its filters and ignores its layout and sort. Null: a view that doesn't exist (any more). */
-export function scopeFilters(s: Scope, views: Pick<View, "id" | "filters" | "entity">[]): Filter[] | null {
+export function scopeFilters(s: Scope, views: Pick<View, "id" | "filters">[]): Filter[] | null {
   switch (s.kind) {
     case "all":
       return [];
@@ -34,13 +34,13 @@ export function scopeFilters(s: Scope, views: Pick<View, "id" | "filters" | "ent
     case "release":
       return [{ field: "release", op: "in", values: [s.id] }];
     case "view": {
-      const v = views.find((x) => x.id === s.id && x.entity !== "pr");
+      const v = views.find((x) => x.id === s.id);
       return v ? v.filters : null;
     }
   }
 }
 
-export function scopedIssues(issues: ClientIssue[], s: Scope, views: Pick<View, "id" | "filters" | "entity">[], meta: ClientMeta): ClientIssue[] {
+export function scopedIssues(issues: ClientIssue[], s: Scope, views: Pick<View, "id" | "filters">[], meta: ClientMeta): ClientIssue[] {
   const filters = scopeFilters(s, views);
   // A view scope that no longer exists matches nothing, not the whole repo.
   if (!filters) return [];
@@ -80,51 +80,4 @@ export function insightStats(issues: ClientIssue[], meta: ClientMeta, triageBase
     byLabel: count(open, (i) => i.labelIds),
     ages: AGE_BUCKETS.map((b) => ({ ...b, n: open.filter((i) => age(i.createdAt) >= b.lo && age(i.createdAt) < b.hi).length })),
   };
-}
-
-export const WAIT_DAYS = [2, 5, 10] as const;
-export const DEFAULT_WAIT_DAYS = 5;
-
-export function parseWaitDays(raw: string | null | undefined): number {
-  const n = Number(raw);
-  return (WAIT_DAYS as readonly number[]).includes(n) ? n : DEFAULT_WAIT_DAYS;
-}
-
-/**
- * When a PR started waiting for review: GitHub gives no request time, so the
- * later of its opening and the latest review on it (a new round starts after
- * a review).
- */
-export function waitingSince(p: Pick<ClientPr, "createdAt" | "reviews">): string {
-  return p.reviews.reduce((latest, r) => (r.submittedAt && r.submittedAt > latest ? r.submittedAt : latest), p.createdAt);
-}
-
-export type ReviewerWait = { key: string; label: string; kind: "user" | "team"; prs: ClientPr[] };
-
-/**
- * Open, ready (not draft) PRs with a pending review request that have waited
- * more than `days`, grouped by who is asked (a person or a team, so a PR asking
- * two reviewers is in both). Longest wait first inside each group.
- */
-export function waitingForReview(prs: ClientPr[], days: number, now: number): ReviewerWait[] {
-  const groups = new Map<string, ReviewerWait>();
-  for (const p of prs) {
-    if (p.state !== "open" || p.isDraft || !p.reviewRequests.length) continue;
-    if ((now - Date.parse(waitingSince(p))) / DAY <= days) continue;
-    for (const r of p.reviewRequests) {
-      const key = `${r.kind}:${r.reviewer}`;
-      const g = groups.get(key) ?? { key, label: r.kind === "team" ? `team/${r.reviewer}` : r.reviewer, kind: r.kind, prs: [] };
-      g.prs.push(p);
-      groups.set(key, g);
-    }
-  }
-  const out = [...groups.values()];
-  for (const g of out) g.prs.sort((a, b) => waitingSince(a).localeCompare(waitingSince(b)));
-  return out.sort((a, b) => b.prs.length - a.prs.length || a.label.localeCompare(b.label));
-}
-
-/** PRs that close at least one of these issues: how a scope narrows the PR tile. */
-export function prsForIssues(prs: ClientPr[], issues: ClientIssue[]): ClientPr[] {
-  const ids = new Set(issues.map((i) => i.nodeId));
-  return prs.filter((p) => p.closingIssues.some((n) => ids.has(n)));
 }

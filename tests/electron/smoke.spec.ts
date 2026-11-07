@@ -525,10 +525,12 @@ test.describe("desktop shell", () => {
       expect(data.issues.map((i: { n: number }) => i.n)).toContain(102);
       // The metadata followed its `link` header instead of stopping at page 1.
       expect(data.meta.labels.length).toBe(120);
-      // Reads only, all along.
+      // Reads only, all along, and never a pull request (D6).
       for (const r of github.requests) {
         expect(r.method === "GET" || (r.method === "POST" && r.path === "/graphql"), `${r.method} ${r.path}`).toBe(true);
         expect(r.query).not.toMatch(/\bmutation\b/);
+        expect(r.path).not.toMatch(/\/pulls\b/);
+        expect(r.query).not.toMatch(/pullRequest|PullRequest/);
       }
     } finally {
       await app.close();

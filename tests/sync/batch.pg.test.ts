@@ -19,7 +19,7 @@ const SCAN_RESUME = new Date(Date.now() + 120_000).toISOString();
 
 async function truncate() {
   await getDb().execute(
-    sql`TRUNCATE issues, issue_labels, issue_assignees, project_items, project_scan_seen, field_options, iterations, project_fields, labels, milestones, gh_users, issue_types, sync_state, pull_requests, pr_labels, pr_assignees, pr_review_requests, pr_reviews, pr_issue_links, gh_team_members RESTART IDENTITY CASCADE`,
+    sql`TRUNCATE issues, issue_labels, issue_assignees, project_items, project_scan_seen, field_options, iterations, project_fields, labels, milestones, gh_users, issue_types, sync_state RESTART IDENTITY CASCADE`,
   );
 }
 
@@ -102,7 +102,7 @@ describe("batched Postgres sync writes (S4)", () => {
     const issues = Array.from({ length: 150 }, (_, i) => issue(i + 1));
     // #1 is on page 1, its parent #150 on page 2.
     issues[0] = { ...issues[0]!, parentNodeId: "I_s150" };
-    await importFull({ ...fixtureSnapshot(), issues, projectItems: [], pullRequests: [] }, store);
+    await importFull({ ...fixtureSnapshot(), issues, projectItems: [] }, store);
     const read = await readSnapshot();
     expect(read.issues.find((x) => x.nodeId === "I_s1")?.parentNodeId).toBe("I_s150");
   });
@@ -115,10 +115,10 @@ describe("batched Postgres sync writes (S4)", () => {
       { ...item(1), itemId: "PVTI_move" },
       { ...item(2), itemId: "PVTI_keep" },
     ];
-    await importFull({ ...fixtureSnapshot(), issues, projectItems: seeded, pullRequests: [] }, store);
+    await importFull({ ...fixtureSnapshot(), issues, projectItems: seeded }, store);
     // X is now B's item and A has none; B's old item Y is gone.
     const moved = [{ ...item(2), itemId: "PVTI_move", statusOpt: "a0000006" }];
-    const stats = await importFull({ ...fixtureSnapshot(), issues, projectItems: moved, pullRequests: [] }, store);
+    const stats = await importFull({ ...fixtureSnapshot(), issues, projectItems: moved }, store);
     expect(stats.inserted + stats.updated).toBeGreaterThan(0);
     const read = await readSnapshot();
     const forB = read.projectItems.filter((p) => p.issueNodeId === "I_s2");
@@ -176,7 +176,7 @@ describe("batched Postgres sync writes (S4)", () => {
     await new Promise((r) => setTimeout(r, 20));
     const source = {
       scanProjectItems: vi.fn(async () => {
-        await importFull({ ...fixtureSnapshot(), issues: [], projectItems: [item(3)], pullRequests: [] }, store);
+        await importFull({ ...fixtureSnapshot(), issues: [], projectItems: [item(3)] }, store);
         return { items: [item(2)], nextCursor: null, total: 1 };
       }),
     };
@@ -191,7 +191,7 @@ describe("batched Postgres sync writes (S4)", () => {
   it("an item a scan missed and then restores is not scope added (v5 1.4)", async () => {
     const store = new PostgresStore();
     const issues = [issue(1)];
-    const base = { ...fixtureSnapshot(), issues: [...fixtureSnapshot().issues, ...issues], pullRequests: [] };
+    const base = { ...fixtureSnapshot(), issues: [...fixtureSnapshot().issues, ...issues] };
     await importFull({ ...base, projectItems: [{ ...item(1), releaseIter: "e0000023" }, fixtureSnapshot().projectItems[0]!] }, store);
 
     // A scan lists only the fixture item: PVTI_s1 is pruned (positional paging missed it).

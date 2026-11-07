@@ -29,9 +29,9 @@ export type IssuePage = {
   issues: SnapshotIssue[];
   /** Assignees on the page (some are no longer assignable). */
   users: GhUser[];
-  /** GitHub returned a full page (100 rows, PRs included): there may be more. */
+  /** GitHub returned a full page (100 rows, pull requests included): there may be more. */
   full: boolean;
-  /** The newest `updated_at` on the page, PRs included; null for an empty page. */
+  /** The newest `updated_at` on the page, pull requests included; null for an empty page. */
   maxUpdatedAt: string | null;
 };
 
@@ -168,7 +168,6 @@ export async function runFirstImport(
   kv.set("issues.etag", "");
   kv.set("sync.lastSync", nowIso);
   kv.set("project.lastScan", nowIso);
-  kv.set("prs.lastScan", nowIso);
   // A fresh import is as good as a reconcile.
   kv.set("reconcile.lastRun", nowIso);
   for (const key of Object.values(IMPORT_KEYS)) kv.set(key, "");

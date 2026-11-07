@@ -1,10 +1,9 @@
-// S5 without a database: ETag/304 on /api/data and /api/prs.
+// S5 without a database: ETag/304 on /api/data.
 import { describe, expect, it, vi } from "vitest";
 import { NextRequest } from "next/server";
 
 vi.mock("@/lib/session", () => ({ getViewerLogin: async () => "alice" }));
 const { GET: data } = await import("@/app/api/data/route");
-const { GET: prs } = await import("@/app/api/prs/route");
 const { dataEtag, etagMatches } = await import("@/lib/server/data");
 
 const req = (url: string, etag?: string) => new NextRequest(url, etag ? { headers: { "if-none-match": etag } } : undefined);
@@ -22,15 +21,6 @@ describe("ETags on the data APIs", () => {
     expect((await data(req("http://x/api/data", '"other"'))).status).toBe(200);
   });
 
-  it("/api/prs: same", async () => {
-    const first = await prs(req("http://x/api/prs"));
-    const etag = first.headers.get("etag")!;
-    expect(etag).toBeTruthy();
-    const second = await prs(req("http://x/api/prs", `W/${etag}`));
-    expect(second.status).toBe(304);
-    expect(await second.text()).toBe("");
-  });
-
   it("one build and one serialized body serve every viewer; the payload names no viewer (v5 3.7)", async () => {
     const a = await (await data(req("http://x/api/data"))).text();
     const b = await (await data(req("http://x/api/data"))).text();
@@ -42,18 +32,6 @@ describe("ETags on the data APIs", () => {
     const first = await loadClientData();
     expect(first.json()).toBe(first.json()); // the same string, not a re-serialization
     expect(first.data()).toBe(first.data());
-  });
-
-  it("/api/prs: the shared PR list is serialized once; only myTeams depends on the viewer", async () => {
-    const { prDataJson, buildPrData } = await import("@/lib/server/prs");
-    const { getDemoStore } = await import("@/lib/demo/store");
-    const store = await getDemoStore();
-    const alice = JSON.parse(prDataJson(store, "alice"));
-    const bob = JSON.parse(prDataJson(store, "someone-else"));
-    expect(alice).toEqual(buildPrData(store, "alice"));
-    expect(alice.prs).toEqual(bob.prs);
-    expect(alice.myTeams).toEqual(["core"]);
-    expect(bob.myTeams).toEqual([]);
   });
 
   it("ETag helpers", () => {

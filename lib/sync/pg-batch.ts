@@ -7,12 +7,12 @@
 // - rows are upserted with INSERT … ON CONFLICT DO UPDATE … WHERE (cols) IS
 //   DISTINCT FROM (excluded cols), so an unchanged row is not rewritten, and
 //   RETURNING (xmax = 0) tells inserted from updated;
-// - child rows (labels, assignees, PR reviewers…) are diffed: only the rows
+// - child rows (labels, assignees…) are diffed: only the rows
 //   that changed are deleted or inserted.
 // A re-import of an unchanged snapshot therefore issues no UPDATE or DELETE.
 //
 // The per-table writes live in lib/sync/pg/ (sql-helpers, metadata, issues,
-// items, prs); this file is the entry point that orders them (v5 4.5).
+// items); this file is the entry point that orders them (v5 4.5).
 import { getDb } from "@/db";
 import { projectScanSeen } from "@/db/schema";
 import type { ImportOptions } from "./changes";
@@ -23,7 +23,6 @@ import { type Db, type Result, type Tx, add, diffChildren, emptyStats, lastByKey
 import { upsertFields, upsertIssueTypes, upsertLabels, upsertMilestones, upsertUsers } from "./pg/metadata";
 import { importIssuePage, setParents, upsertIssueRows } from "./pg/issues";
 import { importItemPage } from "./pg/items";
-import { importPrPage, setTeams } from "./pg/prs";
 
 export type { Tx };
 
@@ -32,8 +31,8 @@ export type { Tx };
 /**
  * Import a snapshot (full or partial) in page-sized transactions. Metadata
  * first, then issues page by page (parent links to a parent on a later page
- * are set in a final pass), project items, PRs and teams. Pull requests in
- * the issue list are excluded, like importFull.
+ * are set in a final pass), then project items. Pull requests in the issue
+ * list are excluded, like importFull.
  */
 export async function importSnapshot(snapshot: FullSnapshot, db: Db = getDb(), opts: ImportOptions = {}): Promise<StoreStats> {
   const stats = emptyStats();
@@ -99,9 +98,6 @@ export async function importSnapshot(snapshot: FullSnapshot, db: Db = getDb(), o
       return s;
     });
   }
-  for (const rows of pages(snapshot.pullRequests ?? [])) await page((tx) => importPrPage(tx, rows));
-  const teams = snapshot.teams ?? [];
-  if (teams.length) await page((tx) => setTeams(tx, teams));
   return stats;
 }
 
@@ -133,8 +129,6 @@ export const pgWrite = {
   users: upsertUsers,
   issueRows: upsertIssueRows,
   itemPage: importItemPage,
-  prPage: importPrPage,
-  teams: setTeams,
   uuidsOf,
   diffChildren,
   setParents,

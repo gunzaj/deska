@@ -28,17 +28,11 @@ test("the scope picker narrows the numbers, and the URL keeps the scope", async 
   await context.close();
 });
 
-test("PRs waiting for review: the N-days picker is in the URL", async ({ browser }) => {
+test("Insights has no pull request tile (D6)", async ({ browser }) => {
   const { context, page } = await as(browser);
   await page.goto("/insights");
-  const tile = page.locator("[data-review-wait]");
-  await expect(tile).toBeVisible();
-  await expect(tile.getByRole("button", { name: "5 days" })).toHaveAttribute("aria-pressed", "true");
-  await tile.getByRole("button", { name: "10 days" }).click();
-  await expect(page).toHaveURL(/days=10/);
-  await expect(tile.getByRole("button", { name: "10 days" })).toHaveAttribute("aria-pressed", "true");
-  await tile.getByRole("button", { name: "2 days" }).click();
-  await expect(page).toHaveURL(/days=2/);
-  await expect(tile.locator("[data-review-wait-total]")).not.toHaveText("…");
+  await expect(page.getByLabel("Scope")).toBeVisible();
+  await expect(page.locator("[data-review-wait]")).toHaveCount(0);
+  expect(await page.locator("main").innerText()).not.toMatch(/pull request|\bPRs?\b/i);
   await context.close();
 });

@@ -7,7 +7,7 @@ import { readSnapshot } from "./sync/store-postgres";
 /**
  * How often an instance asks Postgres whether the cache changed: one cheap
  * read of `sync.generation` (S5). The old blind 30 s TTL re-read the whole
- * cache (~14 queries, every issue and PR) whether anything had changed or not.
+ * cache (~14 queries, every issue) whether anything had changed or not.
  */
 export const GENERATION_CHECK_MS = 5_000;
 
