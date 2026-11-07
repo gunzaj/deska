@@ -16,7 +16,7 @@
 | D11 | done | [#18](https://github.com/gunzaj/deska/pull/18) | Author, In project, Closed reason, Sub-issue progress filters; visible default chip; Clear all; loading/empty/error list states; no migration |
 | D12 | done | [#19](https://github.com/gunzaj/deska/pull/19) | Global quick-add shortcut + floating window, native reminder notifications (Complete / Snooze 1 h / Tomorrow), Dock badge, Settings → Desktop; no migration |
 | D13 | done | [#20](https://github.com/gunzaj/deska/pull/20) | Project sections (create/rename/reorder/collapse/delete, drag between), Completed view, ⌘K search of descriptions and comments; migration 0006 |
-| D14 | todo | | |
+| D14 | done | [#21](https://github.com/gunzaj/deska/pull/21) | Version 1.0.0, About dialog, build write switch (`DESKA_WRITES=off`), release workflow, handoff doc; draft release v1.0.0 with the .dmg; no migration |
 
 ## Decisions to review
 - D0: Fictional dataset values: Status `📋 To do` / `🚧 In progress` / `✅ Done` (+ review, QA, blocked in the demo), Priority `Low` / `Medium` / `High`, Team `Core 🧱`, `Checkout 🛒` and more, iterations `Sprint 20`–`Sprint 27` on the "Release" field, project number 7. Option IDs are made-up 8-hex values (`a0000001`…).
@@ -124,8 +124,13 @@
 - D13: ⌘K shows title matches at once from the browser and adds description/comment matches from `GET /api/tasks/search` after a 150 ms pause; every word must be somewhere in the task (SQL `ILIKE` in Postgres, with `%` and `_` literal).
 - D13: Backup import: a task whose section is in neither the file nor the database is skipped, and its sub-tasks with it (the "parent in the same file" shortcut now counts only parents that are themselves importable). Found by the new round-trip test.
 - D13: Ran this milestone on Sonnet 5.5 (§0.6 recommends it). The connection, two tasks and a triage e2e spec timing-flaked once and passed on rerun. Local e2e and `desktop:build` again needed the sandbox off (and TMPDIR in the scratchpad for the build).
+- D14: The build's write switch is a stamp (`build-info.json`, written by `desktop.mjs`, default off unless `DESKA_WRITES=on`); main passes it to the server, where `writeMode()` returns false whenever it is `off`. An unstamped build counts as off. W0 builds the rest of the §3.4 gate.
+- D14: About is a custom menu item (a message box with an "Open Releases" button), not the macOS About panel, because that panel can't hold a clickable link. The app menu is now explicit (app, Edit, View, Window).
+- D14: `hardenedRuntime: true` is set but does nothing while unsigned. The draft release v1.0.0 was created by hand with the locally built .dmg (same code as `main`), with no tag; the `release.yml` workflow (on a `v*` tag) does the same in CI and needs the tag to match `package.json`.
+- D14: Ran this milestone on Sonnet 5.5 (§0.6 recommends it). Two e2e specs timing-flaked once and passed on rerun.
 
 ## Maintainer to-do
+- [ ] Review and publish the draft release `v1.0.0` (Releases page). Publishing creates the tag. Before that, try the .dmg on a clean Mac: install, open an unsigned app (steps in the notes), connect a real read-only PAT, map your project, use the core views, restart and check tasks and settings stayed. Check About shows 1.0.0 and the Releases link.
 - [ ] Create a **read-only** fine-grained PAT: resource owner = the org, repository access = only the one repo; Repository → Metadata: Read, Repository → Issues: Read, Organization → Projects: Read, Organization → Issue types: Read (optional); nothing else. Then run the probe (report lands in `private/findings/`):
   ```bash
   read -rs GITHUB_TOKEN && export GITHUB_TOKEN
