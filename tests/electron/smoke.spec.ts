@@ -321,7 +321,7 @@ test.describe("desktop shell", () => {
       // The renderer has no Node, only the typed bridge.
       expect(await win.evaluate(() => typeof (globalThis as { require?: unknown }).require)).toBe("undefined");
       expect(await win.evaluate(() => typeof (globalThis as { process?: unknown }).process)).toBe("undefined");
-      expect(await win.evaluate(() => Object.keys(window.deska ?? {}).sort())).toEqual(["appInfo", "notify", "openExternal", "token"]);
+      expect(await win.evaluate(() => Object.keys(window.deska ?? {}).sort())).toEqual(["appInfo", "desktop", "notify", "onOpenTask", "openExternal", "quickAdd", "token"]);
       expect(await win.evaluate(() => window.deska!.appInfo())).toMatchObject({ name: "Deska", platform: "darwin" });
       // main refuses anything but a fine-grained token, with its own words.
       expect(await win.evaluate(() => window.deska!.token.set("ghp_classic").then(() => "stored", (e: Error) => e.message))).toContain("fine-grained personal access token");
@@ -715,6 +715,187 @@ test.describe("desktop shell", () => {
         expect(r.method === "GET" || (r.method === "POST" && r.path === "/graphql"), `${r.method} ${r.path}`).toBe(true);
         expect(r.query).not.toMatch(/\bmutation\b/);
       }
+    } finally {
+      await app.close();
+    }
+  });
+  // --- D12: desktop-native tasks -------------------------------------------------
+
+  /** A call to the local API from the app window. */
+  const api = (page: Page, method: string, url: string, body?: unknown) =>
+    page.evaluate(
+      async ([m, u, b]) => {
+        const r = await fetch(u as string, { method: m as string, headers: { "content-type": "application/json" }, body: b === undefined ? undefined : JSON.stringify(b) });
+        return { status: r.status, body: await r.json().catch(() => null) };
+      },
+      [method, url, body] as const,
+    );
+
+  /**
+   * Closes every window; the app keeps running (SPEC §4.6). Playwright's Electron driver
+   * (not the app: an empty Electron app with a no-op `window-all-closed` does the same)
+   * lets the process exit a few seconds after the last window closed, so no test waits
+   * with zero windows; the "no window" case is checked by hand (Maintainer to-do).
+   */
+  const closeAllWindows = (app: ElectronApplication) => app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().forEach((w) => w.close()));
+
+  /** Opens the main window again, as a Dock click does. */
+  async function reopen(app: ElectronApplication): Promise<Page> {
+    const next = app.waitForEvent("window");
+    await app.evaluate(({ app: a }) => a.emit("activate"));
+    const page = await next;
+    await page.waitForURL(/^http:\/\/127\.0\.0\.1:\d+\//, { timeout: 60_000 });
+    return page;
+  }
+
+  test("D12: the global shortcut opens the floating quick add; Enter saves and closes, Esc closes", async () => {
+    const { app, win, origin } = await launch(userData, github);
+    try {
+      await connect(win, origin);
+      expect(await app.evaluate(({ globalShortcut }) => globalShortcut.isRegistered("Control+Alt+Space"))).toBe(true);
+      // The shortcut's own callback, without the keyboard.
+      const quick = app.waitForEvent("window");
+      await app.evaluate(({ app: a }) => a.emit("deska:quick-add"));
+      const q = await quick;
+      await q.waitForURL(/\/quick-add$/, { timeout: 60_000 });
+      expect(await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().filter((w) => w.isAlwaysOnTop()).length)).toBe(1);
+      await q.getByRole("combobox", { name: "Task" }).fill("Water the plants tomorrow high");
+      await q.keyboard.press("Enter");
+      await q.waitForEvent("close", { timeout: 30_000 });
+
+      const tasks = (await api(win, "GET", "/api/tasks")).body.tasks as { title: string; dueDate: string | null; priority: number }[];
+      const saved = tasks.find((t) => t.title === "Water the plants");
+      expect(saved, "the task is saved with its parsed properties").toBeTruthy();
+      expect(saved!.dueDate).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+      expect(saved!.priority).toBe(2);
+
+      // Esc closes without saving; nothing was written.
+      const again = app.waitForEvent("window");
+      await app.evaluate(({ app: a }) => a.emit("deska:quick-add"));
+      const q2 = await again;
+      await q2.waitForURL(/\/quick-add$/, { timeout: 60_000 });
+      await q2.getByRole("combobox", { name: "Task" }).fill("Never saved");
+      // Escape closes the window under the key press itself, so the press may report a closed page.
+      await Promise.all([q2.waitForEvent("close", { timeout: 30_000 }), q2.keyboard.press("Escape").catch(() => undefined)]);
+      const after = (await api(win, "GET", "/api/tasks")).body.tasks as { title: string }[];
+      expect(after.some((t) => t.title === "Never saved")).toBe(false);
+      // It opened over the app and never gave the window a second origin.
+      expect(win.url()).toMatch(/^http:\/\/127\.0\.0\.1:\d+\//);
+    } finally {
+      await app.close();
+    }
+  });
+
+  test("D12: Settings → Desktop changes the shortcut (and keeps the old one when the new is refused), the badge and survives a relaunch", async () => {
+    const first = await launch(userData, github);
+    try {
+      await connect(first.win, first.origin);
+      await first.win.goto(`${first.origin}/settings`);
+      await expect(first.win.getByRole("heading", { name: "Desktop" })).toBeVisible({ timeout: 60_000 });
+      await expect(first.win.getByTestId("shortcut-capture")).toHaveText("⌃⌥Space");
+      // Capture a new one with the keyboard.
+      await first.win.getByTestId("shortcut-capture").click();
+      await first.win.keyboard.press("Control+Alt+K");
+      await expect(first.win.getByTestId("shortcut-capture")).toHaveText("⌃⌥K", { timeout: 15_000 });
+      const registered = (acc: string) => first.app.evaluate(({ globalShortcut }, a) => globalShortcut.isRegistered(a), acc);
+      expect(await registered("Control+Alt+K")).toBe(true);
+      expect(await registered("Control+Alt+Space")).toBe(false);
+
+      // A refused shortcut is reported and the working one stays.
+      const refused = await first.win.evaluate(() => window.deska!.desktop.set({ shortcut: "A" }));
+      expect(refused.error).toMatch(/shortcut/);
+      expect(refused.state.prefs.shortcut).toBe("Control+Alt+K");
+      expect(await registered("Control+Alt+K")).toBe(true);
+
+      await first.win.evaluate(() => window.deska!.desktop.set({ dockBadge: false }));
+    } finally {
+      await first.app.close();
+    }
+    // The prefs file keeps no secret and is read again on the next launch.
+    expect(JSON.parse(readFileSync(path.join(userData, "desktop-prefs.json"), "utf8"))).toEqual({ shortcut: "Control+Alt+K", notifications: true, launchAtLogin: false, dockBadge: false });
+    const second = await launch(userData, github);
+    try {
+      expect(await second.app.evaluate(({ globalShortcut }) => globalShortcut.isRegistered("Control+Alt+K"))).toBe(true);
+      expect(await second.win.evaluate(() => window.deska!.desktop.get().then((s) => s.prefs.dockBadge))).toBe(false);
+    } finally {
+      await second.app.close();
+    }
+  });
+
+  test("D12: the Dock badge matches Today (overdue + due today) and clears when tasks are done", async () => {
+    const { app, win, origin } = await launch(userData, github);
+    try {
+      await connect(win, origin);
+      const badge = () => app.evaluate(({ app: a }) => a.dock?.getBadge() ?? "");
+      const day = (offset: number) => new Date(Date.now() + offset * 86_400_000).toISOString().slice(0, 10);
+      await api(win, "POST", "/api/tasks", { title: "Overdue", dueDate: day(-3) });
+      const today = await api(win, "POST", "/api/tasks", { title: "Due today", dueDate: day(0) });
+      await api(win, "POST", "/api/tasks", { title: "Next week", dueDate: day(7) });
+      await expect.poll(badge, { timeout: 30_000 }).toBe("2");
+      await api(win, "PATCH", `/api/tasks/${today.body.task.id}`, { completed: true });
+      await expect.poll(badge, { timeout: 30_000 }).toBe("1");
+      // Off: no badge, whatever the count.
+      await win.evaluate(() => window.deska!.desktop.set({ dockBadge: false }));
+      await expect.poll(badge, { timeout: 15_000 }).toBe("");
+    } finally {
+      await app.close();
+    }
+  });
+
+  test("D12: a reminder becomes a native notification from the server's own timer; Complete and Snooze work; with notifications off the bell still has it", async () => {
+    const { app, win, origin, logs } = await launch(userData, github);
+    try {
+      await connect(win, origin);
+      const soon = () => new Date(Date.now() + 3_000).toISOString();
+      const a = await api(win, "POST", "/api/tasks", { title: "Reminder A", reminders: [{ kind: "absolute", at: soon() }] });
+      const b = await api(win, "POST", "/api/tasks", { title: "Reminder B", reminders: [{ kind: "absolute", at: soon() }] });
+      // Whoever fires it first (the page's poll or the server's 30 s timer), main shows it once; the
+      // timer alone is covered in tests/tasks/desktop-reminders.test.ts (no page polling at all).
+      const started = Date.now();
+      for (const t of [a, b]) {
+        await expect.poll(() => logs().includes(`reminder notification shown for task ${t.body.task.id}`), { timeout: 60_000, intervals: [1_000] }).toBe(true);
+      }
+      expect(Date.now() - started).toBeLessThan(60_000);
+      expect(logs()).not.toContain("Reminder A"); // titles never reach the log
+
+      const page = win;
+      const notes = (await api(page, "GET", "/api/notifications")).body as { list: { id: string; taskId: string }[]; unread: number };
+      const forA = notes.list.find((n) => n.taskId === a.body.task.id)!;
+      const forB = notes.list.find((n) => n.taskId === b.body.task.id)!;
+      expect(forA && forB).toBeTruthy();
+
+      // The buttons: Complete finishes A and marks its notification read; Snooze 1 h and Tomorrow add a reminder to B.
+      await app.evaluate(({ app: x }, args) => x.emit("deska:reminder-action", args.item, "complete"), { item: { notificationId: forA.id, taskId: a.body.task.id, title: "Reminder A" } });
+      await expect
+        .poll(async () => ((await api(page, "GET", `/api/tasks/${a.body.task.id}`)).body.task as { completedAt: string | null }).completedAt, { timeout: 15_000 })
+        .not.toBeNull();
+      await app.evaluate(({ app: x }, args) => x.emit("deska:reminder-action", args.item, "snooze1h"), { item: { notificationId: forB.id, taskId: b.body.task.id, title: "Reminder B" } });
+      await expect
+        .poll(async () => ((await api(page, "GET", `/api/tasks/${b.body.task.id}`)).body.task as { reminders: { at: string }[] }).reminders.map((r) => Date.parse(r.at) - Date.now()).filter((ms) => ms > 55 * 60_000 && ms <= 61 * 60_000).length, { timeout: 15_000 })
+        .toBe(1);
+      await expect.poll(async () => ((await api(page, "GET", "/api/notifications")).body as { list: { id: string; readAt: string | null }[] }).list.filter((n) => n.id === forA.id || n.id === forB.id).every((n) => n.readAt), { timeout: 15_000 }).toBe(true);
+
+      // Notifications off: the reminder still reaches the bell, but no banner is shown.
+      await page.evaluate(() => window.deska!.desktop.set({ notifications: false }));
+      const c = await api(page, "POST", "/api/tasks", { title: "Reminder C", reminders: [{ kind: "absolute", at: soon() }] });
+      await expect
+        .poll(async () => ((await api(page, "GET", "/api/notifications")).body as { list: { taskId: string }[] }).list.some((n) => n.taskId === c.body.task.id), { timeout: 60_000, intervals: [1_000] })
+        .toBe(true);
+      expect(logs()).not.toContain(`reminder notification shown for task ${c.body.task.id}`);
+    } finally {
+      await app.close();
+    }
+  });
+
+  test("D12: closing the window keeps Deska running; the Dock click brings a window back", async () => {
+    const { app, win, origin } = await launch(userData, github);
+    try {
+      await connect(win, origin);
+      await closeAllWindows(app);
+      await expect.poll(() => app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().length), { timeout: 15_000 }).toBe(0);
+      // The server is still answering: main talks to it, the window is gone.
+      const page = await reopen(app);
+      expect((await api(page, "GET", "/api/tasks")).status).toBe(200);
     } finally {
       await app.close();
     }

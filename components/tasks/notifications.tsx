@@ -167,7 +167,8 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
       if (fresh.length) {
         // Someone assigned or completed something: refresh the task list too.
         if (fresh.some((n) => n.kind !== "reminder" && n.kind !== "watch_digest")) void reload();
-        if (prefsRef.current.browserNotifications && typeof Notification !== "undefined" && Notification.permission === "granted") {
+        // The desktop app shows reminders natively from its main process (D12): a second banner from the page would double them.
+        if (!window.deska && prefsRef.current.browserNotifications && typeof Notification !== "undefined" && Notification.permission === "granted") {
           for (const n of fresh.slice(0, 3)) {
             const note = new Notification(`${KIND_TEXT[n.kind].text(n)}: ${n.title}`, { tag: n.id, body: "Deska" });
             note.onclick = () => {
@@ -212,6 +213,9 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
       }
     })();
   }, []);
+
+  // A native reminder was clicked: main asks this window to open the task (D12).
+  useEffect(() => window.deska?.onOpenTask?.((id) => openTask(id)), []);
 
   // Visibility and focus fire together when a tab returns: one poll, not two.
   usePoll(poll, { every: POLL_MS });
@@ -337,6 +341,9 @@ function NotificationSettings() {
     }
   }, [tz]);
   const permission = typeof Notification === "undefined" ? "unsupported" : Notification.permission;
+  // Read after mount: the server render has no window.deska.
+  const [desktop, setDesktop] = useState(false);
+  useEffect(() => setDesktop(Boolean(window.deska?.desktop)), []);
   const toggleBrowser = async () => {
     if (prefs.browserNotifications) return setPrefs({ browserNotifications: false });
     if (typeof Notification === "undefined") return;
@@ -345,11 +352,17 @@ function NotificationSettings() {
   };
   return (
     <div className="space-y-2 border-t border-line px-3 py-2.5 text-[12.5px]">
-      <label className="flex items-center gap-2">
-        <input type="checkbox" checked={prefs.browserNotifications} onChange={() => void toggleBrowser()} disabled={permission === "unsupported" || permission === "denied"} />
-        <span className="flex-1">Browser notifications while Deska is open</span>
-      </label>
-      {permission === "denied" && <p className="text-[11.5px] text-faint">Blocked in this browser&apos;s site settings. The bell keeps working.</p>}
+      {desktop ? (
+        <p className="text-[11.5px] text-faint">Reminders also appear as macOS notifications. Turn them off in Settings → Desktop.</p>
+      ) : (
+        <>
+          <label className="flex items-center gap-2">
+            <input type="checkbox" checked={prefs.browserNotifications} onChange={() => void toggleBrowser()} disabled={permission === "unsupported" || permission === "denied"} />
+            <span className="flex-1">Browser notifications while Deska is open</span>
+          </label>
+          {permission === "denied" && <p className="text-[11.5px] text-faint">Blocked in this browser&apos;s site settings. The bell keeps working.</p>}
+        </>
+      )}
       <label className="flex items-center gap-2">
         <span className="shrink-0 text-muted">Time zone</span>
         <select value={tz} onChange={(e) => void setPrefs({ tz: e.target.value })} className="h-7 min-w-0 flex-1 rounded-md border border-line bg-surface px-1.5 text-[12px] outline-none" aria-label="Time zone">

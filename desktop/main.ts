@@ -9,9 +9,11 @@ import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node
 import http from "node:http";
 import net from "node:net";
 import path from "node:path";
-import { app, BrowserWindow, dialog, ipcMain, Notification, powerMonitor, safeStorage, session, shell, utilityProcess, type IpcMainInvokeEvent, type UtilityProcess, type WebContents } from "electron";
-import { CHANNELS, FINE_GRAINED_TOKEN, type ServerMessage, type ServerReply, type TokenStatus } from "./bridge";
+import { app, BrowserWindow, dialog, globalShortcut, ipcMain, Notification, powerMonitor, safeStorage, session, shell, utilityProcess, type IpcMainInvokeEvent, type UtilityProcess, type WebContents } from "electron";
+import { CHANNELS, DEFAULT_DESKTOP_PREFS, FINE_GRAINED_TOKEN, type DesktopPrefs, type DesktopState, type ReminderAction, type ReminderItem, type ServerMessage, type ServerReply, type TokenStatus } from "./bridge";
 import { classifyUrl, requestAllowed } from "./navigation";
+import { parseDesktopPrefs, parsePrefsPatch } from "./prefs";
+import { actionAt, actionRequest, reminderOptions } from "./reminder-notification";
 
 const LAUNCH_COOKIE = "deska_launch"; // lib/desktop/guard.ts
 const LOOPBACK_API = /^http:\/\/127\.0\.0\.1:\d{2,5}$/; // lib/config.ts
@@ -37,6 +39,7 @@ type Server = {
 };
 
 let server: Server | null = null;
+let launchSecret = "";
 let mainWindow: BrowserWindow | null = null;
 let quitting = false;
 
@@ -145,7 +148,7 @@ async function waitForServer(origin: string, secret: string, timeoutMs: number):
 type DbStatus = { database: { ok: boolean; error: string | null }; backups: { items: { name: string; createdAt: string }[] } };
 
 /** A call to the local server's own API, with the launch secret (main is the one client that has it). */
-function localApi<T>(origin: string, secret: string, method: "GET" | "POST", pathname: string, body?: unknown): Promise<T> {
+function localApi<T>(origin: string, secret: string, method: "GET" | "POST" | "PATCH", pathname: string, body?: unknown): Promise<T> {
   return new Promise((resolve, reject) => {
     const payload = body === undefined ? undefined : JSON.stringify(body);
     const req = http.request(
@@ -268,7 +271,17 @@ function lockDown(contents: WebContents, origin: string) {
   });
 }
 
-function createWindow(origin: string) {
+const webPreferences = () => ({
+  preload: path.join(__dirname, "preload.js"),
+  contextIsolation: true,
+  sandbox: true,
+  nodeIntegration: false,
+  nodeIntegrationInSubFrames: false,
+  webviewTag: false,
+  spellcheck: true,
+});
+
+function createWindow(origin: string, pathname = "/") {
   const win = new BrowserWindow({
     width: 1280,
     height: 840,
@@ -276,23 +289,159 @@ function createWindow(origin: string) {
     minHeight: 480,
     title: "Deska",
     show: false,
-    webPreferences: {
-      preload: path.join(__dirname, "preload.js"),
-      contextIsolation: true,
-      sandbox: true,
-      nodeIntegration: false,
-      nodeIntegrationInSubFrames: false,
-      webviewTag: false,
-      spellcheck: true,
-    },
+    webPreferences: webPreferences(),
   });
   lockDown(win.webContents, origin);
   win.once("ready-to-show", () => win.show());
   win.on("closed", () => {
     if (mainWindow === win) mainWindow = null;
   });
-  void win.loadURL(`${origin}/`);
+  void win.loadURL(`${origin}${pathname}`);
   mainWindow = win;
+}
+
+// --- desktop settings (SPEC §2.4, §4.6) ----------------------------------------
+
+const prefsFile = () => path.join(app.getPath("userData"), "desktop-prefs.json");
+let prefs: DesktopPrefs = DEFAULT_DESKTOP_PREFS;
+let shortcutActive = false;
+let badgeCount = 0;
+
+function loadPrefs(): DesktopPrefs {
+  try {
+    return parseDesktopPrefs(JSON.parse(readFileSync(prefsFile(), "utf8")));
+  } catch {
+    return parseDesktopPrefs(null);
+  }
+}
+
+function savePrefs() {
+  writeFileSync(prefsFile(), JSON.stringify(prefs, null, 2), { mode: 0o600 });
+}
+
+/** Launch at login only makes sense for the installed app; in dev it would register the Electron binary. */
+const canLaunchAtLogin = () => app.isPackaged && process.platform === "darwin";
+
+function desktopState(): DesktopState {
+  return { prefs, shortcutActive, notificationsSupported: Notification.isSupported(), canLaunchAtLogin: canLaunchAtLogin() };
+}
+
+/** (Re)registers the global shortcut. False when another app holds it. */
+function registerShortcut(): boolean {
+  globalShortcut.unregisterAll();
+  shortcutActive = false;
+  if (!prefs.shortcut) return true;
+  try {
+    // Routed through an app event so tests (and nothing else) can trigger it without the keyboard.
+    shortcutActive = globalShortcut.register(prefs.shortcut, () => app.emit("deska:quick-add"));
+  } catch {
+    shortcutActive = false;
+  }
+  return shortcutActive;
+}
+
+function applyBadge() {
+  app.dock?.setBadge(prefs.dockBadge && badgeCount > 0 ? String(badgeCount) : "");
+}
+
+function applyLoginItem() {
+  if (canLaunchAtLogin()) app.setLoginItemSettings({ openAtLogin: prefs.launchAtLogin });
+}
+
+// --- quick add window (SPEC §4.6) ------------------------------------------------
+
+let quickWindow: BrowserWindow | null = null;
+
+/** A small floating window over whatever app is in front; Enter saves and closes, Esc closes. */
+function openQuickAdd() {
+  if (!server) return;
+  if (quickWindow && !quickWindow.isDestroyed()) {
+    quickWindow.show();
+    quickWindow.focus();
+    return;
+  }
+  const win = new BrowserWindow({
+    width: 600,
+    height: 190,
+    useContentSize: true,
+    title: "Quick add",
+    frame: false,
+    resizable: false,
+    minimizable: false,
+    maximizable: false,
+    fullscreenable: false,
+    alwaysOnTop: true,
+    skipTaskbar: true,
+    show: false,
+    webPreferences: webPreferences(),
+  });
+  lockDown(win.webContents, server.origin);
+  win.setAlwaysOnTop(true, "floating");
+  win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+  win.once("ready-to-show", () => {
+    win.show();
+    win.focus();
+    app.focus({ steal: true });
+  });
+  win.on("closed", () => {
+    if (quickWindow === win) quickWindow = null;
+  });
+  void win.loadURL(`${server.origin}/quick-add`);
+  quickWindow = win;
+}
+
+// --- reminders as native notifications (SPEC §4.6) ----------------------------
+
+/** Kept until closed: a Notification that is garbage-collected never reports its click. */
+const shown = new Set<Notification>();
+
+function showMainWindow(taskId?: string) {
+  if (!server) return;
+  if (!mainWindow) {
+    createWindow(server.origin, taskId ? `/tasks?task=${encodeURIComponent(taskId)}` : "/");
+    return;
+  }
+  if (mainWindow.isMinimized()) mainWindow.restore();
+  mainWindow.show();
+  mainWindow.focus();
+  if (taskId) mainWindow.webContents.send(CHANNELS.openTask, taskId);
+}
+
+async function runReminderAction(item: ReminderItem, action: ReminderAction) {
+  if (!server) return;
+  const s = server;
+  const secret = launchSecret;
+  const req = actionRequest(action, item.taskId);
+  try {
+    await localApi(s.origin, secret, req.method, req.path, req.body);
+    await localApi(s.origin, secret, "POST", "/api/notifications/read", { ids: [item.notificationId] });
+  } catch (e) {
+    log(`reminder action failed: ${e instanceof Error ? e.message : String(e)}`);
+  }
+}
+
+function showReminders(items: ReminderItem[]) {
+  // The in-app bell already has them; this is only the native banner.
+  if (!prefs.notifications || !Notification.isSupported()) return;
+  for (const item of items) {
+    const n = new Notification(reminderOptions(item));
+    shown.add(n);
+    const done = () => shown.delete(n);
+    n.on("click", () => {
+      showMainWindow(item.taskId);
+      done();
+    });
+    n.on("action", (_e, index) => {
+      const action = actionAt(index);
+      // Routed through an app event so tests can press a button without macOS.
+      if (action) app.emit("deska:reminder-action", item, action);
+      done();
+    });
+    n.on("close", done);
+    n.show();
+    // The task's id, never its title: tests read this, and titles are the user's.
+    log(`reminder notification shown for task ${item.taskId}`);
+  }
 }
 
 function registerIpc() {
@@ -326,12 +475,34 @@ function registerIpc() {
     return tokenStatus();
   });
   ipcMain.handle(CHANNELS.tokenStatus, (e) => (fromApp(e) ? tokenStatus() : null));
+  ipcMain.handle(CHANNELS.desktopGet, (e) => (fromApp(e) ? desktopState() : null));
+  ipcMain.handle(CHANNELS.desktopSet, (e, raw: unknown) => {
+    if (!fromApp(e)) return null;
+    const { patch, error: refused } = parsePrefsPatch(raw);
+    const before = prefs;
+    prefs = { ...prefs, ...patch };
+    let error = refused;
+    if (patch.shortcut !== undefined && !registerShortcut()) {
+      // Keep what worked: an unusable shortcut must not leave the person with none.
+      prefs = { ...prefs, shortcut: before.shortcut };
+      registerShortcut();
+      error = "That shortcut is taken by another app or not allowed by macOS. Pick another.";
+    }
+    savePrefs();
+    applyBadge();
+    applyLoginItem();
+    return { state: desktopState(), error };
+  });
+  ipcMain.handle(CHANNELS.quickAddClose, (e) => {
+    if (fromApp(e) && quickWindow && !quickWindow.isDestroyed() && e.sender === quickWindow.webContents) quickWindow.close();
+  });
 }
 
 async function boot() {
   const port = await freePort();
   // 256 bits per launch, never written anywhere (SPEC §2.2).
   const secret = randomBytes(32).toString("hex");
+  launchSecret = secret;
   const s = startServerProcess(port, secret);
   server = s;
   s.onExit((code) => {
@@ -340,8 +511,13 @@ async function boot() {
     app.exit(1);
   });
   s.onReply((m) => {
+    if (m?.type === "reminders") return showReminders(m.items);
+    if (m?.type === "badge") {
+      badgeCount = m.count;
+      return applyBadge();
+    }
     if (m?.type === "token-ack") tokenAcks.get(m.id)?.();
-    tokenAcks.delete(m?.id);
+    tokenAcks.delete((m as { id?: number } | undefined)?.id as number);
   });
   // The stored token, before the window opens: the first page knows its user.
   const stored = readStoredToken();
@@ -359,7 +535,11 @@ async function boot() {
 
   await waitForServer(s.origin, secret, DEV ? 180_000 : 60_000);
   await offerRecovery(s.origin, secret);
-  createWindow(s.origin);
+  // Opened by "launch at login": stay in the background; the Dock icon opens a window.
+  if (!app.getLoginItemSettings().wasOpenedAtLogin) createWindow(s.origin);
+  registerShortcut();
+  applyBadge();
+  applyLoginItem();
 }
 
 // Back from sleep: sync now (SPEC D5), once the network had a moment.
@@ -403,7 +583,12 @@ app.on("before-quit", (e) => {
   s.send({ type: "stop" });
 });
 
+app.on("deska:quick-add" as never, openQuickAdd);
+app.on("deska:reminder-action" as never, ((item: ReminderItem, action: ReminderAction) => void runReminderAction(item, action)) as never);
+app.on("will-quit", () => globalShortcut.unregisterAll());
+
 void app.whenReady().then(async () => {
+  prefs = loadPrefs();
   registerIpc();
   powerMonitor.on("resume", onResume);
   try {
