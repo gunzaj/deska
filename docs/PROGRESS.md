@@ -12,7 +12,7 @@
 | D7 | done | [#14](https://github.com/gunzaj/deska/pull/14) | Single-user tasks and views; `LOCAL_OWNER`; Copy/Import view; migration 0004 |
 | D8 | done | [#15](https://github.com/gunzaj/deska/pull/15) | Backups, export/import, resets, restore on a database that won't open; no migration |
 | D9 | done | [#16](https://github.com/gunzaj/deska/pull/16) | GitHub's `subIssuesSummary` synced and shown (`50% · 2/4`); live paged children list; Progress sort; migration 0005 |
-| D10 | todo | | |
+| D10 | done | [#17](https://github.com/gunzaj/deska/pull/17) | Sprint header (done X / Y, %, days left, by Status, scope added), Remaining/Done/Not planned, `[`/`]` picker, disabled planning controls; no migration |
 | D11 | todo | | |
 | D12 | todo | | |
 | D13 | todo | | |
@@ -100,6 +100,12 @@
 - D9: The display prop key stays `subissues` (saved views) but is labelled "Progress"; a new `progress` sort field was added. Sprint-view progress (§4.5) comes with D10, which reuses `lib/client/progress.ts`.
 - D9: The Epics e2e text changed from `0/1 · 0%` to `0% · 0/1`. The a11y (Alt+↓) and triage-snooze e2e specs flaked once on timing and passed on rerun.
 - D9: Ran this milestone on Sonnet 5.5, though §0.6 recommends Opus 5.5 for D9.
+
+- D10: The sprint page stays `/releases/[id]` and the UI keeps the word "Release" (routes, tests and nav unchanged); renaming is cosmetic and left for later.
+- D10: "Closed as duplicate" counts as Not planned together with "not planned" (matches the closed icon). The release-notes draft still treats only `not_planned` as not shipped.
+- D10: Header numbers use the filtered rows (`Explorer`'s `summary` can now be a function of rows). List layout groups by a new `sprintState` grouping (Not planned starts collapsed); board stays by Status. Unreadable project = empty sprint plus a connection problem.
+- D10: Planning controls (Bulk edit, Backlog drawer, Move all to next) are visible but disabled with the token's reason while writes are off.
+- D10: Ran this milestone on Sonnet 5.5, though §0.6 recommends Opus 5.5 for D10.
 
 ## Maintainer to-do
 - [ ] Create a **read-only** fine-grained PAT: resource owner = the org, repository access = only the one repo; Repository → Metadata: Read, Repository → Issues: Read, Organization → Projects: Read, Organization → Issue types: Read (optional); nothing else. Then run the probe (report lands in `private/findings/`):
