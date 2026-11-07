@@ -13,7 +13,7 @@
 | D8 | done | [#15](https://github.com/gunzaj/deska/pull/15) | Backups, export/import, resets, restore on a database that won't open; no migration |
 | D9 | done | [#16](https://github.com/gunzaj/deska/pull/16) | GitHub's `subIssuesSummary` synced and shown (`50% · 2/4`); live paged children list; Progress sort; migration 0005 |
 | D10 | done | [#17](https://github.com/gunzaj/deska/pull/17) | Sprint header (done X / Y, %, days left, by Status, scope added), Remaining/Done/Not planned, `[`/`]` picker, disabled planning controls; no migration |
-| D11 | todo | | |
+| D11 | done | [#18](https://github.com/gunzaj/deska/pull/18) | Author, In project, Closed reason, Sub-issue progress filters; visible default chip; Clear all; loading/empty/error list states; no migration |
 | D12 | todo | | |
 | D13 | todo | | |
 | D14 | todo | | |
@@ -106,6 +106,11 @@
 - D10: Header numbers use the filtered rows (`Explorer`'s `summary` can now be a function of rows). List layout groups by a new `sprintState` grouping (Not planned starts collapsed); board stays by Status. Unreadable project = empty sprint plus a connection problem.
 - D10: Planning controls (Bulk edit, Backlog drawer, Move all to next) are visible but disabled with the token's reason while writes are off.
 - D10: Ran this milestone on Sonnet 5.5, though §0.6 recommends Opus 5.5 for D10.
+- D11: New filters are `author`, `inProject`, `closedReason`, `subProgress`; the last three take only fixed values (schema-enforced, also for imported views). "Duplicate" counts as not planned (as in D10). A parent whose sub-issue counts aren't read yet is in no progress bucket. Wire rows gained `ip` (has a project item) and ViewRow gained `authorLogin`, `stateReason`, `inProject`.
+- D11: The default chip now reads "Default: <value> ✕" and is a shared component. It shows on triage queues too; on the triage walk-through it is shown fixed (the walk is fixed at start). Insights keeps its Scope picker as the visible control for the default. Sidebar counts still use the default without a chip.
+- D11: "Clear all (N)" replaces "Clear" and now also removes the State filter and the search. Empty lists name the active filters (default included) and offer "Clear filters". Lists mark `data-list-state` = loading / empty / error; loading shows while the first import runs with nothing cached.
+- D11: Read-only triage already toasted the reason on T/R/A/1–4 and showed a footer note; D11 added the E2E for it, no code change.
+- D11: Ran this milestone on Sonnet 5.5 (§0.6 recommends it). The connection, smoke "planning pages" and sprint `[`/`]` e2e specs failed once on timing and passed on rerun.
 
 ## Maintainer to-do
 - [ ] Create a **read-only** fine-grained PAT: resource owner = the org, repository access = only the one repo; Repository → Metadata: Read, Repository → Issues: Read, Organization → Projects: Read, Organization → Issue types: Read (optional); nothing else. Then run the probe (report lands in `private/findings/`):
