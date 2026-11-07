@@ -2,11 +2,9 @@
 
 import { useSearchParams } from "next/navigation";
 import { useRef, type ReactNode } from "react";
-import { canEdit, type Task } from "@/lib/tasks/model";
-import { useAppData } from "../app/provider";
+import type { Task } from "@/lib/tasks/model";
 import { Icon } from "../icons";
-import { Avatar } from "../props";
-import { accessHint, DueChip, PriorityFlag, TaskCheck } from "./bits";
+import { DueChip, PriorityFlag, TaskCheck } from "./bits";
 import { LinkChip } from "./links";
 import { openTask, TASK_PARAM } from "./open-task";
 import { ColorDot, LabelChip } from "./organize";
@@ -47,7 +45,6 @@ export function TaskRow({
   task,
   today,
   now,
-  showAssignee,
   hideProject,
   parentTitle,
   subs,
@@ -59,7 +56,6 @@ export function TaskRow({
   task: Task;
   today: string;
   now: string;
-  showAssignee?: boolean;
   hideProject?: boolean;
   parentTitle?: string | null;
   subs?: SubCount;
@@ -71,14 +67,10 @@ export function TaskRow({
   onMove?: (dir: -1 | 1) => void;
 }) {
   const handleDown = useRef(false);
-  const { toggleComplete, access, projects, labels } = useTasks();
-  const { viewer, avatarOf } = useAppData();
+  const { toggleComplete, projects, labels } = useTasks();
   const params = useSearchParams();
   const active = params.get(TASK_PARAM) === task.id;
-  const me = viewer.toLowerCase();
   const done = Boolean(task.completedAt);
-  const from = task.creator !== me ? task.creator : null;
-  const hint = showAssignee && task.assignee ? accessHint(access[task.assignee]) : null;
   const project = !hideProject && task.projectId ? projects.find((p) => p.id === task.projectId) : null;
   const myLabels = task.labels.map((id) => labels.find((l) => l.id === id)).filter((l): l is NonNullable<typeof l> => l != null);
   return (
@@ -135,7 +127,7 @@ export function TaskRow({
         } else if (action === "complete") {
           // Same as the checkbox: a repeating task moves to its next date.
           e.preventDefault();
-          if (canEdit(task, viewer)) toggleComplete(task);
+          toggleComplete(task);
         } else if (action === "next" || action === "prev") {
           e.preventDefault();
           const rows = [...document.querySelectorAll<HTMLElement>("[data-task-row]")];
@@ -145,7 +137,7 @@ export function TaskRow({
       onClick={() => openTask(task.id)}
     >
       <span className="pt-px">
-        <TaskCheck done={done} priority={task.priority} title={task.title} onToggle={() => toggleComplete(task)} disabled={!canEdit(task, viewer)} />
+        <TaskCheck done={done} priority={task.priority} title={task.title} onToggle={() => toggleComplete(task)} />
       </span>
       <div className="min-w-0 flex-1">
         {parentTitle && <p className="truncate text-[11.5px] text-faint">{parentTitle} ›</p>}
@@ -175,12 +167,6 @@ export function TaskRow({
             <LabelChip key={l.id} label={l} />
           ))}
           {task.description && <Icon name="message" size={12} className="text-faint" aria-label="Has description" />}
-          {from && <span className="text-[12px] text-faint">from {from}</span>}
-          {hint && (
-            <span className="text-[12px] text-warning">
-              {task.assignee}: {hint}
-            </span>
-          )}
         </div>
       </div>
       <span className="flex shrink-0 items-center gap-2 pt-0.5">
@@ -220,7 +206,6 @@ export function TaskRow({
           </span>
         )}
         {task.priority < 4 && <PriorityFlag priority={task.priority} />}
-        {showAssignee && task.assignee && <Avatar login={task.assignee} url={avatarOf(task.assignee)} size={20} />}
       </span>
     </li>
   );

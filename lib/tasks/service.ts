@@ -1,10 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { daysBetween, localToday, shiftInstant } from "./dates";
 import {
-  canDelete,
-  canEdit,
-  normLogin,
-  type Access,
   type AppNotification,
   type CreateTaskInput,
   type PatchTaskInput,
@@ -19,7 +15,7 @@ import {
   type TaskProject,
 } from "./model";
 import { fireWatchDigest } from "../watch/digest";
-import { fireReminders, notifyEvent } from "./notify";
+import { fireReminders } from "./notify";
 import { nextOccurrence, pinMonthDay } from "./recurrence";
 import { taskRepo, type Placement, type StoredTask, type TaskRepo } from "./repo";
 
@@ -27,8 +23,8 @@ import { taskRepo, type Placement, type StoredTask, type TaskRepo } from "./repo
  * Task operations for the API (SPEC §12). Nothing here calls GitHub or depends
  * on WRITE_MODE: tasks are Deska-native data.
  *
- * A task the viewer cannot see is reported as `not_found`, never `forbidden`,
- * so the API does not reveal that it exists (§12.2).
+ * Every function takes the owner key (LOCAL_OWNER, lib/local-owner.ts): all
+ * tasks belong to this install, whichever GitHub account is connected (§4.6).
  */
 export type Result<T> =
   | { ok: true; value: T }
@@ -37,9 +33,6 @@ export type Result<T> =
   | { ok: false; status: 409; error: string; current: Task }
   /** A unique name was taken between the check and the insert. */
   | { ok: false; status: 409; error: string; current?: undefined };
-
-/** Who may be assigned: a known GitHub user (gh_users) or the viewer. */
-export type Assignable = (login: string) => boolean;
 
 /** Look up an issue in the cache by number. */
 export type Resolve = (n: number) => (TaskLink & { title: string }) | null;
@@ -97,7 +90,7 @@ function shiftAbsolute(list: Reminder[], days: number, tz: string): Reminder[] {
   return list.map((r) => (r.kind === "absolute" ? { ...r, id: randomUUID(), at: shiftInstant(r.at, days, tz) } : r));
 }
 
-/** The task as `viewer` sees it: shared fields plus their own filing and labels. */
+/** The task with its filing and labels. */
 function view(t: StoredTask, placement: Placement | undefined, labels: string[] | undefined): Task {
   const { deletedAt: _deleted, ...core } = t;
   return { ...core, projectId: placement?.projectId ?? null, position: placement?.position ?? 0, labels: labels ?? [] };
@@ -111,7 +104,7 @@ async function viewOne(repo: TaskRepo, me: string, t: StoredTask): Promise<Task>
   return view(t, placements.get(t.id), labels.get(t.id));
 }
 
-/** The viewer's label IDs for these names; unknown names become new labels (§12.4 `+label`). */
+/** The label IDs for these names; unknown names become new labels (§12.4 `+label`). */
 async function ensureLabels(repo: TaskRepo, me: string, names: string[]): Promise<string[]> {
   const byName = async () => new Map((await repo.labels(me)).map((l) => [l.name.toLowerCase(), l.id]));
   let known = await byName();
@@ -130,12 +123,10 @@ async function ownProject(repo: TaskRepo, me: string, id: string | null): Promis
   return (await repo.projects(me)).some((p) => p.id === id && !p.archived);
 }
 
-export async function listTasks(viewer: string): Promise<{ tasks: Task[]; projects: TaskProject[]; labels: TaskLabel[] }> {
+export async function listTasks(me: string): Promise<{ tasks: Task[]; projects: TaskProject[]; labels: TaskLabel[] }> {
   const repo = taskRepo();
-  const me = normLogin(viewer);
-  repo.noteSignedIn(me);
   const [stored, placements, labelLinks, projects, labels] = await Promise.all([
-    repo.listVisible(me),
+    repo.list(),
     repo.placements(me),
     repo.labelLinks(me),
     repo.projects(me),
@@ -148,21 +139,18 @@ export async function listTasks(viewer: string): Promise<{ tasks: Task[]; projec
   };
 }
 
-export async function getTask(viewer: string, id: string): Promise<Result<Task>> {
+export async function getTask(me: string, id: string): Promise<Result<Task>> {
   const repo = taskRepo();
-  const me = normLogin(viewer);
-  const t = await repo.getVisible(me, id);
+  const t = await repo.get(id);
   return t ? { ok: true, value: await viewOne(repo, me, t) } : notFound;
 }
 
-export async function createTask(viewer: string, input: CreateTaskInput, assignable: Assignable, resolve: Resolve = noResolve): Promise<Result<Task>> {
+export async function createTask(me: string, input: CreateTaskInput, resolve: Resolve = noResolve): Promise<Result<Task>> {
   const repo = taskRepo();
-  const me = normLogin(viewer);
-  if (input.assignee && input.assignee !== me && !assignable(input.assignee)) return bad(`unknown assignee: ${input.assignee}`);
   const { links, missing } = resolveLinks(input.links, resolve);
   if (missing.length) return bad(`unknown issue: #${missing.join(", #")}`);
   if (input.parentId) {
-    const parent = await repo.getVisible(me, input.parentId);
+    const parent = await repo.get(input.parentId);
     if (!parent) return bad("unknown parent task");
     if (parent.parentId) return bad("sub-tasks can't have sub-tasks");
   }
@@ -176,8 +164,6 @@ export async function createTask(viewer: string, input: CreateTaskInput, assigna
   const task: StoredTask = {
     id: randomUUID(),
     creator: me,
-    // Assigning to yourself is the same as not assigning (§12.1).
-    assignee: input.assignee === me ? null : input.assignee,
     parentId: input.parentId,
     title,
     description: input.description,
@@ -199,58 +185,35 @@ export async function createTask(viewer: string, input: CreateTaskInput, assigna
   // made a duplicate.
   await repo.locked(task.id, async () => {
     await repo.insert(task);
-    // The creator files it; the assignee's copy starts in their Inbox (Q2).
     if (input.projectId || !input.parentId) {
       await repo.setPlacement(task.id, me, { projectId: input.projectId, position: (await repo.maxPosition(me, input.projectId)) + 1 });
     }
     if (input.labels.length) await repo.setLabelLinks(task.id, me, await ensureLabels(repo, me, input.labels));
   });
-  if (task.assignee) await notifyEvent("assigned", task, me, [task.assignee], randomUUID());
   return { ok: true, value: await viewOne(repo, me, task) };
 }
 
-const PERSONAL_FIELDS = new Set<keyof PatchTaskInput>(["projectId", "position", "labels", "expectedUpdatedAt"]);
-// They can already see the task, so 403 rather than 404 (like delete).
-const cantEdit = { ok: false, status: 403, error: "only the creator and the assignee can change this task" } as const;
+// Filing changes (project, position, labels) are never refused for a stale task.
+const FILING_FIELDS = new Set<keyof PatchTaskInput>(["projectId", "position", "labels", "expectedUpdatedAt"]);
 
 /**
  * Update a task. The read, the checks and every write run under the task's
  * row lock in one transaction (S9), so a double-click or two tabs can't log a
- * recurring task's completion twice or move its date twice. Notifications go
- * out after the commit.
+ * recurring task's completion twice or move its date twice.
  */
-export async function updateTask(viewer: string, id: string, patch: PatchTaskInput, assignable: Assignable, resolve: Resolve = noResolve): Promise<Result<Task>> {
+export async function updateTask(me: string, id: string, patch: PatchTaskInput, resolve: Resolve = noResolve): Promise<Result<Task>> {
   const repo = taskRepo();
-  const me = normLogin(viewer);
-  const out = await repo.locked(id, () => applyUpdate(repo, me, id, patch, assignable, resolve));
-  if (!("prev" in out)) return out.result;
-  const { prev, merged, completed } = out;
-  // Events are one-off, so each gets its own key (only reminders dedupe).
-  if (merged.assignee && merged.assignee !== prev.assignee) await notifyEvent("assigned", merged, me, [merged.assignee], randomUUID());
-  if (completed) await notifyEvent("completed", merged, me, [prev.creator], randomUUID());
-  return out.result;
+  return repo.locked(id, () => applyUpdate(repo, me, id, patch, resolve));
 }
 
-type Applied = { result: Result<Task>; prev: StoredTask; merged: StoredTask; completed: boolean };
-
-async function applyUpdate(
-  repo: TaskRepo,
-  me: string,
-  id: string,
-  patch: PatchTaskInput,
-  assignable: Assignable,
-  resolve: Resolve,
-): Promise<Applied | { result: Extract<Result<Task>, { ok: false }> }> {
-  const prev = await repo.getVisible(me, id);
-  if (!prev) return { result: notFound };
-  // Project, position and labels are the viewer's own filing; everything else
-  // is shared and needs edit rights.
-  const shared = (Object.keys(patch) as (keyof PatchTaskInput)[]).some((k) => patch[k] !== undefined && !PERSONAL_FIELDS.has(k));
-  if (shared && !canEdit(prev, me)) return { result: cantEdit };
+async function applyUpdate(repo: TaskRepo, me: string, id: string, patch: PatchTaskInput, resolve: Resolve): Promise<Result<Task>> {
+  const prev = await repo.get(id);
+  if (!prev) return notFound;
+  const shared = (Object.keys(patch) as (keyof PatchTaskInput)[]).some((k) => patch[k] !== undefined && !FILING_FIELDS.has(k));
   // Optimistic concurrency: a shared change based on an older version of the
   // task is refused, with the current task so the client can show it.
   if (shared && patch.expectedUpdatedAt !== undefined && Date.parse(patch.expectedUpdatedAt) !== Date.parse(prev.updatedAt)) {
-    return { result: { ok: false, status: 409, error: "task changed elsewhere", current: await viewOne(repo, me, prev) } };
+    return { ok: false, status: 409, error: "task changed elsewhere", current: await viewOne(repo, me, prev) };
   }
   const next: Partial<StoredTask> = {};
   if (patch.title !== undefined) next.title = patch.title;
@@ -266,20 +229,15 @@ async function applyUpdate(
   if (patch.undoOccurrence !== undefined) {
     // Undo completing an occurrence (U1): only an earlier occurrence of a recurring task.
     if (!prev.recurrence || !prev.dueDate || patch.undoOccurrence >= prev.dueDate || patch.completed !== undefined) {
-      return { result: bad("nothing to undo") };
+      return bad("nothing to undo");
     }
-  }
-  if (patch.assignee !== undefined) {
-    const a = patch.assignee === prev.creator ? null : patch.assignee;
-    if (a && a !== prev.assignee && a !== me && !assignable(a)) return { result: bad(`unknown assignee: ${a}`) };
-    next.assignee = a;
   }
   if (patch.links !== undefined) {
     const { links, missing } = resolveLinks(patch.links, resolve, prev.links);
-    if (missing.length) return { result: bad(`unknown issue: #${missing.join(", #")}`) };
+    if (missing.length) return bad(`unknown issue: #${missing.join(", #")}`);
     next.links = links;
   }
-  if (patch.projectId !== undefined && !(await ownProject(repo, me, patch.projectId))) return { result: bad("unknown project") };
+  if (patch.projectId !== undefined && !(await ownProject(repo, me, patch.projectId))) return bad("unknown project");
 
   if (patch.undoOccurrence !== undefined && prev.recurrence && prev.dueDate) {
     // Drop its completion row and move the date (and absolute reminders) back to it.
@@ -300,7 +258,6 @@ async function applyUpdate(
   const now = new Date().toISOString();
   const recurrence = next.recurrence !== undefined ? next.recurrence : prev.recurrence;
   let completedOccurrence = false;
-  let completed = false;
   if (patch.completed && !prev.completedAt && recurrence && dueDate && !patch.endRecurrence) {
     // Completing a recurring task logs the occurrence and moves the due date (§12.5).
     const today = localToday(new Date(), (next.dueTz ?? prev.dueTz) || "UTC");
@@ -309,10 +266,9 @@ async function applyUpdate(
       completedOccurrence = true;
       // Already logged (a concurrent request won): don't move the date again.
       if (await repo.addCompletion(id, me, dueDate)) {
-        completed = true;
         next.dueDate = following;
         next.reminders = shiftAbsolute(next.reminders ?? prev.reminders, daysBetween(dueDate, following), (next.dueTz ?? prev.dueTz) || "UTC");
-        for (const c of await repo.children(me, id)) if (c.completedAt) await repo.update(c.id, { completedAt: null, completedBy: null, updatedAt: now });
+        for (const c of await repo.children(id)) if (c.completedAt) await repo.update(c.id, { completedAt: null, completedBy: null, updatedAt: now });
       }
     }
   }
@@ -320,7 +276,6 @@ async function applyUpdate(
     next.completedAt = patch.completed ? now : null;
     next.completedBy = patch.completed ? me : null;
     if (patch.completed && patch.endRecurrence) next.recurrence = null;
-    completed = patch.completed;
   }
   next.updatedAt = now;
   await repo.update(id, next);
@@ -329,7 +284,7 @@ async function applyUpdate(
   // A recurring task's sub-tasks reopen for the next occurrence (§12.5), so
   // there is nothing to cascade to.
   if (patch.completed && patch.cascade && !completedOccurrence) {
-    for (const c of await repo.children(me, id)) {
+    for (const c of await repo.children(id)) {
       if (!c.completedAt) await repo.update(c.id, { completedAt: now, completedBy: me, updatedAt: now });
     }
   }
@@ -342,25 +297,19 @@ async function applyUpdate(
   }
   if (patch.labels !== undefined) await repo.setLabelLinks(id, me, await ensureLabels(repo, me, patch.labels));
 
-  return { result: { ok: true, value: await viewOne(repo, me, merged) }, prev, merged, completed };
+  return { ok: true, value: await viewOne(repo, me, merged) };
 }
 
-export async function deleteTask(viewer: string, id: string): Promise<Result<true>> {
+export async function deleteTask(_me: string, id: string): Promise<Result<true>> {
   const repo = taskRepo();
-  const me = normLogin(viewer);
   // The whole delete runs under the task's row lock in one transaction (S9),
   // so a crash can't leave the parent deleted and its sub-tasks or comments
   // behind, and a concurrent restore can't race it.
   return repo.locked(id, async () => {
-    const t = await repo.getVisible(me, id);
+    const t = await repo.get(id);
     if (!t) return notFound;
-    // The assignee can see the task but may not delete it (Q3). They already
-    // know it exists, so this is a 403 rather than a 404.
-    if (!canDelete(t, me)) return { ok: false, status: 403, error: "only the creator can delete a task" };
     const now = new Date().toISOString();
-    // Read the sub-tasks first: once the parent is gone, those someone else
-    // created are no longer visible to the viewer and would be left behind.
-    const children = await repo.children(me, id);
+    const children = await repo.children(id);
     await repo.update(id, { deletedAt: now, updatedAt: now });
     // Sub-tasks go with their parent; comments and notifications go with each.
     // Everything soft-deleted here carries the same time, so an undo (U1)
@@ -380,61 +329,52 @@ export async function deleteTask(viewer: string, id: string): Promise<Result<tru
 
 
 /**
- * Undo a delete (U1): only the creator, while the task is still soft-deleted
+ * Undo a delete (U1): while the task is still soft-deleted
  * (RETENTION_DELETED_DAYS). Links, labels and placements were never removed;
  * sub-tasks and comments deleted with it come back too.
  */
-export async function restoreTask(viewer: string, id: string): Promise<Result<Task>> {
+export async function restoreTask(me: string, id: string): Promise<Result<Task>> {
   const repo = taskRepo();
-  const me = normLogin(viewer);
   return repo.locked(id, async () => {
-    const t = await repo.getDeletedByCreator(me, id);
+    const t = await repo.getDeleted(id);
     if (!t?.deletedAt) return notFound;
     await repo.restoreTask(id, t.deletedAt);
-    const back = await repo.getVisible(me, id);
+    const back = await repo.get(id);
     return back ? { ok: true, value: await viewOne(repo, me, back) } : notFound;
   });
 }
 
-export async function listComments(viewer: string, taskId: string): Promise<Result<TaskComment[]>> {
+export async function listComments(_me: string, taskId: string): Promise<Result<TaskComment[]>> {
   const repo = taskRepo();
-  if (!(await repo.getVisible(normLogin(viewer), taskId))) return notFound;
+  if (!(await repo.get(taskId))) return notFound;
   return { ok: true, value: await repo.comments(taskId) };
 }
 
-export async function addComment(viewer: string, taskId: string, body: string): Promise<Result<TaskComment>> {
+export async function addComment(me: string, taskId: string, body: string): Promise<Result<TaskComment>> {
   const repo = taskRepo();
-  const me = normLogin(viewer);
-  const task = await repo.getVisible(me, taskId);
-  if (!task) return notFound;
-  if (!canEdit(task, me)) return cantEdit;
+  if (!(await repo.get(taskId))) return notFound;
   const now = new Date().toISOString();
   const c: TaskComment = { id: randomUUID(), taskId, author: me, body, createdAt: now, updatedAt: now };
   await repo.insertComment(c);
-  // The other participants hear about it; never the author (§12.6).
-  await notifyEvent("comment", task, me, [task.creator, task.assignee], c.id);
   return { ok: true, value: c };
 }
 
-async function ownComment(viewer: string, taskId: string, id: string): Promise<Result<TaskComment>> {
+async function findComment(taskId: string, id: string): Promise<Result<TaskComment>> {
   const repo = taskRepo();
-  const me = normLogin(viewer);
-  if (!(await repo.getVisible(me, taskId))) return notFound;
+  if (!(await repo.get(taskId))) return notFound;
   const c = await repo.comment(taskId, id);
-  if (!c) return { ok: false, status: 404, error: "comment not found" };
-  if (c.author !== me) return { ok: false, status: 403, error: "only the author can change a comment" };
-  return { ok: true, value: c };
+  return c ? { ok: true, value: c } : { ok: false, status: 404, error: "comment not found" };
 }
 
-export async function editComment(viewer: string, taskId: string, id: string, body: string): Promise<Result<TaskComment>> {
-  const r = await ownComment(viewer, taskId, id);
+export async function editComment(_me: string, taskId: string, id: string, body: string): Promise<Result<TaskComment>> {
+  const r = await findComment(taskId, id);
   if (!r.ok) return r;
   await taskRepo().updateComment(id, body);
   return { ok: true, value: { ...r.value, body, updatedAt: new Date().toISOString() } };
 }
 
-export async function removeComment(viewer: string, taskId: string, id: string): Promise<Result<true>> {
-  const r = await ownComment(viewer, taskId, id);
+export async function removeComment(_me: string, taskId: string, id: string): Promise<Result<true>> {
+  const r = await findComment(taskId, id);
   if (!r.ok) return r;
   await taskRepo().deleteComment(id);
   return { ok: true, value: true };
@@ -442,32 +382,33 @@ export async function removeComment(viewer: string, taskId: string, id: string):
 
 // --- notifications and preferences (§12.6) --------------------------------------
 
-/** Fire the viewer's due reminders, then return their latest notifications. */
-export async function notificationsFor(viewer: string, now = new Date()): Promise<{ list: AppNotification[]; unread: number }> {
-  const me = normLogin(viewer);
+/**
+ * Fire due reminders, then return the latest notifications. `meLogin` is the
+ * GitHub login a watched view's `me` means.
+ */
+export async function notificationsFor(me: string, now = new Date(), meLogin = ""): Promise<{ list: AppNotification[]; unread: number }> {
   await fireReminders(now, me);
   // The daily watchlist digest (F6). A failure here must never cost the person their notifications.
-  await fireWatchDigest(me, now).catch((e) => console.error(`deska: watch digest failed: ${String(e)}`));
+  await fireWatchDigest(me, now, meLogin).catch((e) => console.error(`deska: watch digest failed: ${String(e)}`));
   return taskRepo().notifications(me, 50);
 }
 
-export async function markNotificationsRead(viewer: string, ids: string[] | "all"): Promise<void> {
-  await taskRepo().markRead(normLogin(viewer), ids);
+export async function markNotificationsRead(me: string, ids: string[] | "all"): Promise<void> {
+  await taskRepo().markRead(me, ids);
 }
 
-export async function getPrefs(viewer: string): Promise<Prefs> {
-  return taskRepo().prefs(normLogin(viewer));
+export async function getPrefs(me: string): Promise<Prefs> {
+  return taskRepo().prefs(me);
 }
 
-export async function setPrefs(viewer: string, p: Partial<Prefs>): Promise<Prefs> {
-  return taskRepo().setPrefs(normLogin(viewer), p);
+export async function setPrefs(me: string, p: Partial<Prefs>): Promise<Prefs> {
+  return taskRepo().setPrefs(me, p);
 }
 
 // --- projects and labels (personal, §12.3) ----------------------------------------
 
-export async function createProject(viewer: string, input: { name: string; color: string }): Promise<Result<TaskProject>> {
+export async function createProject(me: string, input: { name: string; color: string }): Promise<Result<TaskProject>> {
   const repo = taskRepo();
-  const me = normLogin(viewer);
   const all = await repo.projects(me);
   if (all.some((x) => x.name.toLowerCase() === input.name.trim().toLowerCase())) return bad("a project with that name exists");
   const p = { id: randomUUID(), owner: me, name: input.name, color: input.color, position: Math.max(0, ...all.map((x) => x.position)) + 1, archived: false, source: null };
@@ -478,12 +419,11 @@ export async function createProject(viewer: string, input: { name: string; color
 }
 
 export async function updateProject(
-  viewer: string,
+  me: string,
   id: string,
   patch: Partial<{ name: string; color: string; position: number; archived: boolean; source: ProjectSource | null }>,
 ): Promise<Result<TaskProject>> {
   const repo = taskRepo();
-  const me = normLogin(viewer);
   const all = await repo.projects(me);
   const prev = all.find((p) => p.id === id);
   if (!prev) return { ok: false, status: 404, error: "project not found" };
@@ -493,9 +433,8 @@ export async function updateProject(
   return { ok: true, value: out };
 }
 
-export async function createLabel(viewer: string, input: { name: string; color: string }): Promise<Result<TaskLabel>> {
+export async function createLabel(me: string, input: { name: string; color: string }): Promise<Result<TaskLabel>> {
   const repo = taskRepo();
-  const me = normLogin(viewer);
   if ((await repo.labels(me)).some((l) => l.name.toLowerCase() === input.name.toLowerCase())) return bad("a label with that name exists");
   const l = { id: randomUUID(), owner: me, name: input.name, color: input.color };
   if (!(await repo.insertLabel(l))) return bad("a label with that name exists");
@@ -503,9 +442,8 @@ export async function createLabel(viewer: string, input: { name: string; color: 
   return { ok: true, value: out };
 }
 
-export async function updateLabel(viewer: string, id: string, patch: Partial<{ name: string; color: string }>): Promise<Result<TaskLabel>> {
+export async function updateLabel(me: string, id: string, patch: Partial<{ name: string; color: string }>): Promise<Result<TaskLabel>> {
   const repo = taskRepo();
-  const me = normLogin(viewer);
   const mine = await repo.labels(me);
   const prev = mine.find((l) => l.id === id);
   if (!prev) return { ok: false, status: 404, error: "label not found" };
@@ -515,25 +453,9 @@ export async function updateLabel(viewer: string, id: string, patch: Partial<{ n
   return { ok: true, value: out };
 }
 
-export async function deleteLabel(viewer: string, id: string): Promise<Result<true>> {
+export async function deleteLabel(me: string, id: string): Promise<Result<true>> {
   const repo = taskRepo();
-  const me = normLogin(viewer);
   if (!(await repo.labels(me)).some((l) => l.id === id)) return { ok: false, status: 404, error: "label not found" };
   await repo.deleteLabel(id);
   return { ok: true, value: true };
-}
-
-/**
- * Has each login used Deska yet? `pending` when never seen, else `active`.
- * (There is no access rule to refuse anyone any more: SPEC §2.5.)
- */
-export async function accessFor(logins: Iterable<string>, viewer: string): Promise<Record<string, Access>> {
-  const signedIn = await taskRepo().signedInLogins();
-  signedIn.add(normLogin(viewer));
-  const out: Record<string, Access> = {};
-  for (const raw of logins) {
-    const l = normLogin(raw);
-    out[l] = signedIn.has(l) ? "active" : "pending";
-  }
-  return out;
 }

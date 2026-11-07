@@ -3,9 +3,9 @@ import { isDimKey } from "../sync/field-map";
 
 /**
  * Limits on a saved view (v5 2.6), in line with the task schemas
- * (lib/tasks/model.ts). A shared view is processed by every user's
- * `/api/views` load and by every watch-coverage run, so one member must not be
- * able to save a multi-megabyte name or 100k filter values.
+ * (lib/tasks/model.ts). Views are local, but an imported view string is
+ * untrusted input: it must not be able to save a multi-megabyte name or 100k
+ * filter values.
  */
 export const VIEW_LIMITS = { name: 120, filters: 50, anyFilters: 20, values: 200, value: 100, text: 200, sort: 10, columns: 40, key: 40, id: 100 } as const;
 
@@ -57,8 +57,6 @@ export const viewSchema = z
   .object({
     id: z.string().max(VIEW_LIMITS.id),
     name: z.string().max(VIEW_LIMITS.name),
-    ownerId: z.string().max(VIEW_LIMITS.id),
-    visibility: z.enum(["personal", "shared"]),
     layout: z.enum(["list", "board", "table"]),
     filters: z.array(filterSchema).max(VIEW_LIMITS.filters),
     sort: z.array(z.object({ field: z.string().max(VIEW_LIMITS.id + 4), dir: z.enum(["asc", "desc"]) }).strict()).max(VIEW_LIMITS.sort),

@@ -3,7 +3,7 @@
 import { beforeAll, describe, expect, it } from "vitest";
 import { sql } from "drizzle-orm";
 import { getDb } from "@/db";
-import { taskProjects, taskReminders, users } from "@/db/schema";
+import { taskProjects, taskReminders } from "@/db/schema";
 import { COMPLETED_LIMIT, PostgresTaskRepo, type StoredTask } from "@/lib/tasks/repo";
 
 function row(p: Partial<StoredTask>): StoredTask {
@@ -11,7 +11,6 @@ function row(p: Partial<StoredTask>): StoredTask {
   return {
     id: crypto.randomUUID(),
     creator: "alice",
-    assignee: null,
     parentId: null,
     title: "t",
     description: "",
@@ -35,28 +34,29 @@ describe("PostgresTaskRepo", () => {
   const repo = new PostgresTaskRepo();
 
   beforeAll(async () => {
-    await getDb().execute(sql`TRUNCATE tasks, task_links, task_projects, task_placements, task_labels, task_label_links, task_reminders, task_completions, task_comments, notifications, user_prefs, users RESTART IDENTITY CASCADE`);
+    await getDb().execute(sql`TRUNCATE tasks, task_links, task_projects, task_placements, task_labels, task_label_links, task_reminders, task_completions, task_comments, notifications, user_prefs RESTART IDENTITY CASCADE`);
   });
 
   it("round-trips fields, including the date and priority", async () => {
-    const t = row({ title: "Spec", description: "ctx", priority: 2, dueDate: "2026-10-13", assignee: "bob" });
+    const t = row({ title: "Spec", description: "ctx", priority: 2, dueDate: "2026-10-13" });
     await repo.insert(t);
-    const got = await repo.getVisible("bob", t.id);
-    expect(got).toMatchObject({ title: "Spec", description: "ctx", priority: 2, dueDate: "2026-10-13", assignee: "bob", creator: "alice" });
+    const got = await repo.get(t.id);
+    expect(got).toMatchObject({ title: "Spec", description: "ctx", priority: 2, dueDate: "2026-10-13", creator: "alice" });
   });
 
-  it("filters by visibility and soft delete in SQL", async () => {
-    const mine = row({ creator: "alice" });
-    const theirs = row({ creator: "bob" });
+  it("lists live tasks only: soft-deleted ones are hidden in SQL", async () => {
+    const live = row({ creator: "alice" });
+    const other = row({ creator: "bob" }); // whoever created it: all of it belongs to this install (§4.6)
     const gone = row({ creator: "alice", deletedAt: new Date().toISOString() });
-    for (const t of [mine, theirs, gone]) await repo.insert(t);
-    const ids = (await repo.listVisible("alice")).map((t) => t.id);
-    expect(ids).toContain(mine.id);
-    expect(ids).not.toContain(theirs.id);
+    for (const t of [live, other, gone]) await repo.insert(t);
+    const ids = (await repo.list()).map((t) => t.id);
+    expect(ids).toContain(live.id);
+    expect(ids).toContain(other.id);
     expect(ids).not.toContain(gone.id);
-    expect(await repo.getVisible("alice", theirs.id)).toBeNull();
-    expect(await repo.getVisible("alice", "not-a-uuid")).toBeNull();
-    expect(await repo.getVisible("alice", "-".repeat(36))).toBeNull(); // 36 chars, still not a uuid
+    expect(await repo.get(gone.id)).toBeNull();
+    expect((await repo.getDeleted(gone.id))?.id).toBe(gone.id);
+    expect(await repo.get("not-a-uuid")).toBeNull();
+    expect(await repo.get("-".repeat(36))).toBeNull(); // 36 chars, still not a uuid
   });
 
   it("returns all open tasks but caps completed ones", async () => {
@@ -65,7 +65,7 @@ describe("PostgresTaskRepo", () => {
     );
     for (const t of done) await repo.insert(t);
     await repo.insert(row({ creator: "cap" }));
-    const list = await repo.listVisible("cap");
+    const list = (await repo.list()).filter((t) => t.creator === "cap");
     expect(list.filter((t) => !t.completedAt)).toHaveLength(1);
     expect(list.filter((t) => t.completedAt)).toHaveLength(COMPLETED_LIMIT);
   });
@@ -74,37 +74,36 @@ describe("PostgresTaskRepo", () => {
     const t = row({ title: "Before", priority: 3 });
     await repo.insert(t);
     await repo.update(t.id, { title: "After", completedAt: "2026-10-12T10:00:00.000Z", completedBy: "alice" });
-    expect(await repo.getVisible("alice", t.id)).toMatchObject({ title: "After", priority: 3, completedBy: "alice" });
+    expect(await repo.get(t.id)).toMatchObject({ title: "After", priority: 3, completedBy: "alice" });
   });
 
   it("writes a task and its links in one transaction", async () => {
     // Two links to the same node ID break task_links' primary key: the task row must not stay behind.
     const t = row({ links: [{ kind: "issue", nodeId: "I_dup", number: 1 }, { kind: "issue", nodeId: "I_dup", number: 1 }] });
     await expect(repo.insert(t)).rejects.toThrow();
-    expect(await repo.getVisible("alice", t.id)).toBeNull();
+    expect(await repo.get(t.id)).toBeNull();
   });
 
   it("stores links in order and replaces them on update", async () => {
     const t = row({ links: [{ kind: "issue", nodeId: "I_2", number: 2 }, { kind: "issue", nodeId: "I_1", number: 1 }] });
     await repo.insert(t);
-    expect((await repo.getVisible("alice", t.id))?.links.map((l) => l.number)).toEqual([2, 1]);
+    expect((await repo.get(t.id))?.links.map((l) => l.number)).toEqual([2, 1]);
     await repo.update(t.id, { links: [{ kind: "issue", nodeId: "I_9", number: 9 }] });
-    expect((await repo.getVisible("alice", t.id))?.links).toEqual([{ kind: "issue", nodeId: "I_9", number: 9 }]);
-    expect((await repo.listVisible("alice")).find((x) => x.id === t.id)?.links).toHaveLength(1);
+    expect((await repo.get(t.id))?.links).toEqual([{ kind: "issue", nodeId: "I_9", number: 9 }]);
+    expect((await repo.list()).find((x) => x.id === t.id)?.links).toHaveLength(1);
   });
 
-  it("shows sub-tasks through a visible parent, in SQL", async () => {
-    const parent = row({ creator: "owner", assignee: "helper" });
+  it("lists the sub-tasks of a parent", async () => {
+    const parent = row({ creator: "owner" });
     const child = row({ creator: "owner", parentId: parent.id });
     await repo.insert(parent);
     await repo.insert(child);
-    expect((await repo.getVisible("helper", child.id))?.id).toBe(child.id);
-    expect((await repo.children("helper", parent.id)).map((c) => c.id)).toEqual([child.id]);
-    expect(await repo.getVisible("stranger", child.id)).toBeNull();
+    expect((await repo.get(child.id))?.id).toBe(child.id);
+    expect((await repo.children(parent.id)).map((c) => c.id)).toEqual([child.id]);
   });
 
-  it("keeps placements and labels per login", async () => {
-    const t = row({ creator: "a", assignee: "b" });
+  it("keeps placements and labels per owner key", async () => {
+    const t = row({ creator: "a" });
     await repo.insert(t);
     const pid = crypto.randomUUID();
     await repo.insertProject({ id: pid, owner: "a", name: "Specs", color: "blue", position: 1, archived: false, source: null });
@@ -152,11 +151,11 @@ describe("PostgresTaskRepo", () => {
       ],
     });
     await repo.insert(t);
-    const got = await repo.getVisible("alice", t.id);
+    const got = await repo.get(t.id);
     expect(got).toMatchObject({ dueTime: "15:00", dueTz: "Europe/Prague", recurrence: t.recurrence });
     expect(got?.reminders).toHaveLength(2);
     await repo.update(t.id, { recurrence: null, reminders: [] });
-    expect(await repo.getVisible("alice", t.id)).toMatchObject({ recurrence: null, reminders: [] });
+    expect(await repo.get(t.id)).toMatchObject({ recurrence: null, reminders: [] });
   });
 
   it("finds reminder candidates by date window or absolute reminder", async () => {
@@ -189,13 +188,16 @@ describe("PostgresTaskRepo", () => {
     expect((await repo.notifications("nn", 10)).list).toEqual([]);
   });
 
-  it("hides notifications for tasks the login can no longer see", async () => {
-    const t = row({ creator: "cc", assignee: "aa" });
+  it("hides notifications for a deleted task but keeps the ones without a task", async () => {
+    const t = row({ creator: "cc" });
     await repo.insert(t);
-    await repo.addNotification({ login: "aa", kind: "assigned", taskId: t.id, actor: "cc", title: "t", dedupeKey: `v-${t.id}` });
-    expect((await repo.notifications("aa", 10)).unread).toBe(1);
-    await repo.update(t.id, { assignee: "bb" });
-    expect(await repo.notifications("aa", 10)).toEqual({ list: [], unread: 0 });
+    await repo.addNotification({ login: "aa", kind: "reminder", taskId: t.id, title: "t", dedupeKey: `v-${t.id}` });
+    await repo.addNotification({ login: "aa", kind: "watch_digest", taskId: null, title: "1 watched item changed", dedupeKey: `d-${t.id}` });
+    expect((await repo.notifications("aa", 10)).unread).toBe(2);
+    await repo.update(t.id, { deletedAt: new Date().toISOString() });
+    const after = await repo.notifications("aa", 10);
+    expect(after.unread).toBe(1);
+    expect(after.list.map((n) => n.kind)).toEqual(["watch_digest"]);
   });
 
   it("stores prefs per login", async () => {
@@ -227,24 +229,13 @@ describe("PostgresTaskRepo", () => {
     expect(await repo.comments(t.id)).toEqual([]);
   });
 
-  it("knows who has signed in, case-insensitively", async () => {
-    await getDb().insert(users).values({ githubId: "1", login: "Alice" });
-    expect((await repo.signedInLogins()).has("alice")).toBe(true);
-  });
-
-  it("reminder candidates for one person are filtered in SQL (v5 3.1)", async () => {
-    const mine = row({ title: "mine", creator: "alice", dueDate: "2026-10-13" });
-    const delegated = row({ title: "delegated to bob", creator: "alice", assignee: "bob", dueDate: "2026-10-13" });
-    const theirs = row({ title: "theirs", creator: "bob", dueDate: "2026-10-13" });
-    for (const t of [mine, delegated, theirs]) await repo.insert(t);
-    const ask = async (login?: string) =>
-      (await repo.reminderCandidates("2026-10-11", "2026-10-28", new Date("2026-10-12T00:00:00Z"), new Date("2026-10-13T00:00:00Z"), login))
-        .map((t) => t.title)
-        .filter((t) => ["mine", "delegated to bob", "theirs"].includes(t))
-        .sort();
-    // A task notifies its assignee, or its creator when it has none.
-    expect(await ask("alice")).toEqual(["mine"]);
-    expect(await ask("bob")).toEqual(["delegated to bob", "theirs"]);
-    expect(await ask()).toEqual(["delegated to bob", "mine", "theirs"]); // the cron path stays unfiltered
+  it("reminder candidates cover every open task due in the window", async () => {
+    const a = row({ title: "a", creator: "alice", dueDate: "2026-10-13" });
+    const b = row({ title: "b", creator: "bob", dueDate: "2026-10-13" });
+    const done = row({ title: "done", dueDate: "2026-10-13", completedAt: "2026-10-12T00:00:00.000Z" });
+    const later = row({ title: "later", dueDate: "2026-12-01" });
+    for (const t of [a, b, done, later]) await repo.insert(t);
+    const got = (await repo.reminderCandidates("2026-10-11", "2026-10-28", new Date("2026-10-12T00:00:00Z"), new Date("2026-10-13T00:00:00Z"))).map((t) => t.title);
+    expect(got.filter((t) => ["a", "b", "done", "later"].includes(t)).sort()).toEqual(["a", "b"]);
   });
 });

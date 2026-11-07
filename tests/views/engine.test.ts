@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { importFull } from "@/lib/sync/import";
 import { MemoryStore } from "@/lib/sync/store-memory";
 import { buildViewRows, resolveRelease } from "@/lib/views/rows";
-import { groupRowEntries, runView, visibleViews } from "@/lib/views/engine";
+import { groupRowEntries, runView } from "@/lib/views/engine";
 import { trySeedViews } from "@/lib/views/seeds";
 import { viewSchema, type View } from "@/lib/views/view";
 import { fixtureSnapshot } from "../fixtures/github";
@@ -17,7 +17,7 @@ async function setup() {
 
 describe("saved views engine (M5)", () => {
   it("validates view JSON", async () => {
-    const seeds = trySeedViews((await setup()).store, "alice");
+    const seeds = trySeedViews((await setup()).store);
     for (const s of seeds) expect(viewSchema.parse(s)).toBeTruthy();
   });
 
@@ -25,7 +25,7 @@ describe("saved views engine (M5)", () => {
     const { store, rows } = await setup();
     const ctx = { viewerLogin: "alice", store, todayIso: TODAY };
     const v = (filters: View["filters"]): View => ({
-      id: "t", name: "t", ownerId: "alice", visibility: "personal",
+      id: "t", name: "t",
       layout: "list", filters, sort: [],
     });
     // assignee in (me) / not_in / empty
@@ -63,11 +63,11 @@ describe("saved views engine (M5)", () => {
   it("sorts multi-key with Priority rank", async () => {
     const { store, rows } = await setup();
     const ctx = { viewerLogin: "alice", store, todayIso: TODAY };
-    const seeds = trySeedViews(store, "alice");
+    const seeds = trySeedViews(store);
     const mine = runView(seeds[0]!, ctx, rows);
     expect(mine.map((r) => r.number)).toEqual([100]); // only alice's open ticket
     const byPriority = runView(
-      { id: "t", name: "t", ownerId: "x", visibility: "personal", layout: "list", filters: [], sort: [{ field: "priority", dir: "desc" }, { field: "updated", dir: "desc" }] },
+      { id: "t", name: "t", layout: "list", filters: [], sort: [{ field: "priority", dir: "desc" }, { field: "updated", dir: "desc" }] },
       ctx, rows,
     );
     expect(byPriority.map((r) => r.number)).toEqual([100, 101, 102]); // HIGH, MED, empty
@@ -110,19 +110,10 @@ describe("saved views engine (M5)", () => {
     expect(bug.statusName).toBeNull();
   });
 
-  it("shares shared views, hides others' personal views", async () => {
-    const views: View[] = [
-      { id: "a", name: "a", ownerId: "alice", visibility: "personal", layout: "list", filters: [], sort: [] },
-      { id: "b", name: "b", ownerId: "bob", visibility: "personal", layout: "list", filters: [], sort: [] },
-      { id: "c", name: "c", ownerId: "bob", visibility: "shared", layout: "list", filters: [], sort: [] },
-    ];
-    expect(visibleViews(views, "alice").map((v) => v.id).sort()).toEqual(["a", "c"]);
-  });
-
   it("seed views run (release table by the first dimension, epics)", async () => {
     const { store, rows } = await setup();
     const ctx = { viewerLogin: "alice", store, todayIso: TODAY };
-    const seeds = trySeedViews(store, "alice");
+    const seeds = trySeedViews(store);
     expect(seeds.map((v) => v.id)).toEqual(["seed-my-tickets", "seed-untriaged", "seed-release-teams", "seed-epics"]);
     expect(seeds[2]).toMatchObject({ name: "Current Release by Team", groupBy: "dim:PVTSSF_acme_team" });
     expect(runView(seeds[2]!, ctx, rows).map((r) => r.number)).toEqual([100]);
@@ -139,7 +130,7 @@ describe("sorting regression (fields that used to be ignored)", () => {
     const { store, rows } = await setup();
     const ctx = { viewerLogin: "alice", store, todayIso: TODAY };
     return runView(
-      { id: "t", name: "t", ownerId: "x", visibility: "personal", layout: "list",
+      { id: "t", name: "t", layout: "list",
         filters: [], sort: [{ field, dir }] },
       ctx,
       rows,
@@ -173,7 +164,7 @@ describe("sorting regression (fields that used to be ignored)", () => {
       const { store, rows } = await setup();
       const ctx = { viewerLogin: "alice", store, todayIso: TODAY };
       const sorted = runView(
-        { id: "t", name: "t", ownerId: "x", visibility: "personal", layout: "list",
+        { id: "t", name: "t", layout: "list",
           filters: [], sort: [{ field: "priority", dir }] },
         ctx,
         rows,

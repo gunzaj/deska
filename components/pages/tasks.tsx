@@ -3,8 +3,7 @@
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useMemo, useState, type ReactNode } from "react";
 import { addDays, dueLabel } from "@/lib/tasks/dates";
-import { compareCompleted, compareTasks, inInbox, isDelegated, type Task } from "@/lib/tasks/model";
-import { useAppData } from "../app/provider";
+import { compareCompleted, compareTasks, type Task } from "@/lib/tasks/model";
 import { Page } from "../app/shell";
 import { Icon, type IconName } from "../icons";
 import { EmptyHint } from "../props";
@@ -21,7 +20,7 @@ import { GroupSection, subCounts, TaskRow } from "../tasks/task-row";
 /** `keepEmpty` keeps a header when the group has no tasks: Upcoming's days, and a project that also lists GitHub items. */
 type Group = { key: string; title: string; tasks: Task[]; keepEmpty?: boolean };
 
-type Ctx = { viewer: string; today: string; byId: Map<string, Task> };
+type Ctx = { today: string; byId: Map<string, Task> };
 
 /** A view: which tasks, how they group, and what "New task" pre-fills (§12.8). */
 type ViewDef = {
@@ -36,7 +35,6 @@ type ViewDef = {
   prefill?: (c: Ctx) => ComposePrefill;
   /** Manual drag-and-drop order within the single group. */
   manual?: boolean;
-  showAssignee?: boolean;
   hideProject?: boolean;
   empty: { title: string; hint: string; icon: IconName };
   banner?: ReactNode;
@@ -44,8 +42,6 @@ type ViewDef = {
   /** Rendered below the task groups (a project's GitHub items). */
   footer?: ReactNode;
 };
-
-const mine = (t: Task, viewer: string) => inInbox(t, viewer);
 
 function overdueSplit(open: Task[], today: string, restTitle: string): Group[] {
   const overdue = open.filter((t) => t.dueDate != null && t.dueDate < today);
@@ -59,7 +55,6 @@ function overdueSplit(open: Task[], today: string, restTitle: string): Group[] {
 function TaskList({ def }: { def: ViewDef }) {
   const { tasks, projects, loaded, openCompose, update } = useTasks();
   const { toast } = useToast();
-  const { viewer } = useAppData();
   const [showDone, setShowDone] = useState(false);
   const [dragId, setDragId] = useState<string | null>(null);
   // Roving focus (U2): the row Tab reaches.
@@ -67,7 +62,7 @@ function TaskList({ def }: { def: ViewDef }) {
   const [overId, setOverId] = useState<string | null>(null);
   const { today, now } = useToday();
 
-  const c: Ctx = useMemo(() => ({ viewer, today, byId: new Map(tasks.map((t) => [t.id, t])) }), [viewer, today, tasks]);
+  const c: Ctx = useMemo(() => ({ today, byId: new Map(tasks.map((t) => [t.id, t])) }), [today, tasks]);
   const archived = useMemo(() => new Set(projects.filter((p) => p.archived).map((p) => p.id)), [projects]);
   const subs = useMemo(() => subCounts(tasks), [tasks]);
 
@@ -162,7 +157,6 @@ function TaskList({ def }: { def: ViewDef }) {
                   task={t}
                   today={today}
                   now={now}
-                  showAssignee={def.showAssignee}
                   hideProject={def.hideProject}
                   parentTitle={def.withSubtasks ? parentTitle(t) : null}
                   subs={subs.get(t.id)}
@@ -197,7 +191,7 @@ function TaskList({ def }: { def: ViewDef }) {
           {showDone && done.length > 0 && (
             <GroupSection title="Completed" count={done.length}>
               {done.map((t) => (
-                <TaskRow key={t.id} task={t} today={today} now={now} showAssignee={def.showAssignee} hideProject={def.hideProject} subs={subs.get(t.id)} />
+                <TaskRow key={t.id} task={t} today={today} now={now} hideProject={def.hideProject} subs={subs.get(t.id)} />
               ))}
             </GroupSection>
           )}
@@ -231,13 +225,10 @@ export function TaskInboxPage() {
   const def = useMemo<ViewDef>(() => ({
     title: "Inbox",
     icon: <Icon name="inbox" size={15} />,
-    filter: (t, c) =>
-      mine(t, c.viewer) &&
-      (!project || (project === "inbox" ? t.projectId == null : t.projectId === project)) &&
-      (!label || t.labels.includes(label)),
+    filter: (t) => (!project || (project === "inbox" ? t.projectId == null : t.projectId === project)) && (!label || t.labels.includes(label)),
     group: (open, c) => overdueSplit(open, c.today, "Upcoming & no date"),
     prefill: () => ({ projectId: project && project !== "inbox" ? project : null }),
-    empty: { title: "Inbox zero", hint: "Tasks you create, and tasks colleagues assign to you, show up here.", icon: "inbox" },
+    empty: { title: "Inbox zero", hint: "Tasks you create show up here.", icon: "inbox" },
     actions: (
       <>
         <select aria-label="Filter by project" value={project ?? ""} onChange={(e) => setParam("project", e.target.value)} className={select}>
@@ -272,7 +263,7 @@ const TODAY_DEF: ViewDef = {
   title: "Today",
   icon: <Icon name="star" size={15} />,
   withSubtasks: true,
-  filter: (t, c) => mine(t, c.viewer) && t.dueDate != null && t.dueDate <= c.today,
+  filter: (t, c) => t.dueDate != null && t.dueDate <= c.today,
   group: (open, c) => {
     const overdue = open.filter((t) => t.dueDate! < c.today);
     return [
@@ -293,7 +284,7 @@ const UPCOMING_DEF: ViewDef = {
   title: "Upcoming",
   icon: <Icon name="calendar" size={15} />,
   withSubtasks: true,
-  filter: (t, c) => mine(t, c.viewer) && t.dueDate != null && t.dueDate < addDays(c.today, 14),
+  filter: (t, c) => t.dueDate != null && t.dueDate < addDays(c.today, 14),
   group: (open, c) => {
     const overdue = open.filter((t) => t.dueDate! < c.today);
     const days: Group[] = Array.from({ length: 14 }, (_, i) => {
@@ -309,24 +300,6 @@ const UPCOMING_DEF: ViewDef = {
 
 export function TaskUpcomingPage() {
   return <TaskList def={UPCOMING_DEF} />;
-}
-
-/** Created by me, assigned to someone else, grouped by assignee (§12.8). */
-const DELEGATED_DEF: ViewDef = {
-  title: "Delegated",
-  icon: <Icon name="users" size={15} />,
-  filter: (t, c) => isDelegated(t, c.viewer),
-  group: (open) => {
-    const by = new Map<string, Task[]>();
-    for (const t of open) by.set(t.assignee!, [...(by.get(t.assignee!) ?? []), t]);
-    return [...by.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([login, list]) => ({ key: login, title: login, tasks: list }));
-  },
-  showAssignee: true,
-  empty: { title: "Nothing delegated", hint: "Tasks you create and assign to someone else show up here.", icon: "users" },
-};
-
-export function TaskDelegatedPage() {
-  return <TaskList def={DELEGATED_DEF} />;
 }
 
 /** One of my projects, in manual order (§12.3, §12.8). */

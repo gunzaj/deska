@@ -51,7 +51,9 @@ describe("migration 0003 (D6)", () => {
 
       const views = (await pg.query<{ id: string; definition_json: unknown }>(`SELECT id, definition_json FROM views ORDER BY id`)).rows;
       expect(views.map((v) => v.id)).toEqual(["v1"]);
-      expect(viewSchema.safeParse(views[0]!.definition_json).success).toBe(true);
+      // D7 dropped owner and visibility from the schema; migration 0004 strips them, 0003 leaves them.
+      const { ownerId: _o, visibility: _v, ...definition } = views[0]!.definition_json as Record<string, unknown>;
+      expect(viewSchema.safeParse(definition).success).toBe(true);
 
       const sources = (await pg.query<{ name: string; source: unknown }>(`SELECT name, source FROM task_projects ORDER BY name`)).rows;
       expect(sources).toEqual([

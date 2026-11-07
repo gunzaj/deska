@@ -4,36 +4,14 @@ import { renderMarkdownLite, sanitizeHtml } from "@/lib/server/issue-detail";
 import { getStore } from "@/lib/store";
 import type { ReadModel } from "@/lib/sync/read-model";
 import type { Task, TaskComment } from "./model";
-import type { Assignable, Resolve, Result } from "./service";
+import type { Resolve, Result } from "./service";
 
 // Shared helpers for the /api/tasks routes.
 
-// Both lookups are derived from the issue cache, which changes once per sync
-// generation: build them once per store, not on every task POST and PATCH (a
+// The lookup is derived from the issue cache, which changes once per sync
+// generation: build it once per store, not on every task POST and PATCH (a
 // checkbox toggle used to rebuild ~5k entries; v5 3.8).
-const loginsOf = new WeakMap<ReadModel, Set<string>>();
 const numbersOf = new WeakMap<ReadModel, Map<number, { nodeId: string; title: string }>>();
-
-/** Logins of the repo's assignable users (gh_users), lowercased. */
-export async function knownLogins(): Promise<Set<string>> {
-  try {
-    const store = await getStore();
-    let logins = loginsOf.get(store);
-    if (!logins) {
-      logins = new Set([...store.ghUsers.values()].map((u) => u.login.toLowerCase()));
-      loginsOf.set(store, logins);
-    }
-    return logins;
-  } catch {
-    // No issue cache configured: only self-assignment is possible.
-    return new Set();
-  }
-}
-
-export async function assignable(): Promise<Assignable> {
-  const known = await knownLogins();
-  return (login) => known.has(login);
-}
 
 /** Issues in the cache by number. */
 export async function resolver(): Promise<Resolve> {

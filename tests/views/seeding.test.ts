@@ -7,7 +7,6 @@ const getStore = vi.hoisted(() => vi.fn());
 vi.mock("@/lib/store", () => ({ getStore }));
 
 const { __resetViews, deleteView, viewsFor } = await import("@/lib/views/runtime");
-const { SYSTEM_OWNER } = await import("@/lib/views/ids");
 
 async function synced() {
   const store = new MemoryStore();
@@ -25,25 +24,24 @@ describe("seed views", () => {
     // Regression: trySeedViews never returns [], so a visit before the first
     // sync persisted the seeds without the field-dependent ones for good.
     getStore.mockResolvedValue(new MemoryStore());
-    const early = (await viewsFor("alice")).map((v) => v.id);
+    const early = (await viewsFor()).map((v) => v.id);
     expect(early).not.toContain("seed-release-teams");
     expect(early).toContain("seed-untriaged");
 
     getStore.mockResolvedValue(await synced());
-    expect((await viewsFor("alice")).map((v) => v.id)).toContain("seed-release-teams");
+    expect((await viewsFor()).map((v) => v.id)).toContain("seed-release-teams");
   });
 
   it("keeps a deleted seed view deleted after a restart", async () => {
     // Regression: "seeded" was only a module flag, so every cold start
     // re-created any seed view its owner had deleted.
     getStore.mockResolvedValue(await synced());
-    await viewsFor("alice");
-    expect(await deleteView("alice", "seed-epics")).toBe(true);
+    await viewsFor();
+    expect(await deleteView("seed-epics")).toBe(true);
 
     __resetViews({ restart: true });
-    expect((await viewsFor("bob")).map((v) => v.id)).not.toContain("seed-epics");
-    // The surviving seeds belong to no one, whoever visited first (v5 2.10).
-    expect((await viewsFor("bob")).find((v) => v.id === "seed-untriaged")?.ownerId).toBe(SYSTEM_OWNER);
+    expect((await viewsFor()).map((v) => v.id)).not.toContain("seed-epics");
+    expect((await viewsFor()).map((v) => v.id)).toContain("seed-untriaged");
   });
 });
 
@@ -51,13 +49,13 @@ describe("the in-memory views store (v5 2.10)", () => {
   it("is shared by every copy of the module, as in `next dev` where each route gets its own", async () => {
     getStore.mockResolvedValue(await synced());
     __resetViews();
-    await viewsFor("alice");
+    await viewsFor();
     // A second copy of the module (another route in dev) must see the same views.
     vi.resetModules();
     const other = await import("@/lib/views/runtime");
-    expect((await other.viewsFor("bob")).map((v) => v.id)).toContain("seed-epics");
-    expect(await other.deleteView("bob", "seed-epics")).toBe(true);
-    expect((await viewsFor("alice")).map((v) => v.id)).not.toContain("seed-epics");
-    expect(await other.restoreView("alice", "seed-epics")).toMatchObject({ id: "seed-epics" }); // undo works across routes
+    expect((await other.viewsFor()).map((v) => v.id)).toContain("seed-epics");
+    expect(await other.deleteView("seed-epics")).toBe(true);
+    expect((await viewsFor()).map((v) => v.id)).not.toContain("seed-epics");
+    expect(await other.restoreView("seed-epics")).toMatchObject({ id: "seed-epics" }); // undo works across routes
   });
 });

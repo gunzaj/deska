@@ -6,8 +6,8 @@ export const dynamic = "force-dynamic";
 
 const body = z.object({ kind: z.enum(["issue", "view"]), targetId: z.string().min(1).max(200) });
 
-/** The viewer looked at a watched item: what changed before now is no longer news (F6). */
-export const POST = route({ auth: "viewer", body, invalid: "kind and targetId required" }, async ({ viewer, body }) => ({
+/** The owner looked at a watched item: what changed before now is no longer news (F6). */
+export const POST = route({ auth: "viewer", body, invalid: "kind and targetId required" }, async ({ owner, body }) => ({
   // Not watched: nothing to mark, and nothing to report.
-  watch: await markSeen(viewer, body.kind, body.targetId),
+  watch: await markSeen(owner, body.kind, body.targetId),
 }));

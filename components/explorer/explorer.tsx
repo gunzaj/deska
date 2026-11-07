@@ -24,7 +24,7 @@ import { withDefaultScope } from "@/lib/client/team-scope";
 import { ISSUE_LIST_KEYS } from "@/lib/client/shortcuts";
 import { toggleSortKey } from "@/lib/client/sort";
 import type { ClientIssue } from "@/lib/client/types";
-import { canEditView, newViewId } from "@/lib/views/ids";
+import { newViewId } from "@/lib/views/ids";
 import { viewSchema, type Filter, type View } from "@/lib/views/view";
 import Link from "next/link";
 import { Page } from "../app/shell";
@@ -252,14 +252,10 @@ export function Explorer({
   // Saving
   const [dialog, setDialog] = useState<null | "new" | "rename">(null);
   const modified = !!view && !sameState(state, saved);
-  // Only the owner edits a view; others save their changes as a copy (Q6).
-  const mine = !view || canEditView(view.ownerId, data.meta.viewer);
-  const saveAs = async (name: string, visibility: View["visibility"]) => {
+  const saveAs = async (name: string) => {
     const v: View = {
       id: newViewId(),
       name,
-      ownerId: data.meta.viewer,
-      visibility,
       ...state,
       filters: view ? state.filters : [...base, ...state.filters],
     };
@@ -287,7 +283,6 @@ export function Explorer({
       {headerExtra}
       <ViewActions
         view={view}
-        mine={mine}
         modified={modified}
         onReset={() => setState(saved)}
         onSave={saveCurrent}
@@ -432,12 +427,11 @@ export function Explorer({
         onClose={() => setDialog(null)}
         title={dialog === "rename" ? "Rename view" : view ? "Duplicate view" : "Save as view"}
         initialName={dialog === "rename" ? (view?.name ?? "") : view ? `${view.name} (copy)` : typeof title === "string" ? title : ""}
-        initialVisibility={view?.visibility ?? "personal"}
-        onSave={async (name, visibility) => {
+        onSave={async (name) => {
           if (dialog === "rename" && view) {
-            await upsertView({ ...view, name, visibility });
+            await upsertView({ ...view, name });
             setDialog(null);
-          } else await saveAs(name, visibility);
+          } else await saveAs(name);
         }}
       />
     </Page>

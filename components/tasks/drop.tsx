@@ -3,16 +3,13 @@
 // Sidebar drop targets for tasks: drag a task row onto Inbox, Today, Upcoming,
 // a project or a label to file or reschedule it, with an Undo toast.
 import { useState, type DragEvent } from "react";
-import { dropOutcome, needsEditRights, TASK_DRAG_TYPE, type DropTarget } from "@/lib/client/task-drop";
-import { canEdit } from "@/lib/tasks/model";
-import { useAppData } from "../app/provider";
+import { dropOutcome, TASK_DRAG_TYPE, type DropTarget } from "@/lib/client/task-drop";
 import { useToast } from "../ui/toast";
 import { useToday } from "./notifications";
 import { useTasks } from "./store";
 
 export function useTaskDrop(target: DropTarget) {
   const { tasks, labels, update } = useTasks();
-  const { viewer } = useAppData();
   const { today } = useToday();
   const { toast } = useToast();
   const [over, setOver] = useState(false);
@@ -34,10 +31,6 @@ export function useTaskDrop(target: DropTarget) {
       e.preventDefault();
       const task = tasks.find((t) => t.id === e.dataTransfer.getData(TASK_DRAG_TYPE));
       if (!task) return;
-      if (needsEditRights(target) && !canEdit(task, viewer)) {
-        toast({ kind: "error", message: "Only the creator or assignee can change when it's due" });
-        return;
-      }
       const names = task.labels.map((id) => labels.find((l) => l.id === id)?.name).filter((n): n is string => Boolean(n));
       const out = dropOutcome(task, names, target, today);
       if (!out) return;

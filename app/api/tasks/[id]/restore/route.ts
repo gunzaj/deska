@@ -6,7 +6,7 @@ import { restoreTask } from "@/lib/tasks/service";
 export const dynamic = "force-dynamic";
 
 /** Undo a task delete (U1). Only the creator, within the retention window. */
-export const POST = route({ auth: "viewer", params: idParams }, async ({ viewer, params }) => {
-  const r = await restoreTask(viewer, params.id);
+export const POST = route({ auth: "viewer", params: idParams }, async ({ owner, params }) => {
+  const r = await restoreTask(owner, params.id);
   return r.ok ? NextResponse.json(withHtml(r.value)) : fail(r);
 });

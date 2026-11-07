@@ -89,11 +89,10 @@ describe("project source API", () => {
     expect((await patch(id, { source: { issues: null } })).body.source).toBeNull();
   });
 
-  it("refuses malformed filters and other people's projects", async () => {
+  it("refuses malformed filters", async () => {
     const id = await newProject();
     expect((await patch(id, { source: { issues: [{ field: "nope" }] } })).status).toBe(400);
     // Pull request filters went with D6: a stale client sending them is refused.
     expect((await patch(id, { source: { issues: null, prs: [{ field: "state", values: ["open"] }] } })).status).toBe(400);
-    expect((await patch(id, { source: NEW_SOURCE }, "bob")).status).toBe(404);
   });
 });

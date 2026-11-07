@@ -8,7 +8,7 @@ import { addDays, addMonths, weekday, ymd } from "./dates";
 import { nextOccurrence } from "./recurrence";
 import type { Priority } from "./model";
 
-export type TokenKind = "date" | "time" | "recurrence" | "priority" | "label" | "project" | "link" | "assignee";
+export type TokenKind = "date" | "time" | "recurrence" | "priority" | "label" | "project" | "link";
 
 type Base = { start: number; end: number; text: string };
 export type Token =
@@ -18,8 +18,7 @@ export type Token =
   | (Base & { kind: "priority"; priority: Priority })
   | (Base & { kind: "label"; name: string })
   | (Base & { kind: "project"; name: string })
-  | (Base & { kind: "link"; number: number })
-  | (Base & { kind: "assignee"; login: string });
+  | (Base & { kind: "link"; number: number });
 
 export type ParseContext = {
   /** Today in the viewer's time zone, YYYY-MM-DD. */
@@ -30,8 +29,6 @@ export type ParseContext = {
   ignored?: ReadonlySet<string>;
   /** The viewer's project names. */
   projects?: readonly string[];
-  /** Assignable logins (lowercase). */
-  users?: readonly string[];
   /** Whether `#n` is a known issue. */
   hasItem?: (n: number) => boolean;
   /** `owner/name`, for pasted URLs. */
@@ -49,7 +46,6 @@ export type Parsed = {
   labels: string[];
   project: string | null;
   links: number[];
-  assignee: string | null;
   recurrence: { rule: string; label: string; fromCompletion: boolean } | null;
 };
 
@@ -253,11 +249,6 @@ export function parseQuickAdd(input: string, ctx: ParseContext): Parsed {
     true,
   );
 
-  const users = new Set((ctx.users ?? []).map((u) => u.toLowerCase()));
-  take("assignee", scan(input, new RegExp(`${START}@([A-Za-z\\d](?:[A-Za-z\\d-]{0,38}))${END}`), (m) => m(1).toLowerCase()), (m) =>
-    users.has(m.value as string) ? { kind: "assignee", start: m.start, end: m.end, text: m.text, login: m.value as string } : null,
-  );
-
   // A label starts with a letter, so "+1" and "+2 more" stay text.
   take(
     "label",
@@ -319,7 +310,6 @@ export function parseQuickAdd(input: string, ctx: ParseContext): Parsed {
     labels: [...new Set(tokens.filter((t) => t.kind === "label").map((t) => (t as Extract<Token, { kind: "label" }>).name))],
     project: find("project")?.name ?? null,
     links: [...new Set(tokens.filter((t) => t.kind === "link").map((t) => (t as Extract<Token, { kind: "link" }>).number))],
-    assignee: find("assignee")?.login ?? null,
     recurrence: rec ? { rule: rec.rule, label: rec.label, fromCompletion: rec.fromCompletion } : null,
   };
 }

@@ -113,7 +113,6 @@ export function CommandPalette() {
       { id: "nav:tasks", section: "Go to", label: "Tasks inbox", keywords: "todo to-do my tasks", icon: ico("inbox"), hint: <Kbd>G D</Kbd>, run: go("/tasks") },
       { id: "nav:today", section: "Go to", label: "Tasks due today", keywords: "todo today overdue", icon: ico("star"), run: go("/tasks/today") },
       { id: "nav:upcoming", section: "Go to", label: "Upcoming tasks", keywords: "todo week schedule", icon: ico("calendar"), run: go("/tasks/upcoming") },
-      { id: "nav:delegated", section: "Go to", label: "Delegated tasks", keywords: "todo assigned others", icon: ico("users"), run: go("/tasks/delegated") },
       { id: "nav:all", section: "Go to", label: "All issues", icon: ico("layers"), hint: <Kbd>G I</Kbd>, run: go("/issues") },
       { id: "nav:backlog", section: "Go to", label: "Backlog", icon: ico("list"), hint: <Kbd>G B</Kbd>, run: go("/backlog") },
       ...(cur ? [{ id: "nav:cur", section: "Go to", label: `Current release · ${cur.title}`, keywords: "board sprint", icon: ico("calendar"), hint: <Kbd>G R</Kbd>, run: go(`/releases/${cur.id}`) }] : []),
@@ -227,7 +226,7 @@ export function CommandPalette() {
       return [...targetActions, ...rec, ...commands.filter((c) => c.section === "Go to" || c.section === "Actions")];
     }
     const issues = searchIssues(data.issues, query, 8).map((i) => issueItem(i, "Issues"));
-    const taskItems: Item[] = searchTasks(tasks, query, app.viewer, 5).map((t) => ({
+    const taskItems: Item[] = searchTasks(tasks, query, 5).map((t) => ({
       id: `task:${t.id}`,
       section: "Tasks",
       label: t.title,
@@ -249,7 +248,7 @@ export function CommandPalette() {
     return isNumber ? [...issues, ...cmds, ...taskItems, searchAll] : [...cmds, ...issues, ...taskItems, searchAll];
     // openIssue and router are used above: without them the memo keeps a stale
     // openIssue after a client-side navigation.
-  }, [q, commands, data.issues, data.meta.demo, recent, byNumber, tasks, app.viewer, targetActions, openIssue, router]);
+  }, [q, commands, data.issues, data.meta.demo, recent, byNumber, tasks, targetActions, openIssue, router]);
 
   useEffect(() => setActive(0), [q]);
   useEffect(() => {

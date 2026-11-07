@@ -6,14 +6,12 @@ import { getDb } from "@/db";
 import { PostgresTaskRepo, type StoredTask } from "@/lib/tasks/repo";
 import { deleteTask, restoreTask, updateTask } from "@/lib/tasks/service";
 
-const anyone = () => true;
 
 function task(p: Partial<StoredTask> = {}): StoredTask {
   const now = new Date().toISOString();
   return {
     id: crypto.randomUUID(),
     creator: "alice",
-    assignee: null,
     parentId: null,
     title: "Task",
     description: "",
@@ -51,22 +49,22 @@ describe("undo (Postgres)", () => {
     await repo.deleteComment(old);
 
     expect((await deleteTask("alice", parent.id)).ok).toBe(true);
-    expect(await repo.getVisible("alice", parent.id)).toBeNull();
+    expect(await repo.get(parent.id)).toBeNull();
 
     const r = await restoreTask("alice", parent.id);
     expect(r.ok).toBe(true);
-    expect((await repo.getVisible("alice", parent.id))?.links.map((l) => l.number)).toEqual([101]);
-    expect((await repo.getVisible("alice", child.id))?.title).toBe("Child");
+    expect((await repo.get(parent.id))?.links.map((l) => l.number)).toEqual([101]);
+    expect((await repo.get(child.id))?.title).toBe("Child");
     expect((await repo.comments(parent.id)).map((c) => c.body)).toEqual(["kept"]);
   });
 
   it("undoing a recurring completion restores the date and drops the completion row", async () => {
     const t = task({ dueDate: "2026-10-16", recurrence: { rule: "FREQ=WEEKLY", text: "every week", fromCompletion: false } });
     await repo.insert(t);
-    await updateTask("alice", t.id, { completed: true }, anyone);
-    expect((await repo.getVisible("alice", t.id))?.dueDate).toBe("2026-10-23");
-    await updateTask("alice", t.id, { undoOccurrence: "2026-10-16" }, anyone);
-    expect((await repo.getVisible("alice", t.id))?.dueDate).toBe("2026-10-16");
+    await updateTask("alice", t.id, { completed: true });
+    expect((await repo.get(t.id))?.dueDate).toBe("2026-10-23");
+    await updateTask("alice", t.id, { undoOccurrence: "2026-10-16" });
+    expect((await repo.get(t.id))?.dueDate).toBe("2026-10-16");
     const rows = (await getDb().execute(sql`SELECT count(*)::int AS n FROM task_completions WHERE task_id = ${t.id}`)).rows;
     expect(rows[0]!.n).toBe(0);
   });
@@ -74,16 +72,16 @@ describe("undo (Postgres)", () => {
   it("a refused undo keeps the completion row and the date (v5 1.7)", async () => {
     const t = task({ dueDate: "2026-10-16", recurrence: { rule: "FREQ=WEEKLY", text: "every week", fromCompletion: false } });
     await repo.insert(t);
-    await updateTask("alice", t.id, { completed: true }, anyone);
-    expect((await repo.getVisible("alice", t.id))?.dueDate).toBe("2026-10-23");
+    await updateTask("alice", t.id, { completed: true });
+    expect((await repo.get(t.id))?.dueDate).toBe("2026-10-23");
     const rows = async () => Number((await getDb().execute(sql`SELECT count(*)::int AS n FROM task_completions WHERE task_id = ${t.id}`)).rows[0]!.n);
     expect(await rows()).toBe(1);
 
     // The undo is valid; the project is not. The request is refused as a whole.
-    const r = await updateTask("alice", t.id, { undoOccurrence: "2026-10-16", projectId: "00000000-0000-0000-0000-00000000dead" }, anyone);
+    const r = await updateTask("alice", t.id, { undoOccurrence: "2026-10-16", projectId: "00000000-0000-0000-0000-00000000dead" });
     expect(r).toMatchObject({ ok: false, status: 400 });
     expect(await rows()).toBe(1); // the completion row is still there
-    expect((await repo.getVisible("alice", t.id))?.dueDate).toBe("2026-10-23"); // and the date did not move back
+    expect((await repo.get(t.id))?.dueDate).toBe("2026-10-23"); // and the date did not move back
   });
 
   it("a write after a refusal point is rolled back with the refusal, whatever the order (v5 1.7)", async () => {
@@ -95,7 +93,7 @@ describe("undo (Postgres)", () => {
       return { ok: false as const, status: 400, error: "refused" };
     });
     expect(out).toMatchObject({ ok: false, status: 400 });
-    expect((await repo.getVisible("alice", t.id))?.title).toBe("Task");
+    expect((await repo.get(t.id))?.title).toBe("Task");
   });
 
   it("createTask is one transaction: a failing ensureLabels leaves no task behind (v5 1.7)", async () => {
@@ -103,7 +101,7 @@ describe("undo (Postgres)", () => {
     const spy = vi.spyOn(PostgresTaskRepo.prototype, "insertLabel").mockRejectedValueOnce(new Error("label table down"));
     try {
       await expect(
-        createTask("alice", { title: "Ship it", labels: ["urgent"], links: [], reminders: [], priority: 4, projectId: null, parentId: null, assignee: null, description: "", dueDate: null, dueTime: null, recurrence: null } as never, anyone),
+        createTask("alice", { title: "Ship it", labels: ["urgent"], links: [], reminders: [], priority: 4, projectId: null, parentId: null, description: "", dueDate: null, dueTime: null, recurrence: null } as never),
       ).rejects.toThrow("label table down");
     } finally {
       spy.mockRestore();

@@ -19,15 +19,16 @@ const keyOf = (kind: WatchKind, targetId: string) => `${kind}:${targetId}`;
  * issues a watched view matches. The browser never supplies this set, so a watcher
  * can only read change history for the items they actually watch.
  */
-export async function watchCoverage(login: string, watches: Watch[]): Promise<Map<string, string[]>> {
+/** `owner` keys the local views; `meLogin` is the GitHub login a view's `me` means. */
+export async function watchCoverage(owner: string, watches: Watch[], meLogin = ""): Promise<Map<string, string[]>> {
   const coverage = new Map<string, string[]>();
   if (!watches.length) return coverage;
   const store = await getStore().catch(() => null);
   if (!store) return coverage;
-  const views = watches.some((w) => w.kind === "view") ? await viewsFor(login) : [];
+  const views = watches.some((w) => w.kind === "view") ? await viewsFor() : [];
   const rows = views.length ? buildViewRows(store) : [];
   // The viewer's own calendar day, as the client computes it (v5 4.9).
-  const todayIso = localToday(new Date(), (await getPrefs(login)).tz ?? undefined);
+  const todayIso = localToday(new Date(), (await getPrefs(owner)).tz ?? undefined);
   for (const w of watches) {
     if (w.kind === "issue") {
       coverage.set(keyOf(w.kind, w.targetId), [w.targetId]);
@@ -36,7 +37,7 @@ export async function watchCoverage(login: string, watches: Watch[]): Promise<Ma
     const view = views.find((v) => v.id === w.targetId);
     coverage.set(
       keyOf(w.kind, w.targetId),
-      view ? runView(view, { viewerLogin: login, todayIso, store }, rows).map((r) => r.nodeId) : [],
+      view ? runView(view, { viewerLogin: meLogin, todayIso, store }, rows).map((r) => r.nodeId) : [],
     );
   }
   return coverage;
@@ -49,11 +50,12 @@ export async function watchCoverage(login: string, watches: Watch[]): Promise<Ma
  * someone else's last look or read changes on an item they don't watch.
  */
 export async function collectWatchChanges(
-  login: string,
+  owner: string,
   items: WatchQuery[],
   loginOf: (userId: string) => string = (id) => id,
+  meLogin = "",
 ): Promise<Record<string, FieldChange[]>> {
-  const mine = new Map((await listWatches(login)).map((w) => [keyOf(w.kind, w.targetId), w]));
+  const mine = new Map((await listWatches(owner)).map((w) => [keyOf(w.kind, w.targetId), w]));
   const wanted: Watch[] = [];
   const seen = new Set<string>();
   for (const it of items) {
@@ -66,7 +68,7 @@ export async function collectWatchChanges(
     }
   }
   if (!wanted.length) return {};
-  const coverage = await watchCoverage(login, wanted);
+  const coverage = await watchCoverage(owner, wanted, meLogin);
   const out: Record<string, FieldChange[]> = {};
   for (const w of wanted) {
     const k = keyOf(w.kind, w.targetId);

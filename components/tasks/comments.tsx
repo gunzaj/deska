@@ -3,9 +3,7 @@
 import { useCallback, useRef, useState } from "react";
 import { longAgo } from "@/lib/client/format";
 import type { TaskComment } from "@/lib/tasks/model";
-import { useAppData } from "../app/provider";
 import { Icon } from "../icons";
-import { Avatar } from "../props";
 import { btn } from "../ui/popover";
 import { isUnauthorized } from "@/lib/client/session";
 import { usePoll } from "@/lib/client/poll";
@@ -14,10 +12,8 @@ type Shown = TaskComment & { bodyHtml: string };
 
 const REFRESH_MS = 30_000;
 
-/** Comment thread on the task panel (SPEC §12.7). Markdown; authors edit and delete their own. */
+/** Comment thread on the task panel (SPEC §12.7): private notes in markdown, which you can edit and delete. */
 export function TaskComments({ taskId }: { taskId: string }) {
-  const { viewer, avatarOf } = useAppData();
-  const me = viewer.toLowerCase();
   const [list, setList] = useState<Shown[] | null>(null);
   const [draft, setDraft] = useState("");
   const [editing, setEditing] = useState<{ id: string; body: string } | null>(null);
@@ -76,15 +72,13 @@ export function TaskComments({ taskId }: { taskId: string }) {
       </h3>
       <ol className="space-y-3">
         {(list ?? []).map((c) => (
-          <li key={c.id} className="group flex gap-2.5">
-            <Avatar login={c.author} url={avatarOf(c.author)} size={22} />
+          <li key={c.id} className="group">
             <div className="min-w-0 flex-1">
               <p className="flex items-center gap-1.5 text-[12px] text-faint">
-                <span className="font-medium text-muted">{c.author === me ? "You" : c.author}</span>
                 <span title={c.createdAt}>{longAgo(c.createdAt)}</span>
                 {c.updatedAt !== c.createdAt && <span>· edited</span>}
                 <span className="flex-1" />
-                {c.author === me && editing?.id !== c.id && (
+                {editing?.id !== c.id && (
                   <span className="opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
                     <button type="button" onClick={() => setEditing({ id: c.id, body: c.body })} className="px-1 hover:text-fg" aria-label="Edit comment">
                       Edit
@@ -135,9 +129,8 @@ export function TaskComments({ taskId }: { taskId: string }) {
           </li>
         ))}
       </ol>
-      {list && list.length === 0 && <p className="text-[12.5px] text-faint">No comments yet. Both of you get notified when the other writes.</p>}
-      <div className="mt-3 flex gap-2.5">
-        <Avatar login={me} url={avatarOf(me)} size={22} />
+      {list && list.length === 0 && <p className="text-[12.5px] text-faint">No comments yet. Notes stay on this Mac.</p>}
+      <div className="mt-3">
         <div className="min-w-0 flex-1">
           <textarea
             aria-label="Write a comment"

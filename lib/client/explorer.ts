@@ -266,7 +266,7 @@ function viewContext(meta: ClientMeta): ViewContext {
 }
 
 export function runExplorer(issues: ClientIssue[], filters: Filter[], sort: View["sort"], meta: ClientMeta): ClientIssue[] {
-  const view: View = { id: "", name: "", ownerId: "", visibility: "personal", layout: "list", filters, sort };
+  const view: View = { id: "", name: "", layout: "list", filters, sort };
   return runView(view, viewContext(meta), issues) as ClientIssue[];
 }
 

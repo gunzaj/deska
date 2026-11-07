@@ -20,14 +20,6 @@ import {
   uuid,
 } from "drizzle-orm/pg-core";
 
-export const users = pgTable("users", {
-  id: uuid("id").defaultRandom().primaryKey(),
-  githubId: text("github_id").notNull().unique(),
-  login: text("login").notNull(),
-  name: text("name"),
-  avatarUrl: text("avatar_url"),
-});
-
 export const ghUsers = pgTable(
   "gh_users",
   {
@@ -224,16 +216,14 @@ export const views = pgTable(
     // Text, not uuid: seed views have stable readable IDs ("seed-untriaged") so
     // reseeding is idempotent and links to them survive a reseed.
     id: text("id").primaryKey(),
-    ownerId: text("owner_id").notNull(),
     name: text("name").notNull(),
-    visibility: text("visibility").notNull().default("personal"),
     definitionJson: jsonb("definition_json").notNull(),
     position: integer("position").notNull().default(0),
     updatedAt: timestamp("updated_at").defaultNow(),
     /** Soft delete, so a deleted view can be restored (U1); purged after 30 days (S8). */
     deletedAt: timestamp("deleted_at"),
   },
-  (t) => [index("views_owner_idx").on(t.ownerId), index("views_deleted_idx").on(t.deletedAt)],
+  (t) => [index("views_deleted_idx").on(t.deletedAt)],
 );
 
 export const outbox = pgTable(
@@ -309,14 +299,13 @@ export const auditLog = pgTable(
 );
 
 // Tasks (SPEC §12): Deska-native personal to-dos, never written to GitHub.
-// People are keyed by lowercase GitHub login, like views.owner_id: the session
-// only carries the login, and demo/e2e mode has no users rows.
+// Everything local is keyed by LOCAL_OWNER (lib/local-owner.ts), not by a GitHub
+// login: the *_login / owner_login columns are kept, and always hold it.
 export const tasks = pgTable(
   "tasks",
   {
     id: uuid("id").defaultRandom().primaryKey(),
     creatorLogin: text("creator_login").notNull(),
-    assigneeLogin: text("assignee_login"),
     parentId: uuid("parent_id").references((): AnyPgColumn => tasks.id, { onDelete: "cascade" }),
     title: text("title").notNull(),
     description: text("description").notNull().default(""),
@@ -334,7 +323,6 @@ export const tasks = pgTable(
     deletedAt: timestamp("deleted_at", { withTimezone: true }),
   },
   (t) => [
-    index("tasks_assignee_idx").on(t.assigneeLogin, t.completedAt),
     index("tasks_creator_idx").on(t.creatorLogin, t.completedAt),
     index("tasks_due_idx").on(t.dueDate),
     index("tasks_parent_idx").on(t.parentId),
@@ -386,7 +374,7 @@ export const taskProjects = pgTable(
   ],
 );
 
-// Where each user files a task: creator and assignee each have their own (Q2).
+// Where a task is filed: one placement per task (project and manual order).
 export const taskPlacements = pgTable(
   "task_placements",
   {
@@ -477,10 +465,9 @@ export const notifications = pgTable(
   {
     id: uuid("id").defaultRandom().primaryKey(),
     login: text("login").notNull(),
-    kind: text("kind").notNull(), // reminder | assigned | completed | comment | watch_digest
+    kind: text("kind").notNull(), // reminder | watch_digest
     /** Null for a watchlist digest (F6), which is about no one task. */
     taskId: uuid("task_id").references(() => tasks.id, { onDelete: "cascade" }),
-    actorLogin: text("actor_login"),
     title: text("title").notNull(),
     dedupeKey: text("dedupe_key").notNull(),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),

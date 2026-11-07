@@ -2,10 +2,8 @@
 
 import { useRef, useState, type ReactNode } from "react";
 import { dueLabel, type DueTone } from "@/lib/tasks/dates";
-import { PRIORITIES, type Access, type Priority } from "@/lib/tasks/model";
-import { useAppData } from "../app/provider";
+import { PRIORITIES, type Priority } from "@/lib/tasks/model";
 import { Icon } from "../icons";
-import { Avatar } from "../props";
 import { btn, PickList, Popover, type PickItem } from "../ui/popover";
 import { useTasks } from "./store";
 
@@ -94,11 +92,6 @@ export function PriorityFlag({ priority, size = 13 }: { priority: Priority; size
   );
 }
 
-export function accessHint(a: Access | undefined): string | null {
-  if (a === "pending") return "not on Deska yet";
-  return null;
-}
-
 /** Priority dropdown: P1–P4. */
 export function PriorityPicker({ value, onChange }: { value: Priority; onChange: (p: Priority) => void }) {
   const anchor = useRef<HTMLButtonElement>(null);
@@ -121,63 +114,6 @@ export function PriorityPicker({ value, onChange }: { value: Priority; onChange:
           placeholder="Priority…"
           onPick={(id) => {
             onChange(Number(id) as Priority);
-            setOpen(false);
-          }}
-        />
-      </Popover>
-    </>
-  );
-}
-
-const UNASSIGNED = "__none";
-
-/**
- * Assignee dropdown over the repo's assignable users (§12.1). People who can't
- * see the task yet are marked, so you know they won't notice it.
- */
-export function AssigneePicker({
-  value,
-  onChange,
-  access,
-  noneLabel = "No assignee",
-  hideMe = false,
-}: {
-  value: string | null;
-  onChange: (login: string | null) => void;
-  access: Record<string, Access>;
-  noneLabel?: string;
-  /** For the creator, "me" is the same as unassigned, so it isn't listed twice. */
-  hideMe?: boolean;
-}) {
-  const { data, viewer, avatarOf } = useAppData();
-  const anchor = useRef<HTMLButtonElement>(null);
-  const [open, setOpen] = useState(false);
-  const me = viewer.toLowerCase();
-  const logins = [...new Set([me, ...data.meta.users.map((u) => u.login.toLowerCase())])].filter((l) => !(hideMe && l === me));
-  const items: PickItem[] = [
-    { id: UNASSIGNED, label: noneLabel, icon: <Icon name="user" size={14} className="text-faint" />, checked: value == null },
-    ...logins
-      .sort((a, b) => (a === me ? -1 : b === me ? 1 : a.localeCompare(b)))
-      .map((l) => ({
-        id: l,
-        label: l === me ? `${l} (me)` : l,
-        icon: <Avatar login={l} url={avatarOf(l)} size={16} />,
-        hint: accessHint(access[l]) ?? undefined,
-        checked: value === l,
-      })),
-  ];
-  return (
-    <>
-      <button ref={anchor} type="button" onClick={() => setOpen(true)} className={btn.ghost} aria-label={`Assignee: ${value ?? "none"}`}>
-        {value ? <Avatar login={value} url={avatarOf(value)} size={16} /> : <Icon name="user" size={14} className="text-faint" />}
-        {value ?? noneLabel}
-      </button>
-      <Popover anchor={anchor} open={open} onClose={() => setOpen(false)} width={280}>
-        <PickList
-          items={items}
-          placeholder="Assign to…"
-          onPick={(id) => {
-            onChange(id === UNASSIGNED ? null : id);
             setOpen(false);
           }}
         />

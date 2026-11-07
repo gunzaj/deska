@@ -13,9 +13,8 @@ import {
   taskReminders,
   tasks as tasksTable,
   userPrefs,
-  users as usersTable,
 } from "@/db/schema";
-import { canSeeWithParent, type AppNotification, type TaskComment, type Prefs, type Priority, type Reminder, type TaskCore, type TaskLabel, type TaskLink, type TaskProject } from "./model";
+import type { AppNotification, TaskComment, Prefs, Priority, Reminder, TaskCore, TaskLabel, TaskLink, TaskProject } from "./model";
 
 /**
  * The transaction `locked()` opened, if this call runs inside one (S9), else
@@ -31,9 +30,9 @@ function conn(): ReturnType<typeof getDb> {
  * Task storage (SPEC §12). With DESKA_DB_DIR tasks live in Postgres; without
  * one (demo fixtures, tests) in-memory maps are the store, as for views.
  *
- * Every task read takes the viewer and filters by visibility in the query
- * itself (§12.2), so no caller can forget to. Placements and labels are
- * per-user overlays and are always read for one login.
+ * All of it belongs to this install (§4.6): reads take no viewer. The
+ * placement, label, project, notification and prefs methods still take the
+ * owner key; callers always pass LOCAL_OWNER.
  */
 export type StoredTask = TaskCore & { deletedAt: string | null };
 export type Placement = { projectId: string | null; position: number };
@@ -45,15 +44,12 @@ export type NewNotification = Omit<AppNotification, "id" | "createdAt" | "readAt
 export const COMPLETED_LIMIT = 200;
 
 export interface TaskRepo {
-  listVisible(viewer: string): Promise<StoredTask[]>;
-  getVisible(viewer: string, id: string): Promise<StoredTask | null>;
-  /**
-   * A soft-deleted task, for its creator only: the undo path. Retention
-   * hard-deletes it after RETENTION_DELETED_DAYS (S8).
-   */
-  getDeletedByCreator(viewer: string, id: string): Promise<StoredTask | null>;
-  /** Visible sub-tasks of a task. */
-  children(viewer: string, parentId: string): Promise<StoredTask[]>;
+  list(): Promise<StoredTask[]>;
+  get(id: string): Promise<StoredTask | null>;
+  /** A soft-deleted task: the undo path. Retention hard-deletes it after RETENTION_DELETED_DAYS (S8). */
+  getDeleted(id: string): Promise<StoredTask | null>;
+  /** Sub-tasks of a task. */
+  children(parentId: string): Promise<StoredTask[]>;
   insert(t: StoredTask): Promise<void>;
   update(id: string, patch: Partial<StoredTask>): Promise<void>;
 
@@ -63,7 +59,7 @@ export interface TaskRepo {
   maxPosition(login: string, projectId: string | null): Promise<number>;
 
   labelLinks(login: string): Promise<Map<string, string[]>>;
-  /** Replace the login's labels on a task; other users' labels are untouched. */
+  /** Replace the task's labels. */
   setLabelLinks(taskId: string, login: string, labelIds: string[]): Promise<void>;
 
   projects(login: string): Promise<StoredProject[]>;
@@ -110,11 +106,10 @@ export interface TaskRepo {
   removeCompletion(taskId: string, dueDate: string): Promise<boolean>;
 
   /**
-   * Open tasks that may have a reminder due around now, for every user: due
-   * between the two dates, or with an absolute reminder in (since, until].
+   * Open tasks that may have a reminder due around now: due between the two
+   * dates, or with an absolute reminder in (since, until].
    */
-  /** Tasks that may have a reminder due. With `login`, only those that notify that person (v5 3.1). */
-  reminderCandidates(fromDate: string, toDate: string, since: Date, until: Date, login?: string): Promise<StoredTask[]>;
+  reminderCandidates(fromDate: string, toDate: string, since: Date, until: Date): Promise<StoredTask[]>;
 
   /** Insert unless the dedupe key exists; true when inserted. */
   addNotification(n: NewNotification): Promise<boolean>;
@@ -124,11 +119,6 @@ export interface TaskRepo {
 
   prefs(login: string): Promise<Prefs>;
   setPrefs(login: string, p: Partial<Prefs>): Promise<Prefs>;
-
-  /** Lowercase logins with a Deska account (signed in at least once). */
-  signedInLogins(): Promise<Set<string>>;
-  /** Record a login as signed in (memory repo only; Postgres has `users`). */
-  noteSignedIn(login: string): void;
 }
 
 const DEFAULT_PREFS: Prefs = { tz: null, browserNotifications: false, sidebar: null, defaultTeam: null };
@@ -154,26 +144,20 @@ export class MemoryTaskRepo implements TaskRepo {
   commentList: (TaskComment & { deleted: boolean; deletedAt?: string })[] = [];
   notes: (AppNotification & { login: string; dedupeKey: string })[] = [];
   prefMap = new Map<string, Prefs>();
-  seen = new Set<string>();
 
-  private visible(t: StoredTask | undefined, viewer: string): t is StoredTask {
-    if (!t || t.deletedAt) return false;
-    const parent = t.parentId ? this.map.get(t.parentId) : null;
-    return canSeeWithParent(t, parent && !parent.deletedAt ? parent : null, viewer);
+  async list() {
+    return capCompleted([...this.map.values()].filter((t) => !t.deletedAt).map(copy));
   }
-  async listVisible(viewer: string) {
-    return capCompleted([...this.map.values()].filter((t) => this.visible(t, viewer)).map(copy));
-  }
-  async getVisible(viewer: string, id: string) {
+  async get(id: string) {
     const t = this.map.get(id);
-    return this.visible(t, viewer) ? copy(t) : null;
+    return t && !t.deletedAt ? copy(t) : null;
   }
-  async getDeletedByCreator(viewer: string, id: string) {
+  async getDeleted(id: string) {
     const t = this.map.get(id);
-    return t?.deletedAt && t.creator === viewer ? copy(t) : null;
+    return t?.deletedAt ? copy(t) : null;
   }
-  async children(viewer: string, parentId: string) {
-    return [...this.map.values()].filter((t) => t.parentId === parentId && this.visible(t, viewer)).map(copy);
+  async children(parentId: string) {
+    return [...this.map.values()].filter((t) => t.parentId === parentId && !t.deletedAt).map(copy);
   }
   async insert(t: StoredTask) {
     this.map.set(t.id, copy(t));
@@ -306,11 +290,10 @@ export class MemoryTaskRepo implements TaskRepo {
     this.completions.splice(i, 1);
     return true;
   }
-  async reminderCandidates(fromDate: string, toDate: string, since: Date, until: Date, login?: string) {
+  async reminderCandidates(fromDate: string, toDate: string, since: Date, until: Date) {
     return [...this.map.values()]
       .filter(
         (t) =>
-          (!login || (t.assignee ?? t.creator) === login) &&
           !t.deletedAt &&
           !t.completedAt &&
           ((t.dueDate != null && t.dueDate >= fromDate && t.dueDate <= toDate) ||
@@ -324,9 +307,9 @@ export class MemoryTaskRepo implements TaskRepo {
     return true;
   }
   async notifications(login: string, limit: number) {
-    // Only notifications for tasks the viewer can still open (reassigned or deleted ones drop out).
+    // Only notifications for tasks that still exist (a deleted task's drop out).
     const mine = this.notes
-      .filter((n) => n.login === login && (n.taskId === null || this.visible(this.map.get(n.taskId), login)))
+      .filter((n) => n.login === login && (n.taskId === null || (this.map.get(n.taskId) != null && !this.map.get(n.taskId)!.deletedAt)))
       .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
     return {
       list: mine.slice(0, limit).map(({ login: _l, dedupeKey: _d, ...n }) => n),
@@ -348,12 +331,6 @@ export class MemoryTaskRepo implements TaskRepo {
     this.prefMap.set(login, next);
     return { ...next };
   }
-  async signedInLogins() {
-    return new Set(this.seen);
-  }
-  noteSignedIn(login: string) {
-    this.seen.add(login.toLowerCase());
-  }
 }
 
 type Row = typeof tasksTable.$inferSelect;
@@ -364,7 +341,6 @@ function fromRow(r: Row, links: TaskLink[] = [], reminders: Reminder[] = []): St
   return {
     id: r.id,
     creator: r.creatorLogin,
-    assignee: r.assigneeLogin,
     parentId: r.parentId,
     title: r.title,
     description: r.description,
@@ -386,7 +362,6 @@ function fromRow(r: Row, links: TaskLink[] = [], reminders: Reminder[] = []): St
 function toRow(p: Partial<StoredTask>): Partial<Row> {
   const out: Partial<Row> = {};
   if (p.creator !== undefined) out.creatorLogin = p.creator;
-  if (p.assignee !== undefined) out.assigneeLogin = p.assignee;
   if (p.parentId !== undefined) out.parentId = p.parentId;
   if (p.title !== undefined) out.title = p.title;
   if (p.description !== undefined) out.description = p.description;
@@ -481,57 +456,50 @@ async function together<const T extends readonly (() => Promise<unknown>)[]>(fns
 const isUuid = (id: string) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
 
 export class PostgresTaskRepo implements TaskRepo {
-  /** Direct visibility, or visibility through the parent (one level). */
-  private visible(viewer: string) {
-    const v = viewer.toLowerCase();
-    const direct = or(eq(tasksTable.creatorLogin, v), eq(tasksTable.assigneeLogin, v));
-    const viaParent = sql`${tasksTable.parentId} in (select p.id from tasks p where p.deleted_at is null and (p.creator_login = ${v} or p.assignee_login = ${v}))`;
-    return and(isNull(tasksTable.deletedAt), or(direct, viaParent));
-  }
   private async withLinks(rows: Row[]) {
     const ids = rows.map((r) => r.id);
     const [links, reminders] = await together([() => linksFor(ids), () => remindersFor(ids)]);
     return rows.map((r) => fromRow(r, links.get(r.id), reminders.get(r.id)));
   }
-  async listVisible(viewer: string) {
+  async list() {
     const db = conn();
     const [open, done] = await together([
-      () => db.select().from(tasksTable).where(and(this.visible(viewer), isNull(tasksTable.completedAt))),
+      () => db.select().from(tasksTable).where(and(isNull(tasksTable.deletedAt), isNull(tasksTable.completedAt))),
       () =>
         db
           .select()
           .from(tasksTable)
-          .where(and(this.visible(viewer), isNotNull(tasksTable.completedAt)))
+          .where(and(isNull(tasksTable.deletedAt), isNotNull(tasksTable.completedAt)))
           .orderBy(desc(tasksTable.completedAt))
           .limit(COMPLETED_LIMIT),
     ]);
     return this.withLinks([...open, ...done]);
   }
-  async getVisible(viewer: string, id: string) {
+  async get(id: string) {
     // Malformed IDs would make Postgres throw on the uuid cast; treat as absent.
     if (!isUuid(id)) return null;
     const rows = await conn()
       .select()
       .from(tasksTable)
-      .where(and(eq(tasksTable.id, id), this.visible(viewer)))
+      .where(and(eq(tasksTable.id, id), isNull(tasksTable.deletedAt)))
       .limit(1);
     return rows[0] ? (await this.withLinks(rows))[0]! : null;
   }
-  async getDeletedByCreator(viewer: string, id: string) {
+  async getDeleted(id: string) {
     if (!isUuid(id)) return null;
     const rows = await conn()
       .select()
       .from(tasksTable)
-      .where(and(eq(tasksTable.id, id), isNotNull(tasksTable.deletedAt), eq(tasksTable.creatorLogin, viewer)))
+      .where(and(eq(tasksTable.id, id), isNotNull(tasksTable.deletedAt)))
       .limit(1);
     return rows[0] ? (await this.withLinks(rows))[0]! : null;
   }
-  async children(viewer: string, parentId: string) {
+  async children(parentId: string) {
     if (!isUuid(parentId)) return [];
     const rows = await conn()
       .select()
       .from(tasksTable)
-      .where(and(eq(tasksTable.parentId, parentId), this.visible(viewer)));
+      .where(and(eq(tasksTable.parentId, parentId), isNull(tasksTable.deletedAt)));
     return this.withLinks(rows);
   }
   async insert(t: StoredTask) {
@@ -724,7 +692,7 @@ export class PostgresTaskRepo implements TaskRepo {
       .returning({ id: taskCompletions.id });
     return gone.length > 0;
   }
-  async reminderCandidates(fromDate: string, toDate: string, since: Date, until: Date, login?: string) {
+  async reminderCandidates(fromDate: string, toDate: string, since: Date, until: Date) {
     const absolute = conn()
       .select({ id: taskReminders.taskId })
       .from(taskReminders)
@@ -736,8 +704,6 @@ export class PostgresTaskRepo implements TaskRepo {
         and(
           isNull(tasksTable.deletedAt),
           isNull(tasksTable.completedAt),
-          // The 30 s notifications poll asks for one person: filter in SQL, not in JS over everyone's tasks.
-          login ? sql`coalesce(${tasksTable.assigneeLogin}, ${tasksTable.creatorLogin}) = ${login}` : undefined,
           or(and(gte(tasksTable.dueDate, fromDate), lte(tasksTable.dueDate, toDate)), inArray(tasksTable.id, absolute)),
         ),
       );
@@ -746,16 +712,15 @@ export class PostgresTaskRepo implements TaskRepo {
   async addNotification(n: NewNotification) {
     const rows = await conn()
       .insert(notificationsTable)
-      .values({ login: n.login, kind: n.kind, taskId: n.taskId, actorLogin: n.actor, title: n.title, dedupeKey: n.dedupeKey })
+      .values({ login: n.login, kind: n.kind, taskId: n.taskId, title: n.title, dedupeKey: n.dedupeKey })
       .onConflictDoNothing({ target: notificationsTable.dedupeKey })
       .returning({ id: notificationsTable.id });
     return rows.length > 0;
   }
   async notifications(login: string, limit: number) {
     const db = conn();
-    // Only notifications for tasks the viewer can still open (reassigned or deleted ones drop out).
-    // A digest has no task: it is always the viewer's own to see.
-    const mine = and(eq(notificationsTable.login, login), or(isNull(notificationsTable.taskId), this.visible(login)));
+    // A deleted task's notifications drop out. A digest has no task, so the joined row is null: it stays.
+    const mine = and(eq(notificationsTable.login, login), isNull(tasksTable.deletedAt));
     const [rows, unread] = await Promise.all([
       db
         .select({ n: notificationsTable })
@@ -775,7 +740,6 @@ export class PostgresTaskRepo implements TaskRepo {
         id: r.id,
         kind: r.kind as AppNotification["kind"],
         taskId: r.taskId,
-        actor: r.actorLogin,
         title: r.title,
         createdAt: r.createdAt.toISOString(),
         readAt: iso(r.readAt),
@@ -806,15 +770,6 @@ export class PostgresTaskRepo implements TaskRepo {
       .onConflictDoUpdate({ target: userPrefs.login, set: { tz: next.tz, browserNotifications: next.browserNotifications, sidebar: next.sidebar, defaultTeam: next.defaultTeam } });
     return next;
   }
-  async signedInLogins() {
-    const rows = await conn()
-      .select({ login: sql<string>`lower(${usersTable.login})` })
-      .from(usersTable);
-    return new Set(rows.map((r) => r.login));
-  }
-  noteSignedIn() {
-    /* the users table is read-only here */
-  }
 }
 
 // On globalThis, not module scope: Next bundles each route separately in dev,
@@ -844,5 +799,4 @@ export function __resetTasks(): void {
   memory.commentList = [];
   memory.notes = [];
   memory.prefMap.clear();
-  memory.seen.clear();
 }

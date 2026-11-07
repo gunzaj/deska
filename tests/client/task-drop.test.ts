@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { dropOutcome, needsEditRights } from "@/lib/client/task-drop";
+import { dropOutcome } from "@/lib/client/task-drop";
 
 const task = (over: Partial<{ projectId: string | null; dueDate: string | null }> = {}) => ({ projectId: null, dueDate: null, ...over });
 const TODAY = "2026-10-13";
@@ -29,9 +29,5 @@ describe("dropping a task on the sidebar", () => {
   it("a label is added once, case-insensitively", () => {
     expect(dropOutcome(task(), ["ui"], { kind: "label", name: "bug" }, TODAY)!.patch).toEqual({ labels: ["ui", "bug"] });
     expect(dropOutcome(task(), ["UI"], { kind: "label", name: "ui" }, TODAY)).toBeNull();
-  });
-
-  it("only dates need edit rights (filing and labels are the viewer's own)", () => {
-    expect([needsEditRights({ kind: "today" }), needsEditRights({ kind: "upcoming" }), needsEditRights({ kind: "inbox" }), needsEditRights({ kind: "label", name: "x" })]).toEqual([true, true, false, false]);
   });
 });

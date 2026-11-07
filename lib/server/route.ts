@@ -4,11 +4,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z, type ZodType } from "zod";
 import { writeContext, type WriteContext } from "@/lib/outbox/http";
+import { LOCAL_OWNER } from "@/lib/local-owner";
 import { getViewerLogin } from "@/lib/session";
 import { redactError } from "@/lib/sync/health";
 
 /**
- * - `viewer`: a signed-in user; the handler gets `viewer`.
+ * - `viewer`: a signed-in user; the handler gets `viewer` (their GitHub login,
+ *   what `me` means in issue filters) and `owner`, the key of every local
+ *   record (tasks, views' snoozes, watches, prefs, notifications).
  * - `write`: a signed-in user who may write to GitHub; the handler gets
  *   `viewer`, `token` and `store` (see `writeContext`).
  * - `public`: no local user needed (onboarding asks before there is one). In
@@ -28,7 +31,7 @@ export class HttpError extends Error {
   }
 }
 
-type AuthCtx<A extends RouteAuth> = A extends "viewer" ? { viewer: string } : A extends "write" ? WriteContext : Record<never, never>;
+type AuthCtx<A extends RouteAuth> = A extends "viewer" ? { viewer: string; owner: string } : A extends "write" ? WriteContext : Record<never, never>;
 
 type RouteOptions<A extends RouteAuth, B extends ZodType | undefined, Q extends ZodType | undefined, P extends ZodType | undefined> = {
   auth: A;
@@ -125,7 +128,7 @@ export function route<
         } else {
           const viewer = await getViewerLogin();
           if (!viewer) return json("unauthenticated", 401);
-          auth = { viewer };
+          auth = { viewer, owner: LOCAL_OWNER };
         }
       }
 

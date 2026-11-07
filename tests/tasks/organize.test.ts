@@ -33,7 +33,7 @@ beforeEach(() => {
   __resetTasks();
 });
 
-describe("projects and placement (§12.3, Q2)", () => {
+describe("projects and placement (§12.3)", () => {
   it("two projects with one name created at once: one wins, the other gets 409, no duplicate (v5 4.9)", async () => {
     viewer = "alice";
     const [a, b] = await Promise.all([projectsRoute.POST(req("POST", { name: "Racers", color: "blue" })), projectsRoute.POST(req("POST", { name: "racers", color: "red" }))]);
@@ -41,30 +41,23 @@ describe("projects and placement (§12.3, Q2)", () => {
     expect((await list()).body.projects.filter((p) => String(p.name).toLowerCase() === "racers")).toHaveLength(1);
   });
 
-  it("creates a project and files a new task in it; the assignee's copy lands in their Inbox", async () => {
+  it("creates a project and files a new task in it", async () => {
     const p = await as<{ id: string }>("alice", () => projectsRoute.POST(req("POST", { name: "Specs", color: "blue" })));
     expect(p.status).toBe(201);
-    const { body } = await create({ title: "Send flow", projectId: p.body.id, assignee: "bob" });
+    const { body } = await create({ title: "Send flow", projectId: p.body.id });
     expect(body.task.projectId).toBe(p.body.id);
-
-    const mine = await list("alice");
-    expect(mine.body.projects.map((x) => x.name)).toEqual(["Specs"]);
-    const theirs = await list("bob");
-    expect(theirs.body.projects).toEqual([]); // never sees my project names
-    expect(theirs.body.tasks[0]?.projectId).toBeNull();
-
-    // Bob files it in his own project; mine is unchanged.
-    const mp = await as<{ id: string }>("bob", () => projectsRoute.POST(req("POST", { name: "Reviews" })));
-    expect((await patch(body.task.id, { projectId: mp.body.id }, "bob")).body.task.projectId).toBe(mp.body.id);
-    expect((await list("alice")).body.tasks[0]?.projectId).toBe(p.body.id);
+    expect((await list("alice")).body.projects.map((x) => x.name)).toEqual(["Specs"]);
+    // Another connected GitHub account sees the same projects and filing.
+    const other = await list("bob");
+    expect(other.body.projects.map((x) => x.name)).toEqual(["Specs"]);
+    expect(other.body.tasks[0]?.projectId).toBe(p.body.id);
   });
 
-  it("refuses someone else's or an archived project; only the owner can change a project", async () => {
+  it("refuses an archived or unknown project", async () => {
     const p = await as<{ id: string }>("alice", () => projectsRoute.POST(req("POST", { name: "Specs" })));
-    expect((await create({ title: "x", projectId: p.body.id }, "bob")).status).toBe(400);
-    expect((await as("bob", () => projectRoute.PATCH(req("PATCH", { name: "Mine" }), ctx(p.body.id)))).status).toBe(404);
     expect((await as("alice", () => projectRoute.PATCH(req("PATCH", { archived: true }), ctx(p.body.id)))).status).toBe(200);
     expect((await create({ title: "x", projectId: p.body.id })).status).toBe(400);
+    expect((await create({ title: "x", projectId: "00000000-0000-4000-8000-000000000000" })).status).toBe(400);
     expect((await list()).body.projects[0]).toMatchObject({ archived: true });
   });
 
@@ -77,19 +70,15 @@ describe("projects and placement (§12.3, Q2)", () => {
   });
 });
 
-describe("personal labels (§12.3, Q4)", () => {
-  it("quick-add names create labels; each person sees only their own on a shared task", async () => {
-    const { body } = await create({ title: "Spec", labels: ["spec", "Design"], assignee: "bob" });
+describe("labels (§12.3)", () => {
+  it("quick-add names create labels and link them to the task", async () => {
+    const { body } = await create({ title: "Spec", labels: ["spec", "Design"] });
     const mine = await list();
     expect(mine.body.labels.map((l) => l.name)).toEqual(["Design", "spec"]);
     expect(body.task.labels).toHaveLength(2);
-
-    await patch(body.task.id, { labels: ["later"] }, "bob");
-    const theirs = await list("bob");
-    expect(theirs.body.labels.map((l) => l.name)).toEqual(["later"]);
-    expect(theirs.body.tasks[0]?.labels).toHaveLength(1);
-    // Bob's change did not touch my labels on the task.
-    expect((await list()).body.tasks[0]?.labels).toHaveLength(2);
+    await patch(body.task.id, { labels: ["later"] });
+    expect((await list()).body.labels.map((l) => l.name)).toEqual(["Design", "later", "spec"]);
+    expect((await list()).body.tasks[0]?.labels).toHaveLength(1);
   });
 
   it("reuses labels case-insensitively; rename conflicts are refused; delete unlinks", async () => {
@@ -101,26 +90,24 @@ describe("personal labels (§12.3, Q4)", () => {
     expect(dup.status).toBe(400);
     const other = await as<{ id: string }>("alice", () => labelsRoute.POST(req("POST", { name: "design" })));
     expect((await as("alice", () => labelRoute.PATCH(req("PATCH", { name: "spec" }), ctx(other.body.id)))).status).toBe(400);
-    expect((await as("bob", () => labelRoute.DELETE(req("DELETE"), ctx(l.body.labels[0]!.id)))).status).toBe(404);
     expect((await as("alice", () => labelRoute.DELETE(req("DELETE"), ctx(l.body.labels[0]!.id)))).status).toBe(200);
     expect((await list()).body.tasks.every((t) => (t.labels as string[]).length === 0)).toBe(true);
   });
 });
 
-describe("sub-tasks (§12.1, §12.2)", () => {
-  it("a sub-task is visible to anyone who can see its parent", async () => {
-    const parent = await create({ title: "Release Sprint 23", assignee: "bob" });
+describe("sub-tasks (§12.1)", () => {
+  it("a sub-task belongs to its parent", async () => {
+    const parent = await create({ title: "Release Sprint 23" });
     const child = await create({ title: "Changelog", parentId: parent.body.task.id });
     expect(child.body.task.parentId).toBe(parent.body.task.id);
-    // Bob sees the parent, so he sees the sub-task, though it isn't his.
-    expect((await list("bob")).body.tasks.map((t) => t.title).sort()).toEqual(["Changelog", "Release Sprint 23"]);
+    expect((await list()).body.tasks.map((t) => t.title).sort()).toEqual(["Changelog", "Release Sprint 23"]);
   });
 
-  it("a sub-task can't have sub-tasks, and an invisible parent is refused", async () => {
+  it("a sub-task can't have sub-tasks, and an unknown parent is refused", async () => {
     const parent = await create({ title: "p" });
     const child = await create({ title: "c", parentId: parent.body.task.id });
     expect((await create({ title: "g", parentId: child.body.task.id })).status).toBe(400);
-    expect((await create({ title: "x", parentId: parent.body.task.id }, "bob")).status).toBe(400);
+    expect((await create({ title: "x", parentId: "00000000-0000-4000-8000-000000000000" })).status).toBe(400);
   });
 
   it("completing a parent with cascade completes its open sub-tasks; delete removes them", async () => {
@@ -135,15 +122,6 @@ describe("sub-tasks (§12.1, §12.2)", () => {
 
     await as("alice", () => taskRoute.DELETE(req("DELETE"), ctx(parent.body.task.id)));
     expect((await as("alice", () => taskRoute.GET(req("GET"), ctx(c1.body.task.id)))).status).toBe(404);
-  });
-
-  it("deleting a parent also removes sub-tasks the assignee added", async () => {
-    const parent = await create({ title: "Release", assignee: "bob" });
-    const theirs = await create({ title: "Bob's step", parentId: parent.body.task.id }, "bob");
-    await as("alice", () => taskRoute.DELETE(req("DELETE"), ctx(parent.body.task.id)));
-    // Bob created it, so he would still see it if it had been left behind.
-    expect((await as("bob", () => taskRoute.GET(req("GET"), ctx(theirs.body.task.id)))).status).toBe(404);
-    expect((await list("bob")).body.tasks).toEqual([]);
   });
 
   it("completing a recurring parent with cascade leaves its sub-tasks open for the next occurrence", async () => {
@@ -174,19 +152,5 @@ describe("label creation races", () => {
     const { body } = await list();
     expect(body.labels.filter((l) => l.name.toLowerCase() === "urgent")).toHaveLength(1);
     expect(a.body.task.labels).toEqual(b.body.task.labels);
-  });
-});
-
-describe("sub-task edit rights (§12.2)", () => {
-  it("seeing a sub-task through its parent is read-only, apart from your own filing", async () => {
-    const parent = await create({ title: "Release", assignee: "bob" });
-    const sub = await create({ title: "Changelog", parentId: parent.body.task.id });
-    expect((await patch(sub.body.task.id, { title: "Mine now" }, "bob")).status).toBe(403);
-    expect((await patch(sub.body.task.id, { completed: true }, "bob")).status).toBe(403);
-    expect((await patch(sub.body.task.id, { labels: ["later"] }, "bob")).status).toBe(200);
-    // The parent's assignee may still complete the parent and its sub-tasks with it.
-    expect((await patch(parent.body.task.id, { completed: true, cascade: true }, "bob")).status).toBe(200);
-    const { body } = await list();
-    expect(body.tasks.find((t) => t.id === sub.body.task.id)?.completedAt).toBeTruthy();
   });
 });

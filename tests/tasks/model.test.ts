@@ -1,12 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { addDays, dueLabel, localToday } from "@/lib/tasks/dates";
-import { canDelete, canSee, compareTasks, createTaskSchema, inInbox, isDelegated, patchTaskSchema, prefsSchema, resolveSidebar, SIDEBAR_SECTIONS, type Task } from "@/lib/tasks/model";
+import { compareTasks, createTaskSchema, patchTaskSchema, prefsSchema, resolveSidebar, SIDEBAR_SECTIONS, type Task } from "@/lib/tasks/model";
 
 function task(p: Partial<Task>): Task {
   return {
     id: p.id ?? "t",
-    creator: "alice",
-    assignee: null,
+    creator: "local",
     parentId: null,
     title: "x",
     description: "",
@@ -28,26 +27,6 @@ function task(p: Partial<Task>): Task {
   };
 }
 
-describe("visibility (SPEC §12.2)", () => {
-  const t = task({ creator: "alice", assignee: "bob" });
-  it("creator and assignee see it, nobody else", () => {
-    expect(canSee(t, "alice")).toBe(true);
-    expect(canSee(t, "Bob")).toBe(true);
-    expect(canSee(t, "someone")).toBe(false);
-  });
-  it("only the creator deletes (Q3)", () => {
-    expect(canDelete(t, "alice")).toBe(true);
-    expect(canDelete(t, "bob")).toBe(false);
-  });
-  it("inbox holds my assigned and my own unassigned tasks; delegated holds the rest I created", () => {
-    expect(inInbox(task({ assignee: null }), "alice")).toBe(true);
-    expect(inInbox(t, "bob")).toBe(true);
-    expect(inInbox(t, "alice")).toBe(false);
-    expect(isDelegated(t, "alice")).toBe(true);
-    expect(isDelegated(t, "bob")).toBe(false);
-  });
-});
-
 describe("default order (SPEC §9 T1)", () => {
   it("overdue first, then due date, then priority, then created; no date last", () => {
     const list = [
@@ -63,18 +42,18 @@ describe("default order (SPEC §9 T1)", () => {
 });
 
 describe("input validation", () => {
-  it("applies defaults and normalises the assignee", () => {
+  it("applies defaults and drops an assignee: there are none (§4.6)", () => {
     const r = createTaskSchema.parse({ title: "  Finish spec  ", assignee: "Bob" });
-    expect(r).toEqual({ title: "Finish spec", description: "", priority: 4, dueDate: null, dueTime: null, recurrence: null, reminders: [], assignee: "bob", links: [], parentId: null, projectId: null, labels: [] });
+    expect(r).toEqual({ title: "Finish spec", description: "", priority: 4, dueDate: null, dueTime: null, recurrence: null, reminders: [], links: [], parentId: null, projectId: null, labels: [] });
   });
-  it("rejects empty titles, bad dates, bad priorities and bad logins", () => {
+  it("rejects empty titles, bad dates and bad priorities", () => {
     expect(createTaskSchema.safeParse({ title: "   " }).success).toBe(false);
     expect(createTaskSchema.safeParse({ title: "a", dueDate: "2026-02-30" }).success).toBe(false);
     expect(createTaskSchema.safeParse({ title: "a", priority: 5 }).success).toBe(false);
-    expect(createTaskSchema.safeParse({ title: "a", assignee: "-bad" }).success).toBe(false);
   });
   it("patch is strict: unknown fields such as creator are refused", () => {
     expect(patchTaskSchema.safeParse({ creator: "evil" }).success).toBe(false);
+    expect(patchTaskSchema.safeParse({ assignee: "bob" }).success).toBe(false);
     expect(patchTaskSchema.parse({ completed: true })).toEqual({ completed: true });
   });
 });

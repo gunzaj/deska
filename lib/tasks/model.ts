@@ -24,13 +24,11 @@ export type Recurrence = { rule: string; text: string; fromCompletion: boolean }
 /** A link to a GitHub issue, by node ID plus number (§12.1). */
 export type TaskLink = { kind: "issue"; nodeId: string; number: number };
 
-/** Fields every viewer of a task shares. */
+/** A task's own fields. */
 export type TaskCore = {
   id: string;
-  /** Lowercase GitHub login of whoever created the task. */
+  /** Always LOCAL_OWNER: every task belongs to this install (§4.6). */
   creator: string;
-  /** Lowercase GitHub login, or null for the creator's own task. */
-  assignee: string | null;
   /** Sub-task of (one level only, §12.1). */
   parentId: string | null;
   title: string;
@@ -48,14 +46,11 @@ export type TaskCore = {
   updatedAt: string;
 };
 
-/**
- * A task as one viewer sees it: the shared fields plus where *they* filed it
- * and *their* labels (§12.3, Q2/Q4). Two people never see each other's.
- */
+/** A task plus where it is filed and its labels (§12.3). */
 export type Task = TaskCore & {
   projectId: string | null; // null = Inbox
   position: number;
-  labels: string[]; // the viewer's label IDs
+  labels: string[]; // label IDs
 };
 
 /**
@@ -71,9 +66,6 @@ export type TaskLabel = { id: string; name: string; color: string };
 /** Colours for projects and labels; names map to theme-safe swatches in the UI. */
 export const TASK_COLORS = ["grey", "red", "orange", "yellow", "green", "teal", "blue", "violet", "pink"] as const;
 
-/** Whether an assignee can see their tasks yet (§12.1 "not on Deska yet"). */
-export type Access = "active" | "pending";
-
 export const TITLE_MAX = 500;
 export const LINKS_MAX = 20;
 export const LABELS_MAX = 20;
@@ -82,42 +74,6 @@ export const DESCRIPTION_MAX = 20_000;
 
 export function normLogin(login: string): string {
   return login.trim().toLowerCase();
-}
-
-/** Visible to its creator and its assignee, nobody else (§12.2). */
-export function canSee(t: Pick<TaskCore, "creator" | "assignee">, viewer: string): boolean {
-  const v = normLogin(viewer);
-  return t.creator === v || t.assignee === v;
-}
-
-/** A sub-task is also visible to anyone who can see its parent (§12.2). */
-export function canSeeWithParent(t: Pick<TaskCore, "creator" | "assignee">, parent: Pick<TaskCore, "creator" | "assignee"> | null | undefined, viewer: string): boolean {
-  return canSee(t, viewer) || (parent != null && canSee(parent, viewer));
-}
-
-/**
- * The creator and the current assignee edit, complete, comment on and reassign
- * a task (§12.2). Seeing a sub-task through its parent is read-only.
- */
-export function canEdit(t: Pick<TaskCore, "creator" | "assignee">, viewer: string): boolean {
-  return canSee(t, viewer);
-}
-
-/** Only the creator deletes (§12.2, Q3). */
-export function canDelete(t: Pick<TaskCore, "creator">, viewer: string): boolean {
-  return t.creator === normLogin(viewer);
-}
-
-/** Inbox: open tasks assigned to me, plus my own unassigned ones (§12.8). */
-export function inInbox(t: Task, viewer: string): boolean {
-  const v = normLogin(viewer);
-  return t.assignee === v || (t.assignee == null && t.creator === v);
-}
-
-/** Delegated: created by me, assigned to someone else (§12.8). */
-export function isDelegated(t: Task, viewer: string): boolean {
-  const v = normLogin(viewer);
-  return t.creator === v && t.assignee != null && t.assignee !== v;
 }
 
 /**
@@ -149,12 +105,6 @@ export function compareCompleted(a: Task, b: Task): number {
 // --- Input validation (API) ---------------------------------------------
 
 const isoDate = z.string().refine(isIsoDate, "expected a calendar date as YYYY-MM-DD");
-
-// GitHub logins: alphanumerics and single hyphens, up to 39 chars.
-const login = z
-  .string()
-  .regex(/^[a-z\d](?:[a-z\d]|-(?=[a-z\d])){0,38}$/i, "not a GitHub login")
-  .transform(normLogin);
 
 const hhmm = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, "expected HH:mm");
 const tz = z.string().max(64).refine(isTimeZone, "unknown time zone");
@@ -191,7 +141,6 @@ export const createTaskSchema = z
     tz: tz.optional(),
     recurrence: recurrence.nullable().default(null),
     reminders: reminders.default([]),
-    assignee: login.nullable().default(null),
     links: linkNumbers.default([]),
     parentId: uuid.nullable().default(null),
     /** The creator's project; null = Inbox. */
@@ -215,7 +164,6 @@ export const patchTaskSchema = z
     recurrence: recurrence.nullable(),
     /** The full new set of extra reminders. */
     reminders,
-    assignee: login.nullable(),
     completed: z.boolean(),
     /** With `completed: true` on a recurring task: stop recurring and complete it for good. */
     endRecurrence: z.boolean(),
@@ -276,13 +224,13 @@ export function resolveSidebar(layout: SidebarLayout | null | undefined): { id: 
 export const prefsSchema = z.object({ tz: tz.nullable(), browserNotifications: z.boolean(), sidebar: sidebarSchema.nullable(), defaultTeam: z.string().min(1).max(100).nullable() }).partial().strict();
 export type Prefs = { tz: string | null; browserNotifications: boolean; sidebar: SidebarLayout | null; defaultTeam: string | null };
 
-export type NotificationKind = "reminder" | "assigned" | "completed" | "comment" | "watch_digest";
+/** Only reminders and the watchlist digest make notifications (§4.6). */
+export type NotificationKind = "reminder" | "watch_digest";
 export type AppNotification = {
   id: string;
   kind: NotificationKind;
   /** The task it is about; null for the daily watchlist digest (F6). */
   taskId: string | null;
-  actor: string | null;
   title: string;
   createdAt: string;
   readAt: string | null;

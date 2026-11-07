@@ -118,8 +118,8 @@ describe("explorer", () => {
     const view: View = {
       id: "v1",
       name: "Mine",
-      ownerId: "alice",
-      visibility: "personal",
+
+
       layout: "list",
       filters: [],
       sort: [{ field: "updated", dir: "desc" }],

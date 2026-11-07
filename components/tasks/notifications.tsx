@@ -88,9 +88,6 @@ const POLL_MS = 30_000;
 
 const KIND_TEXT: Record<AppNotification["kind"], { icon: IconName; text: (n: AppNotification) => string }> = {
   reminder: { icon: "clock", text: () => "Reminder" },
-  assigned: { icon: "user", text: (n) => `${n.actor} assigned you` },
-  completed: { icon: "circleCheck", text: (n) => `${n.actor} completed` },
-  comment: { icon: "message", text: (n) => `${n.actor} commented on` },
   watch_digest: { icon: "star", text: () => "Watching" },
 };
 

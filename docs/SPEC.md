@@ -289,6 +289,7 @@ Add / change:
 - **No hidden filters.** A "My default" dimension value shows as a visible chip ("Default: Platform team ✕"). Any list with ≥1 active filter shows the count and "Clear all".
 - **Empty vs loading vs error:** three distinct states in every list. Empty names the active filters and offers "Clear filters". Errors follow §3.3.
 - **Saved views are local**, no shared visibility. **Copy view** puts a compact JSON string on the clipboard; **Import view** reads it. Field and option IDs travel inside.
+  **[D7]** Copy view is in the view's ⋯ menu; Import view is a button on Views, with a text box to paste into (the window grants clipboard *write* only, §2.2). The string is `{"kind":"deska-view","v":1,"view":{…}}` without the ID. Import checks it with the same strict schema and limits as any view, never takes an ID from it, and saves a new view.
 - Parent progress is never recalculated from the filtered list (§4.4).
 
 ## 4.3 Triage
@@ -335,6 +336,8 @@ Add — Todoist parity (D13):
 - **Sections** in a project (create, rename, reorder, collapse, drag tasks between them).
 - **Completed** view: last 30 days grouped by day, with un-complete.
 - ⌘K task search covers descriptions and comments.
+
+**[D7]** Everything local (tasks, projects, labels, sections, saved views, snoozes, watches, notifications, settings) is keyed by one constant owner, `LOCAL_OWNER` (`lib/local-owner.ts`), never by a GitHub login: connecting a different account changes what `me` means in issue filters and nothing else. Task `creator`, `completedBy` and comment `author` stay in the model and always hold it. Notifications are only `reminder` and `watch_digest`. Migration 0004 collapses data written by the multi-user build (same-name projects and labels are renamed, one placement per task, newest snooze and oldest last-seen kept).
 
 Rules: tasks never write to GitHub; a closed linked issue shows a badge but never auto-completes the task; tasks and issues always look distinct (checkbox vs status icon).
 

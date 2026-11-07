@@ -3,13 +3,12 @@
 import { useSearchParams } from "next/navigation";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { formatDate, longAgo } from "@/lib/client/format";
-import { canDelete, canEdit, type Task } from "@/lib/tasks/model";
-import { useAppData } from "../app/provider";
+import type { Task } from "@/lib/tasks/model";
 import { Icon } from "../icons";
-import { Avatar, EmptyHint } from "../props";
+import { EmptyHint } from "../props";
 import { Dialog } from "../ui/dialog";
 import { btn } from "../ui/popover";
-import { accessHint, AssigneePicker, DueChip, DueInput, PriorityPicker, TaskCheck, TaskErrorBanner } from "./bits";
+import { DueChip, DueInput, PriorityPicker, TaskCheck, TaskErrorBanner } from "./bits";
 import { TaskComments } from "./comments";
 import { AddLinkButton, LinkChip } from "./links";
 import { RemindersEditor, RepeatPicker } from "./schedule";
@@ -65,8 +64,7 @@ function Prop({ label, children }: { label: string; children: ReactNode }) {
 }
 
 function TaskPanel({ id }: { id: string }) {
-  const { tasks, loaded, update, remove, access } = useTasks();
-  const { viewer, avatarOf } = useAppData();
+  const { tasks, loaded, update, remove } = useTasks();
   const task = tasks.find((t) => t.id === id) ?? null;
   // Rendered description, tagged with the text it was rendered from: a stale
   // render (a colleague edited it, or an edit is still saving) isn't shown.
@@ -97,7 +95,7 @@ function TaskPanel({ id }: { id: string }) {
       <>
         <PanelTop />
         {missing || loaded ? (
-          <EmptyHint icon="alert" title="Task not found" hint="It was deleted, or it isn't shared with you." />
+          <EmptyHint icon="alert" title="Task not found" hint="It was deleted." />
         ) : (
           <p className="p-6 text-muted">Loading…</p>
         )}
@@ -105,7 +103,7 @@ function TaskPanel({ id }: { id: string }) {
     );
   }
   const html = rendered?.from === task.description ? rendered.html : null;
-  return <TaskBody task={task} html={html} setRendered={setRendered} viewer={viewer} avatarOf={avatarOf} update={update} remove={remove} access={access} />;
+  return <TaskBody task={task} html={html} setRendered={setRendered} update={update} remove={remove} />;
 }
 
 function PanelHeader({ children }: { children?: ReactNode }) {
@@ -135,20 +133,14 @@ function TaskBody({
   task,
   html,
   setRendered,
-  viewer,
-  avatarOf,
   update,
   remove,
-  access,
 }: {
   task: Task;
   html: string | null;
   setRendered: (r: { from: string; html: string }) => void;
-  viewer: string;
-  avatarOf: (l: string) => string | null;
   update: ReturnType<typeof useTasks>["update"];
   remove: ReturnType<typeof useTasks>["remove"];
-  access: ReturnType<typeof useTasks>["access"];
 }) {
   const [title, setTitle] = useState(task.title);
   const [editingDesc, setEditingDesc] = useState(false);
@@ -159,9 +151,6 @@ function TaskBody({
   const parent = task.parentId ? tasks.find((t) => t.id === task.parentId) : null;
   const myLabels = task.labels.map((id) => labels.find((l) => l.id === id)?.name).filter((n): n is string => Boolean(n));
   const done = Boolean(task.completedAt);
-  const me = viewer.toLowerCase();
-  // A sub-task seen only through its parent is read-only (§12.2).
-  const editable = canEdit(task, viewer);
 
   useEffect(() => setTitle(task.title), [task.title]);
   useEffect(() => {
@@ -183,36 +172,26 @@ function TaskBody({
     }
   };
 
-  const hint = task.assignee ? accessHint(access[task.assignee]) : null;
-
   return (
     <>
       <PanelTop>
-        {editable && task.recurrence && !done && (
+        {task.recurrence && !done && (
           <button type="button" onClick={() => void update(task.id, { completed: true, endRecurrence: true })} className={btn.ghost} title="Stop repeating and complete">
             <Icon name="check" size={13} /> Complete forever
           </button>
         )}
-        {canDelete(task, viewer) && (
-          <button type="button" onClick={() => setConfirmDelete(true)} className={btn.icon} aria-label="Delete task" title="Delete task">
-            <Icon name="trash" size={14} />
-          </button>
-        )}
+        <button type="button" onClick={() => setConfirmDelete(true)} className={btn.icon} aria-label="Delete task" title="Delete task">
+          <Icon name="trash" size={14} />
+        </button>
       </PanelTop>
       <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
-        {!editable && (
-          <p className="mb-3 rounded-lg bg-hover px-3 py-2 text-[12.5px] text-muted">
-            You see this sub-task through its parent. Only its creator and assignee can change it.
-          </p>
-        )}
         {parent && (
           <button type="button" onClick={() => openTask(parent.id)} className="mb-2 flex max-w-full items-center gap-1 pl-[30px] text-[12.5px] text-muted hover:text-fg" title="Open parent task">
             <span className="truncate">{parent.title}</span>
             <Icon name="chevronRight" size={12} className="shrink-0 text-faint" />
           </button>
         )}
-        {/* A disabled fieldset turns every control inside it off for read-only viewers. */}
-        <fieldset disabled={!editable} className="contents">
+        <div className="contents">
           <div className="flex items-start gap-3">
             <span className="pt-1.5">
               <TaskCheck done={done} priority={task.priority} title={task.title} onToggle={() => toggleComplete(task)} />
@@ -332,33 +311,18 @@ function TaskBody({
             <Prop label="Labels">
               <LabelPicker value={myLabels} onChange={(names) => void update(task.id, { labels: names })} />
             </Prop>
-            <Prop label="Assignee">
-              <AssigneePicker
-                value={task.assignee ?? (task.creator === me ? null : task.creator)}
-                access={access}
-                noneLabel={task.creator === me ? "Me (unassigned)" : "Creator"}
-                hideMe={task.creator === me}
-                onChange={(l) => void update(task.id, { assignee: l })}
-              />
-              {hint && <span className="text-[12px] text-warning">{hint}</span>}
-            </Prop>
-            <Prop label="Created by">
-              <Avatar login={task.creator} url={avatarOf(task.creator)} size={16} />
-              <span>{task.creator === me ? "You" : task.creator}</span>
+            <Prop label="Created">
               <span className="text-faint" title={task.createdAt}>
-                · {longAgo(task.createdAt)}
+                {longAgo(task.createdAt)}
               </span>
             </Prop>
             {done && (
               <Prop label="Completed">
-                <span>
-                  {formatDate(task.completedAt!)}
-                  {task.completedBy && task.completedBy !== me ? ` by ${task.completedBy}` : ""}
-                </span>
+                <span>{formatDate(task.completedAt!)}</span>
               </Prop>
             )}
           </dl>
-        </fieldset>
+        </div>
 
         <TaskComments taskId={task.id} />
       </div>
@@ -367,7 +331,7 @@ function TaskBody({
         <div className="p-4">
           <p className="text-[14px] font-semibold">Delete this task?</p>
           <p className="mt-1 text-muted">
-            “{task.title}” will be removed{task.assignee ? ` for you and ${task.assignee}` : ""}.
+            “{task.title}” will be removed.
           </p>
           <div className="mt-4 flex justify-end gap-1.5">
             <button type="button" onClick={() => setConfirmDelete(false)} className={btn.outline}>
@@ -395,7 +359,6 @@ function TaskBody({
 /** One level of sub-tasks (§12.1): full tasks, listed and added inline. */
 function SubTasks({ parent }: { parent: Task }) {
   const { tasks, create, toggleComplete } = useTasks();
-  const { viewer } = useAppData();
   const [title, setTitle] = useState("");
   const { today, now } = useToday();
   const subs = tasks
@@ -425,7 +388,7 @@ function SubTasks({ parent }: { parent: Task }) {
             const isDone = Boolean(t.completedAt);
             return (
               <li key={t.id} className="flex items-center gap-2.5 px-2.5 py-1.5">
-                <TaskCheck done={isDone} priority={t.priority} title={t.title} onToggle={() => toggleComplete(t)} disabled={!canEdit(t, viewer)} />
+                <TaskCheck done={isDone} priority={t.priority} title={t.title} onToggle={() => toggleComplete(t)} />
                 <button type="button" onClick={() => openTask(t.id)} className={`min-w-0 flex-1 truncate text-left text-[13px] ${isDone ? "text-faint line-through" : ""}`}>
                   {t.title}
                 </button>

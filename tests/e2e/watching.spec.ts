@@ -56,7 +56,7 @@ test("star an issue in its panel; it shows on Watching with its change; opening 
   await context.close();
 });
 
-test("the watchlist API validates its input, needs a session, and is per person", async ({ browser, request }) => {
+test("the watchlist API validates its input, needs a session, and belongs to this install, not to a GitHub account", async ({ browser, request }) => {
   expect((await request.get("/api/watches")).status()).toBe(401);
   const a = await as(browser, "alice");
   const b = await as(browser, "bob");
@@ -64,11 +64,12 @@ test("the watchlist API validates its input, needs a session, and is per person"
   expect((await a.page.request.put("/api/watches", { data: { kind: "pull", targetId: "x" } })).status()).toBe(400);
   expect((await a.page.request.put("/api/watches", { data: { kind: "issue" } })).status()).toBe(400);
   expect((await a.page.request.put("/api/watches", { data: { kind: "view", targetId: "v-mine" } })).ok()).toBe(true);
-  expect(((await (await b.page.request.get("/api/watches")).json()) as { watches: unknown[] }).watches).toEqual([]);
+  // Connecting another GitHub account keeps the watchlist (§4.6, D7).
+  expect(((await (await b.page.request.get("/api/watches")).json()) as { watches: { targetId: string }[] }).watches.map((w) => w.targetId)).toEqual(["v-mine"]);
   const seen = await a.page.request.post("/api/watches/seen", { data: { kind: "view", targetId: "v-mine" } });
   expect(((await seen.json()) as { watch: { lastSeenAt: string } | null }).watch?.lastSeenAt).toBeTruthy();
-  const notMine = await b.page.request.post("/api/watches/seen", { data: { kind: "view", targetId: "v-mine" } });
-  expect(((await notMine.json()) as { watch: unknown }).watch).toBeNull();
+  const unwatched = await b.page.request.post("/api/watches/seen", { data: { kind: "view", targetId: "v-other" } });
+  expect(((await unwatched.json()) as { watch: unknown }).watch).toBeNull();
   await cleanup(a.page);
   await a.context.close();
   await b.context.close();

@@ -9,12 +9,12 @@ export const dynamic = "force-dynamic";
 const params = z.object({ id: z.string().min(1).max(200), cid: z.string().min(1).max(200) });
 
 // Authors edit and delete their own comments only.
-export const PATCH = route({ auth: "viewer", params, body: commentSchema, invalid: "invalid task" }, async ({ viewer, params: p, body }) => {
-  const r = await editComment(viewer, p.id, p.cid, body.body);
+export const PATCH = route({ auth: "viewer", params, body: commentSchema, invalid: "invalid task" }, async ({ owner, params: p, body }) => {
+  const r = await editComment(owner, p.id, p.cid, body.body);
   return r.ok ? withBodyHtml(r.value) : fail(r);
 });
 
-export const DELETE = route({ auth: "viewer", params }, async ({ viewer, params: p }) => {
-  const r = await removeComment(viewer, p.id, p.cid);
+export const DELETE = route({ auth: "viewer", params }, async ({ owner, params: p }) => {
+  const r = await removeComment(owner, p.id, p.cid);
   return r.ok ? { ok: true } : fail(r);
 });
