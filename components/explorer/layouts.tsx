@@ -181,7 +181,8 @@ export function ListLayout({
   selection?: RowSelection;
 }) {
   // Keyed by field too, so collapsing "No status" doesn't collapse "No priority" after regrouping.
-  const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+  // Groups that start collapsed (the sprint's "Not planned") until the user toggles them.
+  const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set(groups.filter((g) => g.collapsed).map((g) => `${g.field}:${g.key}`)));
   const grouped = !(groups.length === 1 && groups[0]!.key === "all");
   const flat = useMemo<Flat[]>(() => {
     const out: Flat[] = [];

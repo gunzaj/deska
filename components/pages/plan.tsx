@@ -97,6 +97,8 @@ export function ReleasePlanPage() {
   const [confirm, setConfirm] = useState<{ list: ClientIssue[]; text: string } | null>(null);
   const canWrite = meta.writeMode && !disabledReason && !!next;
   const numbers = left.map((i) => i.number);
+  // Why the move buttons are disabled, shown next to them (§4.5).
+  const planOffReason = !meta.writeMode ? (meta.editOffReason ?? EDITING_OFF) : (disabledReason ?? (next ? "" : "There is no next Release to move into"));
 
   const change: BulkChange | null = next ? { kind: "set", field: "release", value: next.id, valueLabel: `Release ${next.title}` } : null;
 
@@ -161,6 +163,11 @@ export function ReleasePlanPage() {
                 </button>
               </>
             )}
+            {left.length > 0 && !canWrite && (
+              <button type="button" disabled data-planning-disabled title={planOffReason} className={btn.outline}>
+                <Icon name="lock" size={12} /> {next ? `Move all ${left.length} to Release ${next.title}` : "Move all to the next Release"}
+              </button>
+            )}
             {left.length > 0 && canWrite && (
               <button type="button" className={btn.primary} disabled={!!progress} onClick={() => ask(chosen.length ? chosen : left)}>
                 {progress ? `${progress.done} / ${progress.total}` : chosen.length ? `Move ${chosen.length} selected to Release ${next!.title}` : `Move all ${left.length} to Release ${next!.title}`}
@@ -193,7 +200,7 @@ export function ReleasePlanPage() {
               ))}
             </ul>
           )}
-          {left.length > 0 && !meta.writeMode && <p className="mt-2 text-[12px] text-faint">{meta.editOffReason ?? EDITING_OFF}. Move these on GitHub, or paste the search above to find them there.</p>}
+          {left.length > 0 && !canWrite && <p className="mt-2 text-[12px] text-faint" data-plan-off-reason>{planOffReason}. Move these on GitHub, or use the search above to find them there.</p>}
         </section>
       </div>
       <Dialog open={confirm !== null} onClose={() => setConfirm(null)} label="Confirm move" width={420}>
