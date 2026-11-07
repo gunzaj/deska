@@ -15,7 +15,7 @@
 | D10 | done | [#17](https://github.com/gunzaj/deska/pull/17) | Sprint header (done X / Y, %, days left, by Status, scope added), Remaining/Done/Not planned, `[`/`]` picker, disabled planning controls; no migration |
 | D11 | done | [#18](https://github.com/gunzaj/deska/pull/18) | Author, In project, Closed reason, Sub-issue progress filters; visible default chip; Clear all; loading/empty/error list states; no migration |
 | D12 | done | [#19](https://github.com/gunzaj/deska/pull/19) | Global quick-add shortcut + floating window, native reminder notifications (Complete / Snooze 1 h / Tomorrow), Dock badge, Settings → Desktop; no migration |
-| D13 | todo | | |
+| D13 | done | [#20](https://github.com/gunzaj/deska/pull/20) | Project sections (create/rename/reorder/collapse/delete, drag between), Completed view, ⌘K search of descriptions and comments; migration 0006 |
 | D14 | todo | | |
 
 ## Decisions to review
@@ -118,6 +118,12 @@
 - D12: Playwright's Electron driver lets the process exit a few seconds after the last window closes (reproduced with an empty Electron app), so no automated test waits with zero windows; the no-window case is a manual check below.
 - D12: Page code must tolerate a bridge without the newer methods (a connection e2e spec fakes an older bridge); caught a regression there.
 - D12: Ran this milestone on Sonnet 5.5, though §0.6 recommends Opus 5.5 for D12. The connection, smoke and tasks e2e specs timing-flaked once and passed on rerun.
+- D13: A section belongs to a project (`task_sections`), and a task points at it with `tasks.section_id` (as the SPEC says) rather than through the placement. Only top-level tasks can be in a section; the service keeps it in the task's own project, and moving a task to another project drops the section unless the same change names one there.
+- D13: Deleting a section keeps its tasks (they lose the section, via ON DELETE SET NULL); it asks first. Reordering is "Move up / Move down" in the section's ⋯ menu, not a header drag. Collapsed state is stored on the server, so it survives a restart.
+- D13: The Completed view also lists each completed occurrence of a recurring task (which stays open), so a daily recurring task doesn't leave it empty; only the newest occurrence of a task can be taken back. It reads `GET /api/tasks/completed` (30 days, up to 1000 lines), not the store's capped 200 completed tasks.
+- D13: ⌘K shows title matches at once from the browser and adds description/comment matches from `GET /api/tasks/search` after a 150 ms pause; every word must be somewhere in the task (SQL `ILIKE` in Postgres, with `%` and `_` literal).
+- D13: Backup import: a task whose section is in neither the file nor the database is skipped, and its sub-tasks with it (the "parent in the same file" shortcut now counts only parents that are themselves importable). Found by the new round-trip test.
+- D13: Ran this milestone on Sonnet 5.5 (§0.6 recommends it). The connection, two tasks and a triage e2e spec timing-flaked once and passed on rerun. Local e2e and `desktop:build` again needed the sandbox off (and TMPDIR in the scratchpad for the build).
 
 ## Maintainer to-do
 - [ ] Create a **read-only** fine-grained PAT: resource owner = the org, repository access = only the one repo; Repository → Metadata: Read, Repository → Issues: Read, Organization → Projects: Read, Organization → Issue types: Read (optional); nothing else. Then run the probe (report lands in `private/findings/`):
