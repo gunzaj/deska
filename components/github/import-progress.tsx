@@ -121,26 +121,28 @@ export function ImportProgress() {
           })}
         </ol>
 
+        {/* The sentence is `importView`'s: this renders `line` and makes no choice of its
+            own, so the pure function's test covers the wiring (QA, D5). */}
         <p role="status" aria-live="polite" className="mt-5 text-[13px]" data-import-progress>
-          {!view || view.progress === "none" ? (
+          {!view || view.line.kind === "starting" ? (
             // Before the first status arrives, and until anything is copied.
             IMPORT_COPY.starting
-          ) : view.state === "resumed" ? (
-            // A resume that has not re-read its first page has no number to show; it
-            // still says it is continuing rather than starting.
-            <span data-import-resumed>{p!.issues > 0 ? IMPORT_COPY.resumed(p!.issues) : IMPORT_COPY.resumedNoCount}</span>
+          ) : view.line.kind === "resume-none" ? (
+            <span data-import-resumed>{IMPORT_COPY.resumedNoCount}</span>
+          ) : view.line.kind === "resume" ? (
+            <span data-import-resumed>{IMPORT_COPY.resumed(view.line.issues)}</span>
           ) : (
             <>
               <strong className="font-semibold" data-import-issues>
-                {p!.issues.toLocaleString()} {p!.issues === 1 ? "issue" : "issues"}
+                {view.line.issues.toLocaleString()} {view.line.issues === 1 ? "issue" : "issues"}
               </strong>{" "}
               imported
-              {view.progress === "items" ? (
+              {view.line.items != null ? (
                 <>
                   {" · "}
                   <span data-import-items>
-                    {p!.items.toLocaleString()}
-                    {p!.itemsTotal != null ? ` of ${p!.itemsTotal.toLocaleString()}` : ""} project items
+                    {view.line.items.toLocaleString()}
+                    {view.line.itemsTotal != null ? ` of ${view.line.itemsTotal.toLocaleString()}` : ""} project items
                   </span>
                 </>
               ) : null}

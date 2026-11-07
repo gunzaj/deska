@@ -10,7 +10,7 @@ function input(over: Partial<ImportViewInput> = {}): ImportViewInput {
 
 describe("importView", () => {
   it("is starting before anything is copied, with every step still to do", () => {
-    expect(importView(input({ phase: null }))).toEqual({ state: "starting", steps: ["todo", "todo", "todo", "todo"], progress: "none" });
+    expect(importView(input({ phase: null }))).toEqual({ state: "starting", steps: ["todo", "todo", "todo", "todo"], progress: "none", line: { kind: "starting" } });
     // The metadata phase is the first real step: it is the one that animates.
     expect(importView(input({ phase: "metadata" })).steps).toEqual(["active", "todo", "todo", "todo"]);
   });
@@ -81,6 +81,32 @@ describe("importView", () => {
   it("names one step per phase, so the labels and the rows cannot drift apart", () => {
     for (const phase of IMPORT_STEPS) expect(IMPORT_COPY.steps[phase]).toBeTruthy();
     expect(Object.keys(IMPORT_COPY.steps).sort()).toEqual([...IMPORT_STEPS].sort());
+  });
+
+  it("decides which sentence the count line shows, so the screen chooses nothing", () => {
+    // QA's finding: the component used to pick between `resumed(n)` and `resumedNoCount`
+    // with an `issues > 0` of its own, and inverting that ternary passed every test.
+    expect(importView(input({ resumed: true, issues: 0, phase: "metadata" })).line).toEqual({ kind: "resume-none" });
+    expect(importView(input({ resumed: true, issues: 1204, phase: "closed" })).line).toEqual({ kind: "resume", issues: 1204 });
+    expect(importView(input({ issues: 12, phase: "open" })).line).toEqual({ kind: "count", issues: 12, items: null, itemsTotal: null });
+    expect(importView(input({ issues: 12, items: 3, itemsTotal: 40, phase: "items" })).line).toEqual({ kind: "count", issues: 12, items: 3, itemsTotal: 40 });
+    // A stopped run shows its count, not "Resuming": the alert above it carries the
+    // failure, and a resume sentence would read as if it were still going. Unchanged
+    // from before this refactor — pinned so it stays a decision rather than a default.
+    expect(importView(input({ resumed: true, issues: 60, phase: "items", failure: "offline", running: false })).line).toEqual({
+      kind: "count",
+      issues: 60,
+      items: 0,
+      itemsTotal: null,
+    });
+  });
+
+  it("keeps the progress bar independent of the sentence", () => {
+    // The bar is drawn from `progress`, not `line`: a resume in the items phase has no
+    // count sentence and still needs the bar.
+    const v = importView(input({ resumed: true, issues: 1204, items: 60, itemsTotal: 100, phase: "items" }));
+    expect(v.line).toEqual({ kind: "resume", issues: 1204 });
+    expect(v.progress).toBe("items");
   });
 
   it("says a resume continues rather than restarts", () => {

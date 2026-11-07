@@ -56,6 +56,22 @@ export type ImportViewState = "starting" | "importing" | "resumed" | "failed";
 /** Which count line to draw: nothing yet, issues only, or issues plus project items. */
 export type ImportProgressKind = "none" | "count" | "items";
 
+/**
+ * The one sentence the count line shows, decided here rather than in the screen: the
+ * component used to pick between `resumed(n)` and `resumedNoCount` with an
+ * `issues > 0` of its own, which no unit test could reach (no DOM tooling in the tree),
+ * so an inverted ternary shipped the count sentence on a run that copied nothing with
+ * the suite green (QA, D5).
+ *
+ * `progress` cannot carry this: it also drives the progress bar, and a resume that
+ * reaches the items phase must still draw the bar.
+ */
+export type ImportLine =
+  | { kind: "starting" }
+  | { kind: "resume-none" }
+  | { kind: "resume"; issues: number }
+  | { kind: "count"; issues: number; items: number | null; itemsTotal: number | null };
+
 export type ImportViewInput = {
   needsInitialImport: boolean;
   running: boolean;
@@ -68,7 +84,7 @@ export type ImportViewInput = {
   failure: string | null;
 };
 
-export type ImportView = { state: ImportViewState; steps: ImportStepState[]; progress: ImportProgressKind };
+export type ImportView = { state: ImportViewState; steps: ImportStepState[]; progress: ImportProgressKind; line: ImportLine };
 
 export function importView(s: ImportViewInput): ImportView {
   // `failure` is the last *completed* run's failure and is cleared only when a run
@@ -92,5 +108,13 @@ export function importView(s: ImportViewInput): ImportView {
     return "todo";
   });
   const progress: ImportProgressKind = state === "starting" ? "none" : s.items > 0 || s.phase === "items" ? "items" : "count";
-  return { state, steps, progress };
+  const line: ImportLine =
+    state === "starting"
+      ? { kind: "starting" }
+      : state === "resumed"
+        ? s.issues > 0
+          ? { kind: "resume", issues: s.issues }
+          : { kind: "resume-none" }
+        : { kind: "count", issues: s.issues, items: progress === "items" ? s.items : null, itemsTotal: progress === "items" ? s.itemsTotal : null };
+  return { state, steps, progress, line };
 }
