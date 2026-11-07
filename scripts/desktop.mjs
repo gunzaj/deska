@@ -149,6 +149,7 @@ function build() {
     mac: {
       target: [{ target: "dmg", arch: ["universal"] }],
       category: "public.app-category.productivity",
+      icon: path.join(root, "desktop", "assets", "icon.icns"),
       // Unsigned until the maintainer has a Developer ID (SPEC §1.3).
       identity: null,
       // The flag is set for when a Developer ID exists; it has no effect on an unsigned build.

@@ -24,6 +24,7 @@ const REFETCH_AFTER_MS = 60_000;
 // The server answers from its cache (a failed sync updates it at once, D5),
 // so this asks GitHub only when that cache is due.
 const POLL_MS = 15_000;
+const DISMISS_KEY = "deska.connection-banner-dismissed";
 
 export async function fetchConnection(refresh = false): Promise<ConnectionStatus | null> {
   try {
@@ -93,9 +94,24 @@ export function problemHint(s: ConnectionStatus): string | null {
 /** The banner over every page while the connection has a problem or the token expires soon. */
 export function ConnectionBanner() {
   const { status, checking, recheck } = useConnection();
+  // Dismissed per message: a different problem (or a new expiry date) shows again.
+  const [dismissed, setDismissed] = useState<string | null>(null);
+  useEffect(() => {
+    try {
+      setDismissed(sessionStorage.getItem(DISMISS_KEY));
+    } catch {}
+  }, []);
   if (!status) return null;
   const problem = connectionProblem(status);
   if (!problem && !status.expiryWarning) return null;
+  const signature = `${status.state}|${problem ? status.message : ""}|${status.expiryWarning ?? ""}`;
+  if (dismissed === signature) return null;
+  const dismiss = () => {
+    setDismissed(signature);
+    try {
+      sessionStorage.setItem(DISMISS_KEY, signature);
+    } catch {}
+  };
   const tone = status.state === "invalid" || status.state === "missing" ? "bg-critical-soft" : "bg-warning-soft";
   return (
     <div role={problem ? "alert" : "status"} data-connection-state={status.state} className={`flex shrink-0 flex-wrap items-center gap-x-3 gap-y-1 border-b border-line px-4 py-1.5 text-[12.5px] ${tone}`}>
@@ -120,6 +136,9 @@ export function ConnectionBanner() {
           {checking ? "Checking…" : "Check again"}
         </button>
       )}
+      <button type="button" aria-label="Dismiss" title="Dismiss" onClick={dismiss} className="rounded-md p-1 hover:bg-hover">
+        <Icon name="x" size={13} />
+      </button>
     </div>
   );
 }
