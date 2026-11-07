@@ -26,6 +26,7 @@ export type ProbeResponse = {
 const KEPT_HEADERS = [
   "github-authentication-token-expiration",
   "x-accepted-github-permissions",
+  "x-oauth-scopes",
   "x-ratelimit-remaining",
   "x-ratelimit-reset",
   "x-ratelimit-resource",

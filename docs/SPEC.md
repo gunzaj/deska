@@ -219,7 +219,7 @@ OAuth/Auth.js, allowlist and org-access mode, DB token encryption and its key, a
 
 ## 3.1 Token type
 
-A **fine-grained PAT**, resource owner = the org, repository access = **only the one repository** Deska reads. Classic PATs and OAuth are NOT supported.
+A **fine-grained PAT**, resource owner = the org, repository access = **only the one repository** Deska reads. **[Changed after D14, at the maintainer's request]** A **classic PAT** (`ghp_…`) is also accepted so the app works while an org has not approved a fine-grained token; use it with read-only scopes only (`read:project`, plus `read:org` if needed, for a public repository). Settings warns when its scopes can write (`x-oauth-scopes`). OAuth is NOT supported.
 
 ## 3.2 Permissions
 

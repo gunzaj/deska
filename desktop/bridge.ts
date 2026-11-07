@@ -57,7 +57,7 @@ export interface DeskaBridge {
     /**
      * Encrypts the GitHub token with the OS keychain and hands it to the local
      * server. Never over HTTP. Resolves once the server holds it; rejects for
-     * anything but a fine-grained token (`github_pat_…`).
+     * anything but a fine-grained (`github_pat_…`) or classic (`ghp_…`) token.
      */
     set(token: string): Promise<TokenStatus>;
     /** "Disconnect GitHub": deletes the stored token. */
@@ -107,8 +107,10 @@ export type ServerReply =
   /** The Dock badge: open tasks overdue or due today (D12). */
   | { type: "badge"; count: number };
 
-/** What main accepts as a token: a fine-grained PAT only (SPEC §3.1). */
+/** A fine-grained PAT (SPEC §3.1). */
 export const FINE_GRAINED_TOKEN = /^github_pat_[A-Za-z0-9_]{20,250}$/;
+/** A classic PAT (`ghp_…`), accepted for read-only use when an org hasn't approved a fine-grained one (SPEC §3.1). */
+export const CLASSIC_TOKEN = /^ghp_[A-Za-z0-9]{20,250}$/;
 
 declare global {
   interface Window {

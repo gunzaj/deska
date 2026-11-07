@@ -10,7 +10,7 @@ import http from "node:http";
 import net from "node:net";
 import path from "node:path";
 import { app, BrowserWindow, dialog, globalShortcut, ipcMain, Menu, Notification, powerMonitor, safeStorage, session, shell, utilityProcess, type IpcMainInvokeEvent, type UtilityProcess, type WebContents } from "electron";
-import { CHANNELS, DEFAULT_DESKTOP_PREFS, FINE_GRAINED_TOKEN, type DesktopPrefs, type DesktopState, type ReminderAction, type ReminderItem, type ServerMessage, type ServerReply, type TokenStatus } from "./bridge";
+import { CHANNELS, DEFAULT_DESKTOP_PREFS, CLASSIC_TOKEN, FINE_GRAINED_TOKEN, type DesktopPrefs, type DesktopState, type ReminderAction, type ReminderItem, type ServerMessage, type ServerReply, type TokenStatus } from "./bridge";
 import { aboutDetails, parseBuildInfo, RELEASES_URL, type BuildInfo } from "./about";
 import { classifyUrl, requestAllowed } from "./navigation";
 import { parseDesktopPrefs, parsePrefsPatch } from "./prefs";
@@ -500,7 +500,7 @@ function registerIpc() {
   ipcMain.handle(CHANNELS.tokenSet, async (e, token: unknown) => {
     if (!fromApp(e) || !server) return tokenStatus();
     const value = typeof token === "string" ? token.trim() : "";
-    if (!FINE_GRAINED_TOKEN.test(value)) throw new Error("Deska needs a fine-grained personal access token. It starts with github_pat_.");
+    if (!FINE_GRAINED_TOKEN.test(value) && !CLASSIC_TOKEN.test(value)) throw new Error("Deska needs a GitHub personal access token. It starts with github_pat_ (fine-grained) or ghp_ (classic).");
     if (!safeStorage.isEncryptionAvailable()) throw new Error("The system keychain is not available.");
     writeFileSync(tokenFile(), safeStorage.encryptString(value), { mode: 0o600 });
     await sendToken(server, value, "user");

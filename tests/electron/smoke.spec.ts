@@ -323,8 +323,8 @@ test.describe("desktop shell", () => {
       expect(await win.evaluate(() => typeof (globalThis as { process?: unknown }).process)).toBe("undefined");
       expect(await win.evaluate(() => Object.keys(window.deska ?? {}).sort())).toEqual(["appInfo", "desktop", "notify", "onOpenTask", "openExternal", "quickAdd", "token"]);
       expect(await win.evaluate(() => window.deska!.appInfo())).toMatchObject({ name: "Deska", platform: "darwin" });
-      // main refuses anything but a fine-grained token, with its own words.
-      expect(await win.evaluate(() => window.deska!.token.set("ghp_classic").then(() => "stored", (e: Error) => e.message))).toContain("fine-grained personal access token");
+      // main refuses anything that is not a GitHub PAT, with its own words.
+      expect(await win.evaluate(() => window.deska!.token.set("ghp_classic").then(() => "stored", (e: Error) => e.message))).toContain("GitHub personal access token");
 
       await win.getByLabel("Fine-grained personal access token").fill(TOKEN);
       await win.getByRole("button", { name: "Connect" }).click();

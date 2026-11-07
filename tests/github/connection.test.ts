@@ -3,7 +3,7 @@
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { http, HttpResponse } from "msw";
 import { setupServer } from "msw/node";
-import { checkToken, classify, hhmm, MESSAGES, parseExpiration, permissionName, type CheckTarget, type ConnectionStatus } from "@/lib/github/connection";
+import { checkToken, classify, writeScopesWarning, hhmm, MESSAGES, parseExpiration, permissionName, type CheckTarget, type ConnectionStatus } from "@/lib/github/connection";
 
 // Obviously fake, and assembled at runtime so no token-shaped literal is committed.
 const TOKEN = ["github", "pat", "TEST", "FAKE", "0".repeat(24)].join("_");
@@ -68,6 +68,18 @@ describe("token states (SPEC §3.3)", () => {
       ["projects", "granted"],
       ["issueTypes", "granted"],
     ]);
+  });
+
+  it("classic token: read-only scopes give no warning, a write scope names itself", async () => {
+    expect(writeScopesWarning(undefined)).toBeNull();
+    expect(writeScopesWarning("")).toBeNull();
+    expect(writeScopesWarning("read:project, read:org")).toBeNull();
+    expect(writeScopesWarning("read:project, repo")).toContain("(repo)");
+    expect(writeScopesWarning("project, write:org")).toContain("project, write:org");
+    server.use(...github({ user: () => HttpResponse.json({ login: "carol" }, { headers: { "x-oauth-scopes": "read:project, repo" } }) }));
+    const s = await checkToken(TOKEN, TARGET, { now: NOW, timeZone: TZ });
+    expect(s.state).toBe("ok");
+    expect(s.scopeWarning).toContain("repo");
   });
 
   it("invalid / revoked / expired: 401", async () => {
