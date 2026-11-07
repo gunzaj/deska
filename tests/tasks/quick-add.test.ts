@@ -6,7 +6,6 @@ const ctx: ParseContext = {
   today: "2026-10-12",
   now: "14:00",
   projects: ["Specs", "PR reviews", "Specs to finish"],
-  users: ["alice", "bob"],
   hasItem: (n) => [101, 1234, 5678].includes(n),
 };
 const p = (s: string, extra: Partial<ParseContext> = {}) => parseQuickAdd(s, { ...ctx, ...extra });
@@ -115,7 +114,7 @@ describe("recurrence (§12.4 row 3, §12.5)", () => {
   });
 });
 
-describe("priority, labels, projects, links, assignee (§12.4 rows 4–8)", () => {
+describe("priority, labels, projects, links (§12.4 rows 4–7)", () => {
   it.each([
     ["Fix p1", 1],
     ["Fix urgent", 1],
@@ -171,17 +170,17 @@ describe("priority, labels, projects, links, assignee (§12.4 rows 4–8)", () =
     expect(pr.title).toBe("Review https://github.com/acme/widgets/pull/42");
   });
 
-  it("@login assigns a known user, once", () => {
+  it("keeps @word as title text: there are no assignees (§4.6)", () => {
     const r = p("Ask @bob @alice");
-    expect(r.assignee).toBe("bob");
-    expect(r.title).toBe("Ask @alice");
-    expect(p("Ask @stranger").assignee).toBeNull();
+    expect(r.title).toBe("Ask @bob @alice");
+    expect(r.tokens).toEqual([]);
+    expect(r).not.toHaveProperty("assignee");
   });
 });
 
 describe("the full example and ambiguity", () => {
   it("parses the spec example", () => {
-    const r = p("Finish spec #1234 tomorrow 3pm high +spec =Specs @bob every friday");
+    const r = p("Finish spec #1234 tomorrow 3pm high +spec =Specs every friday");
     expect(r).toMatchObject({
       title: "Finish spec",
       dueDate: "2026-10-13",
@@ -190,7 +189,6 @@ describe("the full example and ambiguity", () => {
       labels: ["spec"],
       project: "Specs",
       links: [1234],
-      assignee: "bob",
       recurrence: { rule: "FREQ=WEEKLY;BYDAY=FR", fromCompletion: false },
     });
   });
@@ -231,7 +229,7 @@ describe("the full example and ambiguity", () => {
   });
 
   it("parses a 120-character input in under 2 ms", () => {
-    const input = "Finish the send flow spec #1234 tomorrow at 3pm high +spec +design =Specs to finish @bob every friday plus notes";
+    const input = "Finish the send flow spec #1234 tomorrow at 3pm high +spec +design =Specs to finish every friday plus notes";
     for (let i = 0; i < 20; i++) p(input);
     const t0 = performance.now();
     const runs = 200;

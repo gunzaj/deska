@@ -157,7 +157,7 @@ describe("a project with differently named fields, end to end (D4)", () => {
     expect(runExplorer(issues, [], [{ field: "priority", dir: "desc" }], meta).map((i) => i.number)).toEqual([100, 102, 101]);
 
     // Seed views use the first dimension, never a name lookup.
-    expect(trySeedViews(store, "system").find((v) => v.id === "seed-release-teams")).toMatchObject({ name: "Current Release by Squad", groupBy: dimKey(ALT.squad) });
+    expect(trySeedViews(store).find((v) => v.id === "seed-release-teams")).toMatchObject({ name: "Current Release by Squad", groupBy: dimKey(ALT.squad) });
   });
 
   it("edits validate a dimension by field ID", async () => {
@@ -181,9 +181,9 @@ describe("no iteration field", () => {
     expect(meta.releases).toEqual([]);
     expect(filterFields(meta).map((f) => f.key)).not.toContain("release");
     expect(sortOptions(meta).map((s) => s.key)).not.toContain("release");
-    const seeds = trySeedViews(store, "system").map((v) => v.id);
+    const seeds = trySeedViews(store).map((v) => v.id);
     expect(seeds).not.toContain("seed-release-teams");
-    expect(JSON.stringify(trySeedViews(store, "system"))).not.toContain('"release"');
+    expect(JSON.stringify(trySeedViews(store))).not.toContain('"release"');
   });
 });
 

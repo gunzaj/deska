@@ -1,9 +1,8 @@
 import { and, asc, eq, isNotNull, isNull } from "drizzle-orm";
 import { dbDir, getDb } from "@/db";
 import { syncState, views as viewsTable } from "@/db/schema";
-import { canEditView, newViewId, SYSTEM_OWNER } from "./ids";
+import { newViewId } from "./ids";
 import { seedViews, trySeedViews } from "./seeds";
-import { visibleViews } from "./engine";
 import { viewSchema, type View } from "./view";
 import { getStore } from "../store";
 
@@ -96,9 +95,7 @@ class PostgresRepo implements ViewRepo {
   private values(v: View) {
     return {
       id: v.id,
-      ownerId: v.ownerId,
       name: v.name,
-      visibility: v.visibility,
       definitionJson: v,
       updatedAt: new Date(),
     };
@@ -165,80 +162,62 @@ async function ensureSeeded(): Promise<View[]> {
   const have = new Set(existing.map((v) => v.id));
   const store = await getStore();
   if (store.fields.size === 0) {
-    return [...existing, ...seedViews(SYSTEM_OWNER).filter((v) => !have.has(v.id))];
+    return [...existing, ...seedViews().filter((v) => !have.has(v.id))];
   }
-  for (const v of trySeedViews(store, SYSTEM_OWNER)) if (!have.has(v.id)) await r.add(v);
+  for (const v of trySeedViews(store)) if (!have.has(v.id)) await r.add(v);
   await r.markSeeded();
   seeded = true;
   return r.all();
 }
 
-/** Every view the viewer may see: their own plus everyone's shared views. */
-export async function viewsFor(ownerId: string): Promise<View[]> {
-  // GitHub logins are case-insensitive: normalize, like tasks and watches do.
-  const who = ownerId.toLowerCase();
-  return visibleViews(await ensureSeeded(), who);
+/** Every saved view. They are all local to this install (§4.2), so there is no owner to check. */
+export async function viewsFor(): Promise<View[]> {
+  return ensureSeeded();
 }
 
-export async function getView(ownerId: string, id: string): Promise<View | null> {
-  return (await viewsFor(ownerId)).find((v) => v.id === id) ?? null;
+export async function getView(id: string): Promise<View | null> {
+  return (await viewsFor()).find((v) => v.id === id) ?? null;
 }
 
-/**
- * Create or update a view. Only the owner may change an existing view, shared
- * or not; everyone else can duplicate it (SPEC §14, Q6). The seed views belong
- * to no one (SYSTEM_OWNER) and anyone may change them (Q-B). With org-wide access,
- * letting anyone edit a shared view would let any member rewrite it for all.
- */
-export async function saveView(ownerId: string, view: View): Promise<View | null> {
-  const who = ownerId.toLowerCase();
+/** Create or update a view; a deleted view's ID saves it live again. */
+export async function saveView(view: View): Promise<View> {
   await ensureSeeded();
-  const r = repo();
-  // A deleted view's ID still belongs to its owner until it is purged.
-  const prev = (await r.get(view.id)) ?? (await r.getDeleted(view.id));
-  if (prev && !canEditView(prev.ownerId, who)) return null;
-  const next: View = { ...view, ownerId: prev?.ownerId ?? who };
-  await r.put(next);
-  return next;
+  await repo().put(view);
+  return view;
 }
 
 /**
  * What POST /api/views does: update the view the ID names, or create a new one
  * under an ID the server makes. The client chooses no ID for a new view (v5
- * 2.6), so it cannot squat on another user's, or on a seed's.
+ * 2.6), so it cannot squat on a seed's.
  */
-export async function submitView(ownerId: string, view: View): Promise<View | null> {
+export async function submitView(view: View): Promise<View> {
   await ensureSeeded();
   const r = repo();
   const known = (await r.get(view.id)) ?? (await r.getDeleted(view.id));
-  return saveView(ownerId, known ? view : { ...view, id: newViewId() });
+  return saveView(known ? view : { ...view, id: newViewId() });
 }
 
-export async function duplicateView(ownerId: string, id: string, name: string): Promise<View | null> {
-  const who = ownerId.toLowerCase();
-  const src = await getView(who, id);
+export async function duplicateView(id: string, name: string): Promise<View | null> {
+  const src = await getView(id);
   if (!src) return null;
-  const copy: View = { ...src, id: newViewId(), name, ownerId: who, visibility: "personal" };
+  const copy: View = { ...src, id: newViewId(), name };
   await repo().put(copy);
   return copy;
 }
 
-export async function deleteView(ownerId: string, id: string): Promise<boolean> {
-  const who = ownerId.toLowerCase();
+export async function deleteView(id: string): Promise<boolean> {
   const r = repo();
-  const v = await r.get(id);
-  if (!v) return false;
-  if (!canEditView(v.ownerId, who)) return false;
+  if (!(await r.get(id))) return false;
   await r.remove(id);
   return true;
 }
 
-/** Undo a delete (U1): only the owner, only a deleted view. */
-export async function restoreView(ownerId: string, id: string): Promise<View | null> {
-  const who = ownerId.toLowerCase();
+/** Undo a delete (U1): only a deleted view. */
+export async function restoreView(id: string): Promise<View | null> {
   const r = repo();
   const v = await r.getDeleted(id);
-  if (!v || !canEditView(v.ownerId, who)) return null;
+  if (!v) return null;
   await r.restore(id);
   return v;
 }

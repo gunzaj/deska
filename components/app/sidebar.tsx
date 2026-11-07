@@ -17,7 +17,7 @@ import { useWatchlist } from "../watch/store";
 import { useDefaultScope } from "./team-scope";
 import { primaryDimension, sprintOn } from "@/lib/client/explorer";
 import { UserMenu } from "./user-menu";
-import { inInbox, isDelegated, type SidebarSection } from "@/lib/tasks/model";
+import { type SidebarSection } from "@/lib/tasks/model";
 import { ColorDot, ProjectDialog } from "../tasks/organize";
 import { NotificationBell, useToday } from "../tasks/notifications";
 import { PALETTE_EVENT } from "./palette";
@@ -153,23 +153,19 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
     const archived = new Set(projects.filter((p) => p.archived).map((p) => p.id));
     let inbox = 0;
     let due = 0;
-    let delegated = 0;
     const perProject = new Map<string, number>();
     for (const t of tasks) {
       if (t.completedAt || (t.projectId && archived.has(t.projectId))) continue;
       if (t.projectId) perProject.set(t.projectId, (perProject.get(t.projectId) ?? 0) + 1);
-      if (inInbox(t, viewer)) {
-        if (!t.parentId) inbox++;
-        if (t.dueDate && t.dueDate <= today) due++;
-      } else if (isDelegated(t, viewer) && !t.parentId) delegated++;
+      if (!t.parentId) inbox++;
+      if (t.dueDate && t.dueDate <= today) due++;
     }
-    return { inbox, due, delegated, perProject };
-  }, [tasks, projects, viewer, today]);
+    return { inbox, due, perProject };
+  }, [tasks, projects, today]);
   const taskNav: NavItem[] = [
     { href: "/tasks", label: "Inbox", icon: "inbox", count: taskCounts.inbox, match: (p) => p === "/tasks", drop: { kind: "inbox" } },
     { href: "/tasks/today", label: "Today", icon: "star", count: taskCounts.due, drop: { kind: "today" } },
     { href: "/tasks/upcoming", label: "Upcoming", icon: "calendar", drop: { kind: "upcoming" } },
-    { href: "/tasks/delegated", label: "Delegated", icon: "users", count: taskCounts.delegated },
   ];
 
   const current = meta.releases.find((r) => r.id === meta.currentReleaseId);

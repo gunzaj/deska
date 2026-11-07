@@ -6,14 +6,9 @@ import type { View } from "./view";
  * Seed views that need no discovered option IDs. Used as a fallback when the
  * cache has not been synced yet, so /views renders instead of throwing.
  */
-export function seedViews(ownerId: string): View[] {
-  const base = {
-    ownerId,
-    visibility: "shared" as const,
-  };
+export function seedViews(): View[] {
   return [
     {
-      ...base,
       id: "seed-untriaged",
       name: "Untriaged backlog",
       layout: "list",
@@ -21,7 +16,6 @@ export function seedViews(ownerId: string): View[] {
       sort: [{ field: "created", dir: "desc" }],
     },
     {
-      ...base,
       id: "seed-epics",
       name: "Epics & sub-issues",
       layout: "list",
@@ -37,7 +31,7 @@ export function seedViews(ownerId: string): View[] {
  * Sprint field or a dimension are left out when the project has none. No
  * field or option is looked up by name (SPEC §0.2).
  */
-export function trySeedViews(store: ReadModel, ownerId: string): View[] {
+export function trySeedViews(store: ReadModel): View[] {
   const map = store.projectFieldMap();
   const sprint = !!map.sprint && store.fields.has(map.sprint.id);
   const dim = map.dimensions.find((d) => store.fields.has(d.id));
@@ -45,8 +39,6 @@ export function trySeedViews(store: ReadModel, ownerId: string): View[] {
     {
       id: "seed-my-tickets",
       name: "My tickets by priority",
-      ownerId,
-      visibility: "shared",
       layout: "list",
       filters: [
         { field: "assignee", op: "in", values: ["me"] },
@@ -61,8 +53,6 @@ export function trySeedViews(store: ReadModel, ownerId: string): View[] {
     {
       id: "seed-untriaged",
       name: "Untriaged backlog",
-      ownerId,
-      visibility: "shared",
       layout: "list",
       // Open AND (Priority empty OR Sprint empty); just Priority without a Sprint field.
       filters: [
@@ -84,8 +74,6 @@ export function trySeedViews(store: ReadModel, ownerId: string): View[] {
           {
             id: "seed-release-teams",
             name: dim ? `Current Release by ${dim.name}` : "Current Release",
-            ownerId,
-            visibility: "shared",
             layout: "table",
             filters: [{ field: "release", op: "in", values: ["current"] }],
             sort: [{ field: "updated", dir: "desc" }],
@@ -96,8 +84,6 @@ export function trySeedViews(store: ReadModel, ownerId: string): View[] {
     {
       id: "seed-epics",
       name: "Epics & sub-issues",
-      ownerId,
-      visibility: "shared",
       layout: "list",
       filters: [{ field: "parent", op: "has_sub_issues" }],
       sort: [{ field: "updated", dir: "desc" }],

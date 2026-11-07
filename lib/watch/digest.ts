@@ -19,7 +19,7 @@ export function clearDigestCheck(login: string): void {
 }
 
 /** True when a digest was added now. */
-export async function fireWatchDigest(login: string, now = new Date()): Promise<boolean> {
+export async function fireWatchDigest(login: string, now = new Date(), meLogin = ""): Promise<boolean> {
   const who = login.toLowerCase();
   const last = checkedAt.get(who);
   if (last !== undefined && now.getTime() >= last && now.getTime() - last < DIGEST_CHECK_MS) return false;
@@ -30,14 +30,13 @@ export async function fireWatchDigest(login: string, now = new Date()): Promise<
   // One digest per day of the viewer's own calendar (v5 4.9).
   const today = localToday(now, (await getPrefs(who)).tz ?? undefined);
   const items: WatchQuery[] = watches.map((w) => ({ kind: w.kind, targetId: w.targetId }));
-  const changes = await collectWatchChanges(who, items);
+  const changes = await collectWatchChanges(who, items, undefined, meLogin);
   const changed = Object.values(changes).filter((c) => c.length > 0).length;
   if (!changed) return false;
   return taskRepo().addNotification({
     login: who,
     kind: "watch_digest",
     taskId: null,
-    actor: null,
     title: `${changed} watched ${changed === 1 ? "item" : "items"} changed`,
     dedupeKey: digestKey(who, today),
   });

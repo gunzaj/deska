@@ -6,11 +6,10 @@ import type { Priority, Recurrence } from "@/lib/tasks/model";
 import { parseQuickAdd, tokenKey, type Token, type TokenKind } from "@/lib/tasks/quick-add";
 import { useAppData } from "../app/provider";
 import { Icon, type IconName } from "../icons";
-import { Avatar } from "../props";
 import { Dialog } from "../ui/dialog";
 import { btn } from "../ui/popover";
 import { searchIssues } from "@/lib/client/search";
-import { accessHint, AssigneePicker, DueInput, priorityLabel, PriorityPicker } from "./bits";
+import { DueInput, priorityLabel, PriorityPicker } from "./bits";
 import { AddLinkButton, LinkChip } from "./links";
 import { ColorDot, LabelPicker, ProjectPicker } from "./organize";
 import { openTask } from "./open-task";
@@ -20,7 +19,7 @@ import { RepeatPicker } from "./schedule";
 import { useComposeState, useTasks } from "./store";
 
 /** Token kinds the task model can store so far (later milestones add the rest). */
-const ENABLED: ReadonlySet<TokenKind> = new Set<TokenKind>(["date", "time", "recurrence", "priority", "assignee", "link", "project", "label"]);
+const ENABLED: ReadonlySet<TokenKind> = new Set<TokenKind>(["date", "time", "recurrence", "priority", "link", "project", "label"]);
 
 const TOKEN_ICON: Record<TokenKind, IconName> = {
   date: "calendar",
@@ -30,11 +29,10 @@ const TOKEN_ICON: Record<TokenKind, IconName> = {
   label: "tag",
   project: "list",
   link: "link",
-  assignee: "user",
 };
 
 /** Undefined means "not set by hand": the parsed value (or default) applies. */
-type Overrides = { dueDate?: string | null; dueTime?: string | null; recurrence?: Recurrence | null; priority?: Priority; assignee?: string | null; projectId?: string | null; labels?: string[] };
+type Overrides = { dueDate?: string | null; dueTime?: string | null; recurrence?: Recurrence | null; priority?: Priority; projectId?: string | null; labels?: string[] };
 
 /**
  * Quick add (SPEC §12.4): type the task in one line and properties are picked
@@ -43,8 +41,8 @@ type Overrides = { dueDate?: string | null; dueTime?: string | null; recurrence?
  */
 export function ComposeTask() {
   const { composeOpen, composePrefill } = useComposeState();
-  const { closeCompose, create, access, projects, labels, tasks } = useTasks();
-  const { data, viewer, avatarOf, byNumber } = useAppData();
+  const { closeCompose, create, projects, labels, tasks } = useTasks();
+  const { data, byNumber } = useAppData();
   // Links attached outside the text: the item quick add was opened from, or picked by hand.
   const [attached, setAttached] = useState<number[]>([]);
   const [text, setText] = useState("");
@@ -57,7 +55,6 @@ export function ComposeTask() {
   // input's and the form's key handlers before `busy` re-renders).
   const submitting = useRef(false);
   const { today, now, tz } = useToday();
-  const me = viewer.toLowerCase();
 
   useEffect(() => {
     if (!composeOpen) return;
@@ -69,12 +66,11 @@ export function ComposeTask() {
     setAttached(composePrefill.links ?? []);
   }, [composeOpen, composePrefill]);
 
-  const users = useMemo(() => data.meta.users.map((u) => u.login.toLowerCase()), [data.meta.users]);
   const activeProjects = useMemo(() => projects.filter((p) => !p.archived), [projects]);
   const projectNames = useMemo(() => activeProjects.map((p) => p.name), [activeProjects]);
   const parsed = useMemo(
-    () => parseQuickAdd(text, { today, now, ignored, users, projects: projectNames, enabled: ENABLED, hasItem: (n) => byNumber.has(n) }),
-    [text, today, now, ignored, users, projectNames, byNumber],
+    () => parseQuickAdd(text, { today, now, ignored, projects: projectNames, enabled: ENABLED, hasItem: (n) => byNumber.has(n) }),
+    [text, today, now, ignored, projectNames, byNumber],
   );
 
   const dueDate = over.dueDate !== undefined ? over.dueDate : (parsed.dueDate ?? composePrefill.dueDate ?? null);
@@ -86,8 +82,6 @@ export function ComposeTask() {
   const labelNames = [...new Set([...parsed.labels, ...(over.labels ?? [])])];
   const parent = composePrefill.parentId ? tasks.find((t) => t.id === composePrefill.parentId) : null;
   const priority = over.priority ?? parsed.priority ?? 4;
-  const rawAssignee = over.assignee !== undefined ? over.assignee : parsed.assignee;
-  const assignee = rawAssignee === me ? null : rawAssignee;
   const links = [...new Set([...attached, ...parsed.links])];
   // An empty title takes the first linked item's title (§12.1).
   const fallbackTitle = links[0] != null ? (byNumber.get(links[0])?.title ?? "") : "";
@@ -120,12 +114,7 @@ export function ComposeTask() {
       const fresh = q && /^\p{L}[\p{L}\p{N}_-]*$/u.test(q) && !labels.some((l) => l.name.toLowerCase() === needle) ? [{ id: `+new:${q}`, label: `Create label “${q}”`, insert: `+${q}`, icon: <Icon name="plus" size={12} className="text-faint" /> }] : [];
       return [...found, ...fresh];
     }
-    if (trigger !== "@") return [];
-    const needle = q.toLowerCase();
-    return users
-      .filter((l) => l !== me && l.includes(needle))
-      .sort((a, b) => Number(!a.startsWith(needle)) - Number(!b.startsWith(needle)) || a.localeCompare(b))
-      .map((l) => ({ id: l, label: l, insert: `@${l}`, icon: <Avatar login={l} url={avatarOf(l)} size={16} />, hint: accessHint(access[l]) ?? undefined }));
+    return [];
   };
 
   const revert = (key: string) => setIgnored((prev) => new Set(prev).add(key));
@@ -134,7 +123,7 @@ export function ComposeTask() {
     if (!canSubmit || submitting.current) return;
     submitting.current = true;
     setBusy(true);
-    const t = await create({ title, description, dueDate, dueTime, tz, recurrence, priority, assignee, links, projectId, labels: labelNames, parentId: composePrefill.parentId ?? null });
+    const t = await create({ title, description, dueDate, dueTime, tz, recurrence, priority, links, projectId, labels: labelNames, parentId: composePrefill.parentId ?? null });
     submitting.current = false;
     setBusy(false);
     if (!t) return;
@@ -149,8 +138,6 @@ export function ComposeTask() {
       openTask(t.id);
     }
   };
-
-  const hint = assignee ? accessHint(access[assignee]) : null;
 
   return (
     <Dialog open={composeOpen} onClose={closeCompose} label="New task" width={600}>
@@ -230,15 +217,13 @@ export function ComposeTask() {
             }
           />
           <PriorityPicker value={priority} onChange={(p) => setOver((o) => ({ ...o, priority: p }))} />
-          <AssigneePicker value={assignee} onChange={(l) => setOver((o) => ({ ...o, assignee: l }))} access={access} noneLabel="Me" hideMe />
-          {hint && <span className="text-[12px] text-warning">{hint}</span>}
           <ProjectPicker value={projectId} onChange={(id) => setOver((o) => ({ ...o, projectId: id }))} />
           <LabelPicker value={labelNames} onChange={(names) => setOver((o) => ({ ...o, labels: names.filter((n) => !parsed.labels.includes(n)) }))} />
           <AddLinkButton linked={links} onAdd={(n) => setAttached((a) => [...a, n])} />
         </div>
         <div className="flex items-center gap-1.5 border-t border-line px-3 py-2.5">
           <span className="min-w-0 flex-1 truncate text-[11.5px] text-faint">
-            <b className="font-medium">tomorrow 3pm</b> · <b className="font-medium">every fri</b> · <b className="font-medium">high</b> · <b className="font-medium">@login</b> · <b className="font-medium">#1234</b> · <b className="font-medium">+label</b> · <b className="font-medium">=Project</b> — Backspace on a highlight keeps it as text
+            <b className="font-medium">tomorrow 3pm</b> · <b className="font-medium">every fri</b> · <b className="font-medium">high</b> · <b className="font-medium">#1234</b> · <b className="font-medium">+label</b> · <b className="font-medium">=Project</b> — Backspace on a highlight keeps it as text
           </span>
           <button type="button" onClick={closeCompose} className={btn.ghost}>
             Cancel
@@ -269,9 +254,7 @@ function TokenChip({ token, today, onRevert }: { token: Token; today: string; on
               ? token.name
               : token.kind === "project"
                 ? token.name
-                : token.kind === "link"
-                  ? `#${token.number}`
-                  : `@${token.login}`;
+                : `#${token.number}`;
   return (
     <span className="inline-flex h-6 items-center gap-1 rounded-full border border-line bg-surface pl-2 pr-0.5 text-[12px] text-muted">
       <Icon name={TOKEN_ICON[token.kind]} size={12} className="text-faint" />

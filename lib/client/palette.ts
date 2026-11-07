@@ -1,4 +1,4 @@
-import { canSee, type Task } from "@/lib/tasks/model";
+import { type Task } from "@/lib/tasks/model";
 
 /** The issues "New issue" opens on GitHub: built from the configured repo, never hardcoded. */
 export function newIssueUrl(repo: string): string {
@@ -6,14 +6,12 @@ export function newIssueUrl(repo: string): string {
 }
 
 /**
- * Palette search over tasks: title only. Only tasks the viewer can see are
- * ever candidates, whatever the store holds (§12.2).
+ * Palette search over tasks: title only (D13 adds descriptions and comments).
  */
-export function searchTasks(tasks: Task[], query: string, viewer: string, limit = 5): Task[] {
+export function searchTasks(tasks: Task[], query: string, limit = 5): Task[] {
   const words = query.toLowerCase().split(/\s+/).filter(Boolean);
   if (!words.length) return [];
   return tasks
-    .filter((t) => canSee(t, viewer))
     .filter((t) => {
       const title = t.title.toLowerCase();
       return words.every((w) => title.includes(w));

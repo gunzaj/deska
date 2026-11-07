@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { editSchema } from "@/lib/outbox/edit";
 import { VIEW_LIMITS, viewSchema } from "@/lib/views/view";
 
-const base = { id: "v-1", name: "Mine", ownerId: "alice", visibility: "personal", layout: "list", filters: [], sort: [] };
+const base = { id: "v-1", name: "Mine", layout: "list", filters: [], sort: [] };
 
 describe("view limits", () => {
   it("accepts a reasonable view", () => {

@@ -14,7 +14,7 @@ const body = z.object({ items: z.array(z.object({ kind: z.unknown(), targetId: z
  * What changed on the viewer's watched items since they last looked (F6).
  * POST { items: [{ kind, targetId }] } → { changes: { "<kind>:<id>": FieldChange[] } }
  */
-export const POST = route({ auth: "viewer", body, invalid: "items required" }, async ({ viewer, body: { items } }) => {
+export const POST = route({ auth: "viewer", body, invalid: "items required" }, async ({ viewer, owner, body: { items } }) => {
   const store = await getStore().catch(() => null);
-  return { changes: await collectWatchChanges(viewer, items, (id) => store?.ghUsers.get(id)?.login ?? id) };
+  return { changes: await collectWatchChanges(owner, items, (id) => store?.ghUsers.get(id)?.login ?? id, viewer) };
 });

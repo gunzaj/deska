@@ -7,7 +7,7 @@ import { createProject } from "@/lib/tasks/service";
 export const dynamic = "force-dynamic";
 
 // Personal task projects (SPEC §12.3). Listing comes with GET /api/tasks.
-export const POST = route({ auth: "viewer", body: projectInputSchema, invalid: "invalid task" }, async ({ viewer, body }) => {
-  const r = await createProject(viewer, body);
+export const POST = route({ auth: "viewer", body: projectInputSchema, invalid: "invalid task" }, async ({ owner, body }) => {
+  const r = await createProject(owner, body);
   return r.ok ? NextResponse.json(r.value, { status: 201 }) : fail(r);
 });

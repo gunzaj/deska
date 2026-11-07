@@ -18,8 +18,8 @@ async function setup() {
 const view = (filters: View["filters"]): View => ({
   id: "t",
   name: "t",
-  ownerId: "alice",
-  visibility: "personal",
+
+
   layout: "list",
   filters,
   sort: [],
@@ -28,7 +28,7 @@ const view = (filters: View["filters"]): View => ({
 describe("OR filter groups", () => {
   it("untriaged seed = open AND (priority empty OR release empty)", async () => {
     const { store, rows } = await setup();
-    const seed = trySeedViews(store, "alice").find((v) => v.id === "seed-untriaged")!;
+    const seed = trySeedViews(store).find((v) => v.id === "seed-untriaged")!;
     expect(viewSchema.parse(seed)).toBeTruthy();
     const got = runView(seed, { viewerLogin: "alice", store, todayIso: TODAY }, rows).map((r) => r.number);
     // #101 has a priority but no release — it used to be missed.
@@ -94,8 +94,8 @@ describe("closed-date filter", () => {
     const view: View = {
       id: "t",
       name: "t",
-      ownerId: "alice",
-      visibility: "personal",
+
+
       layout: "list",
       filters: [{ field: "closed", op: "within_days", days: 30 }],
       sort: [],

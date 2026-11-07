@@ -4,7 +4,7 @@ import { fetchPreloaded } from "@/lib/client/preload";
 import { createContext, useCallback, useContext, useMemo, useRef, useState, type ReactNode } from "react";
 import { isUnauthorized } from "@/lib/client/session";
 import { usePoll } from "@/lib/client/poll";
-import type { Access, CreateTaskInput, PatchTaskInput, Task, TaskLabel, TaskProject } from "@/lib/tasks/model";
+import type { CreateTaskInput, PatchTaskInput, Task, TaskLabel, TaskProject } from "@/lib/tasks/model";
 import { Dialog } from "../ui/dialog";
 import { useToast } from "../ui/toast";
 import { btn } from "../ui/popover";
@@ -23,7 +23,6 @@ type TasksCtx = {
   tasks: Task[];
   projects: TaskProject[];
   labels: TaskLabel[];
-  access: Record<string, Access>;
   loaded: boolean;
   error: string | null;
   clearError: () => void;
@@ -73,7 +72,6 @@ export function TasksProvider({ children }: { children: ReactNode }) {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [projects, setProjects] = useState<TaskProject[]>([]);
   const [labels, setLabels] = useState<TaskLabel[]>([]);
-  const [access, setAccess] = useState<Record<string, Access>>({});
   const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [composeOpen, setComposeOpen] = useState(false);
@@ -100,7 +98,7 @@ export function TasksProvider({ children }: { children: ReactNode }) {
       const res = await fetchPreloaded("/api/tasks", { cache: "no-store" });
       if (isUnauthorized(res)) return;
       if (!res.ok) throw new Error(await errorOf(res));
-      const body = (await res.json()) as { tasks: Task[]; projects: TaskProject[]; labels: TaskLabel[]; access: Record<string, Access> };
+      const body = (await res.json()) as { tasks: Task[]; projects: TaskProject[]; labels: TaskLabel[] };
       if (seq !== loadSeq.current) return;
       lastLoad.current = Date.now();
       if (pending.current > 0) {
@@ -110,7 +108,6 @@ export function TasksProvider({ children }: { children: ReactNode }) {
       setTasks(body.tasks);
       setProjects(body.projects);
       setLabels(body.labels);
-      setAccess(body.access);
       setLoaded(true);
     } catch (e) {
       if (seq === loadSeq.current) setError(`Could not load tasks: ${e instanceof Error ? e.message : String(e)}`);
@@ -225,7 +222,6 @@ export function TasksProvider({ children }: { children: ReactNode }) {
         // No date, no time or recurrence (the server does the same).
         if (patch.dueDate === null) Object.assign(o, { dueTime: null, recurrence: null });
         if (patch.recurrence !== undefined) o.recurrence = patch.recurrence;
-        if (patch.assignee !== undefined) o.assignee = patch.assignee;
         if (patch.projectId !== undefined) o.projectId = patch.projectId;
         if (patch.position !== undefined) o.position = patch.position;
         // A recurring task doesn't close: the server moves its date instead (§12.5).
@@ -412,7 +408,6 @@ export function TasksProvider({ children }: { children: ReactNode }) {
       tasks,
       projects,
       labels,
-      access,
       loaded,
       error,
       clearError,
@@ -428,7 +423,7 @@ export function TasksProvider({ children }: { children: ReactNode }) {
       openCompose,
       closeCompose,
     }),
-    [tasks, projects, labels, access, loaded, error, clearError, create, update, toggleComplete, remove, reload, createProject, updateProject, updateLabel, deleteLabel, openCompose, closeCompose],
+    [tasks, projects, labels, loaded, error, clearError, create, update, toggleComplete, remove, reload, createProject, updateProject, updateLabel, deleteLabel, openCompose, closeCompose],
   );
   const composeValue = useMemo<ComposeState>(() => ({ composeOpen, composePrefill }), [composeOpen, composePrefill]);
 

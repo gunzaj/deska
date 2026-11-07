@@ -538,7 +538,7 @@ test.describe("desktop shell", () => {
   });
 
   test("the connection and a saved view survive a relaunch; disconnecting returns to onboarding", async () => {
-    const view = { name: "Smoke: open bugs", visibility: "personal", layout: "list", filters: [{ field: "state", op: "in", values: ["open"] }], sort: [] };
+    const view = { name: "Smoke: open bugs", layout: "list", filters: [{ field: "state", op: "in", values: ["open"] }], sort: [] };
     const first = await launch(userData, github);
     let saved: { id: string };
     try {

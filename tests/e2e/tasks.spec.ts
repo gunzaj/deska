@@ -56,31 +56,27 @@ test("create, edit, complete and delete a task", async ({ browser }) => {
   await context.close();
 });
 
-test("an assigned task shows up for the assignee and under Delegated, not for others", async ({ browser }) => {
+test("tasks belong to this install: another GitHub account sees them and can change them", async ({ browser }) => {
   const title = unique("Review PR later");
   const g = await as(browser, "alice");
   const res = await g.page.request.post("/api/tasks", { data: { title, assignee: "bob" } });
   expect(res.status()).toBe(201);
-  await g.page.goto("/tasks/delegated");
-  await expect(g.page.getByText(title)).toBeVisible();
+  expect((await res.json()).task).not.toHaveProperty("assignee");
   await g.page.goto("/tasks");
-  await expect(g.page.getByText(title)).toHaveCount(0);
+  await expect(g.page.getByText(title)).toBeVisible();
+  // There is no Delegated view any more.
+  await expect(g.page.getByRole("navigation", { name: "Main" }).getByRole("link", { name: "Delegated" })).toHaveCount(0);
 
   const m = await as(browser, "bob");
   await m.page.goto("/tasks");
   const row = m.page.getByRole("listitem").filter({ hasText: title });
   await expect(row).toBeVisible();
-  await expect(row.getByText("from alice")).toBeVisible();
+  await expect(row.getByText("from alice")).toHaveCount(0);
   await row.getByRole("button", { name: title }).click();
-  // The assignee can edit but not delete (Q3).
-  await expect(m.page.getByRole("complementary", { name: "Task" }).getByRole("button", { name: "Delete task" })).toHaveCount(0);
-
-  const id = (await res.json()).task.id as string;
-  const outsider = await browser.newContext({ extraHTTPHeaders: { "x-e2e-login": "someone-else" } });
-  const r = await outsider.request.get(`/api/tasks/${id}`);
-  // Middleware refuses non-allowlisted logins before the API; either way no data leaks.
-  expect([403, 404]).toContain(r.status());
-  await Promise.all([g.context.close(), m.context.close(), outsider.close()]);
+  const panel = m.page.getByRole("complementary", { name: "Task" });
+  await expect(panel.getByRole("button", { name: "Delete task" })).toBeVisible();
+  await expect(panel.getByText("Assignee")).toHaveCount(0);
+  await Promise.all([g.context.close(), m.context.close()]);
 });
 
 test("G then D opens the task inbox", async ({ browser }) => {
@@ -105,22 +101,14 @@ test("quick add parses properties, and Backspace keeps a highlight as text", asy
   await expect(input).toBeFocused();
 
   const name = unique("Write release notes");
-  await input.pressSequentially(`${name} tomorrow p1 @bo`);
-  // Suggestions for @login; Tab picks the highlighted one.
-  await expect(page.getByRole("listbox", { name: "Suggestions" }).getByRole("option", { name: /bob/ })).toBeVisible();
-  await input.press("Tab");
-  await expect(input).toHaveValue(`${name} tomorrow p1 @bob `);
+  await input.pressSequentially(`${name} tomorrow p1 @bob`);
   const chips = dialog.getByLabel("Recognised properties");
   await expect(chips.getByText("Tomorrow")).toBeVisible();
   await expect(chips.getByText("P1 Urgent")).toBeVisible();
-  await expect(chips.getByText("@bob")).toBeVisible();
-
-  // "low" at the end is a priority only after "p1" is reverted: first match wins.
-  await input.press("End");
-  await input.press("Backspace"); // trailing space
-  await input.press("Backspace"); // on @bob: reverts it to text
+  // There are no assignees (§4.6): @bob is plain title text, with no suggestions and no chip.
   await expect(chips.getByText("@bob")).toHaveCount(0);
-  await expect(input).toHaveValue(`${name} tomorrow p1 @bob`);
+  await expect(page.getByRole("listbox", { name: "Suggestions" })).toHaveCount(0);
+
   await dialog.getByRole("button", { name: 'Keep "p1" as text' }).click();
   await expect(chips.getByText("P1 Urgent")).toHaveCount(0);
 
@@ -314,21 +302,9 @@ test("repeat picker: a custom every-2-weeks-on-Tue-and-Fri rule moves the due da
   await context.close();
 });
 
-test("notifications: an assignment lands in the bell and opens the task; reminders fire", async ({ browser }) => {
-  const m = await as(browser, "bob");
-  const name = unique("Check the analytics events");
-  expect((await m.page.request.post("/api/tasks", { data: { title: name, assignee: "alice" } })).status()).toBe(201);
-
+test("notifications: reminders fire into the bell; assigning is gone", async ({ browser }) => {
   const { context, page } = await as(browser);
   await page.goto("/tasks");
-  const bell = page.getByRole("button", { name: /Notifications, \d+ unread/ });
-  await expect(bell).toBeVisible();
-  await bell.click();
-  const entry = page.getByRole("list", { name: "Notifications" }).getByRole("listitem").filter({ hasText: name });
-  await expect(entry.getByText("bob assigned you")).toBeVisible();
-  await entry.click();
-  await expect(page.getByRole("complementary", { name: "Task" }).getByLabel("Title")).toHaveValue(name);
-
   // A reminder a few seconds from now fires on a later poll. Reminders that
   // came due before the task existed never fire, so create the task first and
   // add the reminder afterwards: a slow CI server can't race it.
@@ -338,34 +314,44 @@ test("notifications: an assignment lands in the bell and opens the task; reminde
   const taskId = (await created.json()).task.id as string;
   const soon = new Date(Date.now() + 3000).toISOString();
   expect((await page.request.patch(`/api/tasks/${taskId}`, { data: { reminders: [{ kind: "absolute", at: soon }] } })).status()).toBe(200);
+  expect((await page.request.patch(`/api/tasks/${taskId}`, { data: { assignee: "bob" } })).status()).toBe(400);
   await expect(async () => {
     const list = await (await page.request.get("/api/notifications")).json();
     expect(list.list.some((n: { kind: string; title: string }) => n.kind === "reminder" && n.title === r)).toBe(true);
+    expect(list.list.every((n: { kind: string }) => n.kind === "reminder" || n.kind === "watch_digest")).toBe(true);
   }).toPass({ timeout: 15_000, intervals: [1000] });
-  await Promise.all([context.close(), m.context.close()]);
+
+  const bell = page.getByRole("button", { name: /Notifications, \d+ unread/ });
+  await page.reload();
+  await expect(bell).toBeVisible();
+  await bell.click();
+  const entry = page.getByRole("list", { name: "Notifications" }).getByRole("listitem").filter({ hasText: r });
+  await entry.click();
+  await expect(page.getByRole("complementary", { name: "Task" }).getByLabel("Title")).toHaveValue(r);
+  await context.close();
 });
 
-test("comments: post on a shared task; the other side gets a notification", async ({ browser }) => {
+test("comments: private notes on a task that you can edit and delete", async ({ browser }) => {
   const { context, page } = await as(browser);
   const name = unique("Spec review together");
-  const res = await page.request.post("/api/tasks", { data: { title: name, assignee: "bob" } });
+  const res = await page.request.post("/api/tasks", { data: { title: name } });
   const id = (await res.json()).task.id as string;
-  await page.goto(`/tasks/delegated?task=${id}`);
+  await page.goto(`/tasks?task=${id}`);
   const panel = page.getByRole("complementary", { name: "Task" });
   const thread = panel.getByRole("region", { name: "Comments" });
   await thread.getByLabel("Write a comment").fill("Please check the **error states** first");
   await thread.getByRole("button", { name: "Comment" }).click();
   await expect(thread.locator(".gh-markdown strong")).toHaveText("error states");
   await expect(thread.getByLabel("Write a comment")).toHaveValue("");
+  await expect(thread.getByRole("button", { name: "Delete comment" })).toBeAttached();
 
+  // Another connected GitHub account sees the same note.
   const m = await as(browser, "bob");
-  const notes = await (await m.page.request.get("/api/notifications")).json();
-  expect(notes.list.some((n: { kind: string; title: string }) => n.kind === "comment" && n.title === name)).toBe(true);
   await m.page.goto(`/tasks?task=${id}`);
   const theirs = m.page.getByRole("complementary", { name: "Task" }).getByRole("region", { name: "Comments" });
   await expect(theirs.getByText("error states")).toBeVisible();
-  // Not the author: no edit/delete.
-  await expect(theirs.getByRole("button", { name: "Delete comment" })).toHaveCount(0);
+  const notes = await (await m.page.request.get("/api/notifications")).json();
+  expect(notes.list.some((n: { kind: string }) => n.kind === "comment")).toBe(false);
   await Promise.all([context.close(), m.context.close()]);
 });
 

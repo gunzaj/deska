@@ -1,5 +1,5 @@
 // Task API against the in-memory repo and the fixture issue cache. The session
-// is mocked so each call can act as a different user.
+// is mocked so each call can act as a different GitHub account.
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { NextRequest } from "next/server";
 
@@ -35,12 +35,12 @@ describe("/api/tasks", () => {
   it("creates a task and renders its description", async () => {
     const { res, body } = await newTask({ title: "Finish spec", description: "See **#101**", priority: 2, dueDate: "2026-10-13" });
     expect(res.status).toBe(201);
-    expect(body.task).toMatchObject({ title: "Finish spec", creator: "alice", assignee: null, priority: 2, dueDate: "2026-10-13" });
+    expect(body.task).toMatchObject({ title: "Finish spec", priority: 2, dueDate: "2026-10-13" });
     expect(body.descriptionHtml).toContain("<strong>");
   });
 
-  it("a task is visible to creator and assignee only; others get 404", async () => {
-    const { body } = await newTask({ title: "Review", assignee: "bob" });
+  it("tasks belong to this install: they stay visible after connecting a different GitHub account (D7)", async () => {
+    const { body } = await newTask({ title: "Review" }, "alice");
     const id = body.task.id as string;
     for (const login of ["alice", "bob"]) {
       const r = await as(login, () => item.GET(new NextRequest(`http://x/api/tasks/${id}`), ctx(id)));
@@ -48,60 +48,41 @@ describe("/api/tasks", () => {
       const l = await (await as(login, () => list(new NextRequest("http://x/api/tasks")))).json();
       expect(l.tasks.map((t: { id: string }) => t.id)).toContain(id);
     }
-    const outsider = await as("intruder", () => item.GET(new NextRequest(`http://x/api/tasks/${id}`), ctx(id)));
-    expect(outsider.status).toBe(404);
-    const patched = await as("intruder", () => item.PATCH(new NextRequest(`http://x/api/tasks/${id}`, { ...json({ title: "x" }), method: "PATCH" }), ctx(id)));
-    expect(patched.status).toBe(404);
-    const deleted = await as("intruder", () => item.DELETE(new NextRequest(`http://x/api/tasks/${id}`, { method: "DELETE" }), ctx(id)));
-    expect(deleted.status).toBe(404);
-    expect((await (await as("intruder", () => list(new NextRequest("http://x/api/tasks")))).json()).tasks).toEqual([]);
+    // The new account can change and delete them too.
+    const patched = await as("bob", () => item.PATCH(new NextRequest(`http://x/api/tasks/${id}`, { ...json({ title: "x" }), method: "PATCH" }), ctx(id)));
+    expect(patched.status).toBe(200);
+    const deleted = await as("carol", () => item.DELETE(new NextRequest(`http://x/api/tasks/${id}`, { method: "DELETE" }), ctx(id)));
+    expect(deleted.status).toBe(200);
   });
 
-  it("assigning to a login that never used Deska works and is marked pending; nobody is blocked (no allowlist)", async () => {
+  it("has no assignees: the field is dropped on create and refused on patch; the list carries no access map", async () => {
     const { res, body } = await newTask({ title: "Ask Bob", assignee: "bob" });
     expect(res.status).toBe(201);
-    expect(body.task.assignee).toBe("bob");
+    expect(body.task).not.toHaveProperty("assignee");
     const l = await (await as("alice", () => list(new NextRequest("http://x/api/tasks")))).json();
-    expect(l.access.bob).toBe("pending");
-    expect(l.access.alice).toBe("active");
-    expect(Object.values(l.access)).not.toContain("blocked");
-  });
-
-  it("refuses unknown assignees and treats self-assignment as unassigned", async () => {
-    expect((await newTask({ title: "x", assignee: "nobody-here" })).res.status).toBe(400);
-    expect((await newTask({ title: "x", assignee: "Alice" })).body.task.assignee).toBeNull();
-  });
-
-  it("completing hides from open, un-completing restores; completedBy records who", async () => {
-    const { body } = await newTask({ title: "Review PR", assignee: "bob" });
+    expect(l).not.toHaveProperty("access");
     const id = body.task.id as string;
-    const patch = (b: unknown, login: string) =>
-      as(login, () => item.PATCH(new NextRequest(`http://x/api/tasks/${id}`, { ...json(b), method: "PATCH" }), ctx(id)));
-    const done = await (await patch({ completed: true }, "bob")).json();
+    const r = await as("alice", () => item.PATCH(new NextRequest(`http://x/api/tasks/${id}`, { ...json({ assignee: "bob" }), method: "PATCH" }), ctx(id)));
+    expect(r.status).toBe(400);
+  });
+
+  it("completing hides from open, un-completing restores", async () => {
+    const { body } = await newTask({ title: "Review PR" });
+    const id = body.task.id as string;
+    const patch = (b: unknown) => as("alice", () => item.PATCH(new NextRequest(`http://x/api/tasks/${id}`, { ...json(b), method: "PATCH" }), ctx(id)));
+    const done = await (await patch({ completed: true })).json();
     expect(done.task.completedAt).not.toBeNull();
-    expect(done.task.completedBy).toBe("bob");
-    const undone = await (await patch({ completed: false }, "alice")).json();
+    const undone = await (await patch({ completed: false })).json();
     expect(undone.task.completedAt).toBeNull();
-    expect(undone.task.completedBy).toBeNull();
   });
 
-  it("only the creator can delete; the assignee gets 403", async () => {
-    const { body } = await newTask({ title: "Delegate me", assignee: "bob" });
+  it("deleting hides the task", async () => {
+    const { body } = await newTask({ title: "Drop me" });
     const id = body.task.id as string;
-    const del = (login: string) => as(login, () => item.DELETE(new NextRequest(`http://x/api/tasks/${id}`, { method: "DELETE" }), ctx(id)));
-    expect((await del("bob")).status).toBe(403);
-    expect((await del("alice")).status).toBe(200);
+    const del = as("alice", () => item.DELETE(new NextRequest(`http://x/api/tasks/${id}`, { method: "DELETE" }), ctx(id)));
+    expect((await del).status).toBe(200);
     const after = await as("alice", () => item.GET(new NextRequest(`http://x/api/tasks/${id}`), ctx(id)));
     expect(after.status).toBe(404);
-  });
-
-  it("reassigning away from yourself removes your access (Q3)", async () => {
-    const { body } = await newTask({ title: "Hot potato", assignee: "bob" });
-    const id = body.task.id as string;
-    const r = await as("bob", () => item.PATCH(new NextRequest(`http://x/api/tasks/${id}`, { ...json({ assignee: null }), method: "PATCH" }), ctx(id)));
-    expect((await r.json()).task.assignee).toBeNull();
-    const gone = await as("bob", () => item.GET(new NextRequest(`http://x/api/tasks/${id}`), ctx(id)));
-    expect(gone.status).toBe(404);
   });
 
   it("links issues by number; an empty title takes the issue title; unknown numbers are refused", async () => {

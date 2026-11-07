@@ -11,6 +11,7 @@ const taskRoute = await import("@/app/api/tasks/[id]/route");
 const notesRoute = await import("@/app/api/notifications/route");
 const readRoute = await import("@/app/api/notifications/read/route");
 const prefsRoute = await import("@/app/api/me/prefs/route");
+const commentsRoute = await import("@/app/api/tasks/[id]/comments/route");
 const { __resetTasks } = await import("@/lib/tasks/repo");
 const { fireReminders, reminderTimes } = await import("@/lib/tasks/notify");
 
@@ -26,7 +27,7 @@ async function as<T>(login: string, fn: () => Promise<Response>): Promise<{ stat
 type T = J & { id: string; dueDate: string | null; completedAt: string | null };
 const create = (body: J, login = "alice") => as<{ task: T }>(login, () => tasksRoute.POST(req("POST", body)));
 const patch = (id: string, body: J, login = "alice") => as<{ task: T }>(login, () => taskRoute.PATCH(req("PATCH", body), ctx(id)));
-type N = { list: { kind: string; title: string; actor: string | null; id: string; readAt: string | null }[]; unread: number };
+type N = { list: { kind: string; title: string; id: string; readAt: string | null }[]; unread: number };
 const notes = (login: string) => as<N>(login, () => notesRoute.GET(req("GET")));
 
 beforeEach(() => {
@@ -112,20 +113,19 @@ describe("reminders (§12.6)", () => {
     expect(n.body.unread).toBe(1);
   });
 
-  it("fires within 60 s for whoever polls first, never twice, and goes to the assignee", async () => {
+  it("fires within 60 s of the first poll, never twice, whichever account is connected", async () => {
     vi.useFakeTimers({ now: new Date("2026-10-12T08:00:00Z"), toFake: ["Date"] });
-    const { body } = await create({ title: "Review", dueDate: "2026-10-12", dueTime: "08:10", tz: "UTC", assignee: "bob", reminders: [{ kind: "relative", offsetMin: 5 }] });
+    const { body } = await create({ title: "Review", dueDate: "2026-10-12", dueTime: "08:10", tz: "UTC", reminders: [{ kind: "relative", offsetMin: 5 }] });
     vi.setSystemTime(new Date("2026-10-12T08:05:30Z"));
     expect(await fireReminders()).toBe(1); // cron: the 08:05 "5 min before"
     expect(await fireReminders()).toBe(0);
     vi.setSystemTime(new Date("2026-10-12T08:10:45Z"));
-    expect((await notes("alice")).body.list).toEqual([]); // not the creator's
-    const n = await notes("bob");
+    const n = await notes("bob"); // another GitHub account sees the same reminders
     expect(n.body.list.filter((x) => x.kind === "reminder")).toHaveLength(2);
     expect(n.body.list.every((x) => x.title === "Review")).toBe(true);
     // Read state.
-    await as("bob", () => readRoute.POST(req("POST", { all: true })));
-    expect((await notes("bob")).body.unread).toBe(0);
+    await as("carol", () => readRoute.POST(req("POST", { all: true })));
+    expect((await notes("alice")).body.unread).toBe(0);
     expect(body.task.id).toBeTruthy();
   });
 
@@ -178,36 +178,21 @@ describe("reminders (§12.6)", () => {
   });
 });
 
-describe("event notifications (§12.6)", () => {
-  it("notifies the new assignee, but never self-assignment", async () => {
+describe("what makes notifications (§4.6)", () => {
+  it("assigning is gone; completing, commenting and creating never notify", async () => {
     const { body } = await create({ title: "Ask about copy", assignee: "bob" });
-    expect((await notes("bob")).body.list[0]).toMatchObject({ kind: "assigned", actor: "alice", title: "Ask about copy" });
-    await create({ title: "Mine", assignee: "alice" });
-    expect((await notes("alice")).body.list).toEqual([]);
-    await patch(body.task.id, { assignee: null });
-    await patch(body.task.id, { assignee: "bob" });
-    expect((await notes("bob")).body.list.filter((n) => n.kind === "assigned")).toHaveLength(2);
-  });
-
-  it("drops notifications for a task reassigned away from the recipient", async () => {
-    const { body } = await create({ title: "Hand-off", assignee: "bob" });
-    expect((await notes("bob")).body.unread).toBe(1);
-    await patch(body.task.id, { assignee: "alice" });
-    expect((await notes("bob")).body).toMatchObject({ list: [], unread: 0 });
-  });
-
-  it("notifies the creator when someone else completes a delegated task", async () => {
-    const { body } = await create({ title: "Review PR", assignee: "bob" });
-    await patch(body.task.id, { completed: true }, "bob");
-    expect((await notes("alice")).body.list[0]).toMatchObject({ kind: "completed", actor: "bob" });
-    await patch(body.task.id, { completed: false }, "alice");
-    await patch(body.task.id, { completed: true }, "alice");
-    expect((await notes("alice")).body.list.filter((n) => n.kind === "completed")).toHaveLength(1);
+    await patch(body.task.id, { completed: true });
+    await patch(body.task.id, { completed: false });
+    await as("alice", () => commentsRoute.POST(req("POST", { body: "note" }), ctx(body.task.id)));
+    for (const login of ["alice", "bob"]) expect((await notes(login)).body).toMatchObject({ list: [], unread: 0 });
   });
 
   it("deleting a task deletes its notifications", async () => {
-    const { body } = await create({ title: "Gone soon", assignee: "bob" });
+    vi.useFakeTimers({ now: new Date("2026-10-12T08:00:00Z"), toFake: ["Date"] });
+    const { body } = await create({ title: "Gone soon", dueDate: "2026-10-12", dueTime: "08:10", tz: "UTC" });
+    vi.setSystemTime(new Date("2026-10-12T08:10:30Z"));
+    expect((await notes("alice")).body.list).toHaveLength(1);
     await as("alice", () => taskRoute.DELETE(req("DELETE"), ctx(body.task.id)));
-    expect((await notes("bob")).body.list).toEqual([]);
+    expect((await notes("alice")).body.list).toEqual([]);
   });
 });

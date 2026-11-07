@@ -11,20 +11,20 @@ describe("watch digest notifications (Postgres)", () => {
     await getDb().execute(sql`TRUNCATE tasks, notifications RESTART IDENTITY CASCADE`);
   });
 
-  it("stores and lists a digest without a task, dedupes it, and still hides tasks the viewer can't open", async () => {
+  it("stores and lists a digest without a task and dedupes it; a deleted task's notification stays out", async () => {
     const now = new Date().toISOString();
-    const mine: StoredTask = { id: crypto.randomUUID(), creator: "alice", assignee: null, parentId: null, title: "mine", description: "", priority: 4, dueDate: null, dueTime: null, dueTz: null, recurrence: null, reminders: [], completedAt: null, completedBy: null, links: [], createdAt: now, updatedAt: now, deletedAt: null };
-    const theirs = { ...mine, id: crypto.randomUUID(), creator: "bob", title: "theirs" };
+    const mine: StoredTask = { id: crypto.randomUUID(), creator: "alice", parentId: null, title: "mine", description: "", priority: 4, dueDate: null, dueTime: null, dueTz: null, recurrence: null, reminders: [], completedAt: null, completedBy: null, links: [], createdAt: now, updatedAt: now, deletedAt: null };
+    const theirs = { ...mine, id: crypto.randomUUID(), title: "theirs", deletedAt: now };
     await repo.insert(mine);
     await repo.insert(theirs);
-    expect(await repo.addNotification({ login: "alice", kind: "watch_digest", taskId: null, actor: null, title: "2 watched items changed", dedupeKey: "watch:alice:2026-10-13" })).toBe(true);
-    expect(await repo.addNotification({ login: "alice", kind: "watch_digest", taskId: null, actor: null, title: "again", dedupeKey: "watch:alice:2026-10-13" })).toBe(false);
-    await repo.addNotification({ login: "alice", kind: "comment", taskId: mine.id, actor: "bob", title: "mine", dedupeKey: "c1" });
-    // A notification for a task alice can't see (stale): stays out.
-    await repo.addNotification({ login: "alice", kind: "comment", taskId: theirs.id, actor: "bob", title: "theirs", dedupeKey: "c2" });
+    expect(await repo.addNotification({ login: "alice", kind: "watch_digest", taskId: null, title: "2 watched items changed", dedupeKey: "watch:alice:2026-10-13" })).toBe(true);
+    expect(await repo.addNotification({ login: "alice", kind: "watch_digest", taskId: null, title: "again", dedupeKey: "watch:alice:2026-10-13" })).toBe(false);
+    await repo.addNotification({ login: "alice", kind: "reminder", taskId: mine.id, title: "mine", dedupeKey: "c1" });
+    // A notification for a deleted task (stale): stays out.
+    await repo.addNotification({ login: "alice", kind: "reminder", taskId: theirs.id, title: "theirs", dedupeKey: "c2" });
     const { list, unread } = await repo.notifications("alice", 50);
     expect(list.map((n) => [n.kind, n.taskId, n.title]).sort()).toEqual([
-      ["comment", mine.id, "mine"],
+      ["reminder", mine.id, "mine"],
       ["watch_digest", null, "2 watched items changed"],
     ]);
     expect(unread).toBe(2);

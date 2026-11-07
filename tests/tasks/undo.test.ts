@@ -34,7 +34,7 @@ describe("task delete → restore", () => {
   it("brings the task back with its links, labels and comments", async () => {
     const t = await newTask({ title: "Spec", links: [101], labels: ["urgent"] });
     expect(t.links.map((l) => l.number)).toEqual([101]);
-    await taskRepo().insertComment({ id: crypto.randomUUID(), taskId: t.id, author: "alice", body: "note", createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() });
+    await taskRepo().insertComment({ id: crypto.randomUUID(), taskId: t.id, author: "local", body: "note", createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() });
     await item.DELETE(new NextRequest(`http://x/api/tasks/${t.id}`, { method: "DELETE" }), ctx(t.id));
     expect(await tasks()).toEqual([]);
 
@@ -47,12 +47,12 @@ describe("task delete → restore", () => {
     expect((await taskRepo().comments(t.id)).map((c) => c.body)).toEqual(["note"]);
   });
 
-  it("only the creator can restore, and only a deleted task", async () => {
-    const t = await newTask({ title: "Mine", assignee: "bob" });
+  it("restores only a deleted task, whichever GitHub account is connected", async () => {
+    const t = await newTask({ title: "Mine" });
     expect((await restoreRoute.POST(new NextRequest("http://x", { method: "POST" }), ctx(t.id))).status).toBe(404);
     await item.DELETE(new NextRequest(`http://x/api/tasks/${t.id}`, { method: "DELETE" }), ctx(t.id));
     viewer = "bob";
-    expect((await restoreRoute.POST(new NextRequest("http://x", { method: "POST" }), ctx(t.id))).status).toBe(404);
+    expect((await restoreRoute.POST(new NextRequest("http://x", { method: "POST" }), ctx(t.id))).status).toBe(200);
   });
 });
 
@@ -82,20 +82,16 @@ describe("undo complete", () => {
 });
 
 describe("view delete → restore", () => {
-  it("soft-deletes, restores for the owner only, and keeps the ID reserved", async () => {
-    // A person's own view (the seed views belong to no one and anyone may restore them, v5 2.10).
-    const draft = { id: "", name: "Mine", ownerId: "alice", visibility: "personal", layout: "list", filters: [], sort: [] };
-    const mine = (await (await viewsRoute.POST(new NextRequest("http://x/api/views", json("POST", draft)))).json()) as { id: string; ownerId: string };
-    expect(mine.ownerId).toBe("alice");
+  it("soft-deletes and restores, and keeps the ID reserved", async () => {
+    const draft = { id: "", name: "Mine", layout: "list", filters: [], sort: [] };
+    const mine = (await (await viewsRoute.POST(new NextRequest("http://x/api/views", json("POST", draft)))).json()) as { id: string };
     expect((await viewsRoute.DELETE(new NextRequest(`http://x/api/views?id=${mine.id}`, { method: "DELETE" }))).status).toBe(200);
     expect(((await (await viewsRoute.GET(new NextRequest("http://x/api/views"))).json()) as { id: string }[]).some((v) => v.id === mine.id)).toBe(false);
 
-    viewer = "bob";
-    expect((await viewRestore.POST(new NextRequest("http://x/api/views/restore", json("POST", { id: mine.id })))).status).toBe(404);
-    // Saving someone else's deleted view ID is refused too.
-    expect((await viewsRoute.POST(new NextRequest("http://x/api/views", json("POST", { ...draft, ...mine, ownerId: "bob" })))).status).toBe(403);
+    // Restoring something that was never deleted finds nothing.
+    expect((await viewRestore.POST(new NextRequest("http://x/api/views/restore", json("POST", { id: "v-unknown" })))).status).toBe(404);
 
-    viewer = "alice";
+    viewer = "bob"; // another GitHub account: the view is the install's, not the account's
     expect((await viewRestore.POST(new NextRequest("http://x/api/views/restore", json("POST", { id: mine.id })))).status).toBe(200);
     expect(((await (await viewsRoute.GET(new NextRequest("http://x/api/views"))).json()) as { id: string }[]).some((v) => v.id === mine.id)).toBe(true);
   });

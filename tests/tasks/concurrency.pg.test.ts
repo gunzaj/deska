@@ -6,14 +6,12 @@ import { getDb } from "@/db";
 import { PostgresTaskRepo, type StoredTask } from "@/lib/tasks/repo";
 import { updateTask } from "@/lib/tasks/service";
 
-const anyone = () => true;
 
 function task(p: Partial<StoredTask> = {}): StoredTask {
   const now = new Date("2026-10-13T08:00:00Z").toISOString();
   return {
     id: crypto.randomUUID(),
     creator: "alice",
-    assignee: null,
     parentId: null,
     title: "Weekly report",
     description: "",
@@ -45,12 +43,12 @@ describe("safe task updates (Postgres)", () => {
     const t = task();
     await repo.insert(t);
     const patch = { completed: true, expectedUpdatedAt: t.updatedAt };
-    const [a, b] = await Promise.all([updateTask("alice", t.id, patch, anyone), updateTask("alice", t.id, patch, anyone)]);
+    const [a, b] = await Promise.all([updateTask("alice", t.id, patch), updateTask("alice", t.id, patch)]);
     expect([a.ok, b.ok].sort()).toEqual([false, true]);
     const refused = [a, b].find((r) => !r.ok)!;
     expect(refused).toMatchObject({ ok: false, status: 409 });
     expect(await completions(t.id)).toEqual(["2026-10-16"]);
-    expect((await repo.getVisible("alice", t.id))?.dueDate).toBe("2026-10-23");
+    expect((await repo.get(t.id))?.dueDate).toBe("2026-10-23");
   });
 
   it("an occurrence already logged is not logged again and the date doesn't move twice", async () => {
@@ -59,35 +57,35 @@ describe("safe task updates (Postgres)", () => {
     // A second request that slipped past the version check (no expectedUpdatedAt)
     // but saw the same occurrence: the unique index stops the second move.
     await getDb().execute(sql`INSERT INTO task_completions (task_id, login, due_date) VALUES (${t.id}, 'alice', '2026-10-16')`);
-    const r = await updateTask("alice", t.id, { completed: true }, anyone);
+    const r = await updateTask("alice", t.id, { completed: true });
     expect(r.ok).toBe(true);
     expect(await completions(t.id)).toEqual(["2026-10-16"]);
-    expect((await repo.getVisible("alice", t.id))?.dueDate).toBe("2026-10-16");
+    expect((await repo.get(t.id))?.dueDate).toBe("2026-10-16");
   });
 
   it("a stale updatedAt returns 409 with the current task and writes nothing", async () => {
     const t = task({ recurrence: null });
     await repo.insert(t);
-    const ok = await updateTask("alice", t.id, { title: "Renamed", expectedUpdatedAt: t.updatedAt }, anyone);
+    const ok = await updateTask("alice", t.id, { title: "Renamed", expectedUpdatedAt: t.updatedAt });
     expect(ok.ok).toBe(true);
-    const stale = await updateTask("alice", t.id, { title: "Mine", expectedUpdatedAt: t.updatedAt }, anyone);
+    const stale = await updateTask("alice", t.id, { title: "Mine", expectedUpdatedAt: t.updatedAt });
     expect(stale).toMatchObject({ ok: false, status: 409, current: { title: "Renamed" } });
-    expect((await repo.getVisible("alice", t.id))?.title).toBe("Renamed");
+    expect((await repo.get(t.id))?.title).toBe("Renamed");
   });
 
   it("filing changes are never refused", async () => {
     const t = task({ recurrence: null });
     await repo.insert(t);
-    await updateTask("alice", t.id, { title: "Renamed" }, anyone);
-    expect((await updateTask("alice", t.id, { position: 3, expectedUpdatedAt: t.updatedAt }, anyone)).ok).toBe(true);
+    await updateTask("alice", t.id, { title: "Renamed" });
+    expect((await updateTask("alice", t.id, { position: 3, expectedUpdatedAt: t.updatedAt })).ok).toBe(true);
   });
 
   it("a failed update rolls back every write in it", async () => {
     const t = task({ recurrence: null });
     await repo.insert(t);
     // Unknown project: refused after the lock, nothing written.
-    const r = await updateTask("alice", t.id, { title: "Nope", projectId: "00000000-0000-0000-0000-00000000dead" }, anyone);
+    const r = await updateTask("alice", t.id, { title: "Nope", projectId: "00000000-0000-0000-0000-00000000dead" });
     expect(r).toMatchObject({ ok: false, status: 400 });
-    expect((await repo.getVisible("alice", t.id))?.title).toBe("Weekly report");
+    expect((await repo.get(t.id))?.title).toBe("Weekly report");
   });
 });

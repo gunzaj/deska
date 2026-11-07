@@ -7,4 +7,4 @@ export const dynamic = "force-dynamic";
 // Firing here is deliberate: it needs no timer of its own. It is idempotent (the
 // dedupe key makes a re-fire a no-op), the route is session-gated, and the
 // response is never cached, so a crawler or prefetch cannot fire a notification.
-export const GET = route({ auth: "viewer" }, ({ viewer }) => notificationsFor(viewer));
+export const GET = route({ auth: "viewer" }, ({ viewer, owner }) => notificationsFor(owner, new Date(), viewer));

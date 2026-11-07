@@ -10,16 +10,16 @@ export const dynamic = "force-dynamic";
 
 const target = z.object({ kind: z.enum(["issue", "view"]), targetId: z.string().min(1).max(200) });
 
-export const GET = route({ auth: "viewer" }, async ({ viewer }) => ({ watches: await listWatches(viewer) }));
+export const GET = route({ auth: "viewer" }, async ({ owner }) => ({ watches: await listWatches(owner) }));
 
-export const PUT = route({ auth: "viewer", body: target, invalid: "kind must be issue or view, and targetId is required" }, async ({ viewer, body }) => {
-  const watch = await addWatch(viewer, body.kind, body.targetId);
-  clearDigestCheck(viewer);
+export const PUT = route({ auth: "viewer", body: target, invalid: "kind must be issue or view, and targetId is required" }, async ({ owner, body }) => {
+  const watch = await addWatch(owner, body.kind, body.targetId);
+  clearDigestCheck(owner);
   return { watch };
 });
 
-export const DELETE = route({ auth: "viewer", query: target, invalid: "kind must be issue or view, and targetId is required" }, async ({ viewer, query }) => {
-  await removeWatch(viewer, query.kind, query.targetId);
-  clearDigestCheck(viewer);
+export const DELETE = route({ auth: "viewer", query: target, invalid: "kind must be issue or view, and targetId is required" }, async ({ owner, query }) => {
+  await removeWatch(owner, query.kind, query.targetId);
+  clearDigestCheck(owner);
   return { ok: true };
 });

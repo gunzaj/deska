@@ -276,11 +276,3 @@ function groupKey(row: ViewRow, groupBy: string): { key: string; label: string }
       return [{ key: "all", label: "All" }];
   }
 }
-
-export function visibleViews<T extends { ownerId: string; visibility: string }>(
-  views: T[],
-  viewerLogin: string,
-): T[] {
-  const who = viewerLogin.toLowerCase();
-  return views.filter((v) => v.visibility === "shared" || v.ownerId.toLowerCase() === who);
-}

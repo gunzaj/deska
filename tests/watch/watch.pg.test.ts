@@ -39,7 +39,7 @@ describe("watchlist (Postgres)", () => {
     const target = snapshot.projectItems[0]!;
     const watched = target.issueNodeId;
     const other = snapshot.projectItems.find((p) => p.issueNodeId !== watched)!.issueNodeId;
-    await saveView("alice", { id: "v1", name: "All issues", ownerId: "alice", visibility: "personal", layout: "list", filters: [], sort: [] });
+    await saveView({ id: "v1", name: "All issues", layout: "list", filters: [], sort: [] });
     await addWatch("alice", "issue", watched);
     await addWatch("alice", "view", "v1");
     await addWatch("bob", "issue", other);

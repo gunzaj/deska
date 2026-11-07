@@ -71,7 +71,7 @@ test("with writes on, 1 sets the highest Priority", async ({ browser }) => {
   await context.close();
 });
 
-test("a snooze hides the issue from that user only, and it comes back on its date", async ({ browser }) => {
+test("a snooze hides the issue whichever GitHub account is connected, and it comes back on its date", async ({ browser }) => {
   const a = await as(browser, "alice");
   const b = await as(browser, "bob");
   const today: string = (await (await a.page.request.get("/api/data")).json()).meta.today;
@@ -84,10 +84,11 @@ test("a snooze hides the issue from that user only, and it comes back on its dat
   expect((await put(addDay(today, 1))).ok()).toBe(true);
   await a.page.reload();
   await expect.poll(async () => (await rowIds(a.page)).includes(id)).toBe(false);
+  // Another connected account sees the same snooze: it belongs to this install (§4.6, D7).
   await b.page.goto("/triage");
   await expect(b.page.locator("[data-row-id]").first()).toBeVisible();
-  expect(await rowIds(b.page)).toContain(id);
-  expect(((await (await b.page.request.get("/api/triage/snoozes")).json()) as { snoozes: unknown[] }).snoozes).toEqual([]);
+  await expect.poll(async () => (await rowIds(b.page)).includes(id)).toBe(false);
+  expect(((await (await b.page.request.get("/api/triage/snoozes")).json()) as { snoozes: { nodeId: string }[] }).snoozes.map((s) => s.nodeId)).toContain(id);
 
   // Its day has come: back in the queue.
   expect((await put(today)).ok()).toBe(true);

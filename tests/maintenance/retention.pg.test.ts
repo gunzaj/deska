@@ -46,23 +46,22 @@ describe("retention (Postgres)", () => {
     expect((await getDb().execute(sql`SELECT body FROM task_comments ORDER BY body`)).rows.map((r) => r.body)).toEqual(["kept", "new deleted"]);
   });
 
-  it("a task deleted inside the 30 days is still found by its creator's undo path", async () => {
+  it("a task deleted inside the 30 days is still found by the undo path", async () => {
     await getDb().execute(sql`INSERT INTO tasks (id, creator_login, title, deleted_at) VALUES ('50000000-0000-0000-0000-000000000004', 'alice', 'Undo me', ${daysAgo(29)})`);
     await runRetention(NOW);
     const repo = new PostgresTaskRepo();
-    expect((await repo.getDeletedByCreator("alice", "50000000-0000-0000-0000-000000000004"))?.title).toBe("Undo me");
-    expect(await repo.getDeletedByCreator("bob", "50000000-0000-0000-0000-000000000004")).toBeNull();
+    expect((await repo.getDeleted("50000000-0000-0000-0000-000000000004"))?.title).toBe("Undo me");
     // Not once it is past the window.
     await runRetention(new Date(NOW.getTime() + 2 * 86_400_000));
-    expect(await repo.getDeletedByCreator("alice", "50000000-0000-0000-0000-000000000004")).toBeNull();
+    expect(await repo.getDeleted("50000000-0000-0000-0000-000000000004")).toBeNull();
   });
 
   it("soft-deleted views go after 30 days", async () => {
     await getDb().execute(sql`DELETE FROM views WHERE id LIKE 'ret-%'`);
-    await getDb().execute(sql`INSERT INTO views (id, owner_id, name, definition_json, deleted_at) VALUES
-      ('ret-old', 'alice', 'Old', '{}', ${daysAgo(31)}),
-      ('ret-new', 'alice', 'New', '{}', ${daysAgo(29)}),
-      ('ret-live', 'alice', 'Live', '{}', NULL)`);
+    await getDb().execute(sql`INSERT INTO views (id, name, definition_json, deleted_at) VALUES
+      ('ret-old', 'Old', '{}', ${daysAgo(31)}),
+      ('ret-new', 'New', '{}', ${daysAgo(29)}),
+      ('ret-live', 'Live', '{}', NULL)`);
     const res = await runRetention(NOW);
     expect(res.views).toBe(1);
     expect((await getDb().execute(sql`SELECT id FROM views WHERE id LIKE 'ret-%' ORDER BY id`)).rows.map((r) => r.id)).toEqual(["ret-live", "ret-new"]);

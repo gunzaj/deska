@@ -40,8 +40,3 @@ export function dropOutcome(task: Pick<Task, "projectId" | "dueDate">, labelName
         : { patch: { labels: [...labelNames, target.name] }, undo: { labels: labelNames }, message: `Labelled ${target.name}` };
   }
 }
-
-/** Whether the drop changes a field the viewer may only change when they can edit the task. */
-export function needsEditRights(target: DropTarget): boolean {
-  return target.kind === "today" || target.kind === "upcoming";
-}

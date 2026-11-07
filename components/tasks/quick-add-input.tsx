@@ -13,7 +13,7 @@ import { tokenKey, type Token } from "@/lib/tasks/quick-add";
  * `+` (labels) or `=` (projects) opens suggestions.
  */
 export type Suggestion = { id: string; label: string; insert: string; icon?: ReactNode; hint?: string };
-export type Trigger = "@" | "#" | "+" | "=";
+export type Trigger = "#" | "+" | "=";
 export type SuggestFn = (trigger: Trigger, query: string) => Suggestion[];
 
 const TOKEN_STYLE: Record<Token["kind"], string> = {
@@ -24,7 +24,6 @@ const TOKEN_STYLE: Record<Token["kind"], string> = {
   label: "var(--violet-soft)",
   project: "var(--info-soft)",
   link: "var(--info-soft)",
-  assignee: "var(--warning-soft)",
 };
 
 export function QuickAddInput({
@@ -63,7 +62,7 @@ export function QuickAddInput({
 
   // The word being typed, if it starts with a trigger character.
   const before = value.slice(0, caret);
-  const m = /(?:^|\s)([@#+=])([^\s@#+=]*)$/.exec(before);
+  const m = /(?:^|\s)([#+=])([^\s#+=]*)$/.exec(before);
   const trigger = m ? (m[1] as Trigger) : null;
   const query = m?.[2] ?? "";
   const wordStart = m ? caret - query.length - 1 : -1;
