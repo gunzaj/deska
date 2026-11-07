@@ -59,7 +59,7 @@ export function TokenForm({ submitLabel = "Connect", onChecked }: { submitLabel?
   return (
     <form onSubmit={(e) => void submit(e)} className="space-y-2" id="token">
       <label htmlFor="github-token" className="block text-[12.5px] font-medium">
-        Fine-grained personal access token
+        Personal access token
       </label>
       <div className="flex gap-2">
         <input
@@ -69,7 +69,7 @@ export function TokenForm({ submitLabel = "Connect", onChecked }: { submitLabel?
           autoComplete="off"
           spellCheck={false}
           autoCapitalize="off"
-          placeholder="github_pat_…"
+          placeholder="github_pat_… or ghp_…"
           value={value}
           onChange={(e) => setValue(e.target.value)}
           className="h-9 min-w-0 flex-1 rounded-md border border-line bg-field px-2.5 font-mono text-[12.5px] outline-none hover:border-line-field focus:border-focus"

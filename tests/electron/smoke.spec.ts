@@ -258,7 +258,7 @@ async function chooseProject(win: Page, origin: string, title: string, beforeSav
 async function connect(win: Page, origin: string) {
   if (!new URL(win.url()).pathname.startsWith("/onboarding")) await win.goto(`${origin}/onboarding`);
   await expect(win.getByRole("heading", { name: "Connect GitHub" })).toBeVisible({ timeout: 60_000 });
-  await win.getByLabel("Fine-grained personal access token").fill(TOKEN);
+  await win.getByLabel("Personal access token").fill(TOKEN);
   await win.getByRole("button", { name: "Connect" }).click();
   await expect(win.getByText("Connected as")).toContainText("@alice", { timeout: 30_000 });
   await win.getByRole("button", { name: "Continue" }).click();
@@ -326,7 +326,7 @@ test.describe("desktop shell", () => {
       // main refuses anything that is not a GitHub PAT, with its own words.
       expect(await win.evaluate(() => window.deska!.token.set("ghp_classic").then(() => "stored", (e: Error) => e.message))).toContain("GitHub personal access token");
 
-      await win.getByLabel("Fine-grained personal access token").fill(TOKEN);
+      await win.getByLabel("Personal access token").fill(TOKEN);
       await win.getByRole("button", { name: "Connect" }).click();
       await expect(win.getByText("Connected as")).toContainText("@alice", { timeout: 30_000 });
       await expect(win.getByText("Read-only token")).toBeVisible();
@@ -385,7 +385,7 @@ test.describe("desktop shell", () => {
     const { app, win, origin } = await launch(userData, github);
     try {
       await win.waitForURL(`${origin}/onboarding`);
-      await win.getByLabel("Fine-grained personal access token").fill(TOKEN);
+      await win.getByLabel("Personal access token").fill(TOKEN);
       await win.getByRole("button", { name: "Connect" }).click();
       await expect(win.getByText("This token is missing a permission: Organization → Projects: Read").first()).toBeVisible({ timeout: 30_000 });
       await expect(win.locator('[data-permission="projects"]')).toContainText("Missing");
@@ -490,7 +490,7 @@ test.describe("desktop shell", () => {
     const { app, win, origin } = await launch(userData, github, { seed: "", envTarget: false });
     try {
       await win.waitForURL(`${origin}/onboarding`);
-      await win.getByLabel("Fine-grained personal access token").fill(TOKEN);
+      await win.getByLabel("Personal access token").fill(TOKEN);
       await win.getByRole("button", { name: "Connect" }).click();
       await expect(win.getByText("Connected as")).toContainText("@alice", { timeout: 30_000 });
       await win.getByRole("button", { name: "Continue" }).click();
@@ -629,7 +629,7 @@ test.describe("desktop shell", () => {
     const data = () => win.evaluate(() => fetch("/api/data").then((r) => r.json()));
     try {
       await win.waitForURL(`${origin}/onboarding`);
-      await win.getByLabel("Fine-grained personal access token").fill(TOKEN);
+      await win.getByLabel("Personal access token").fill(TOKEN);
       await win.getByRole("button", { name: "Connect" }).click();
       await expect(win.getByText("Connected as")).toContainText("@alice", { timeout: 30_000 });
       // No repository or project yet (and no env): only `GET /user` is checked.

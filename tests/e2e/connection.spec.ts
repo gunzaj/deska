@@ -93,11 +93,11 @@ test("onboarding: paste a token → bridge → check → read-only token reaches
   await expect(page.getByRole("heading", { name: "How to create it" })).toBeVisible();
 
   // A token of no known shape is refused by main with its own words.
-  await page.getByLabel("Fine-grained personal access token").fill("notatoken");
+  await page.getByLabel("Personal access token").fill("notatoken");
   await page.getByRole("button", { name: "Connect" }).click();
   await expect(page.getByText("Deska needs a GitHub personal access token. It starts with github_pat_ (fine-grained) or ghp_ (classic).")).toBeVisible();
 
-  await page.getByLabel("Fine-grained personal access token").fill(TOKEN);
+  await page.getByLabel("Personal access token").fill(TOKEN);
   await page.getByRole("button", { name: "Connect" }).click();
   await expect(page.getByText("Connected as")).toContainText("@alice");
   await expect(page.getByText("Read-only token")).toBeVisible();
@@ -126,7 +126,7 @@ test("onboarding: an invalid token gets its message and is deleted again", async
       : status({ state: "missing", message: "Connect GitHub to get started", login: null }),
   );
   await page.goto("/onboarding");
-  await page.getByLabel("Fine-grained personal access token").fill(TOKEN);
+  await page.getByLabel("Personal access token").fill(TOKEN);
   await page.getByRole("button", { name: "Connect" }).click();
   await expect(page.getByText("Your GitHub token is invalid or expired")).toBeVisible();
   await expect(page.getByRole("button", { name: "Continue" })).toHaveCount(0);
