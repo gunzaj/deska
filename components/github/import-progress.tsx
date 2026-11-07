@@ -121,16 +121,17 @@ export function ImportProgress() {
           })}
         </ol>
 
-        {/* The sentence is `importView`'s: this renders `line` and makes no choice of its
-            own, so the pure function's test covers the wiring (QA, D5). */}
+        {/* The sentence travels in `line`: this renders `copy` and maps no kind to a
+            string, so swapping two branches here is a test failure, not a silent ship
+            (QA's finding, D5). Only `count` is markup around three numbers. */}
         <p role="status" aria-live="polite" className="mt-5 text-[13px]" data-import-progress>
-          {!view || view.line.kind === "starting" ? (
-            // Before the first status arrives, and until anything is copied.
+          {!view ? (
+            // Before the first status arrives.
             IMPORT_COPY.starting
-          ) : view.line.kind === "resume-none" ? (
-            <span data-import-resumed>{IMPORT_COPY.resumedNoCount}</span>
-          ) : view.line.kind === "resume" ? (
-            <span data-import-resumed>{IMPORT_COPY.resumed(view.line.issues)}</span>
+          ) : view.line.kind === "starting" ? (
+            view.line.copy
+          ) : view.line.kind === "resume-none" || view.line.kind === "resume" ? (
+            <span data-import-resumed>{view.line.copy}</span>
           ) : (
             <>
               <strong className="font-semibold" data-import-issues>

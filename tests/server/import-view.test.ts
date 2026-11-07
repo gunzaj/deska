@@ -10,7 +10,12 @@ function input(over: Partial<ImportViewInput> = {}): ImportViewInput {
 
 describe("importView", () => {
   it("is starting before anything is copied, with every step still to do", () => {
-    expect(importView(input({ phase: null }))).toEqual({ state: "starting", steps: ["todo", "todo", "todo", "todo"], progress: "none", line: { kind: "starting" } });
+    expect(importView(input({ phase: null }))).toEqual({
+      state: "starting",
+      steps: ["todo", "todo", "todo", "todo"],
+      progress: "none",
+      line: { kind: "starting", copy: IMPORT_COPY.starting },
+    });
     // The metadata phase is the first real step: it is the one that animates.
     expect(importView(input({ phase: "metadata" })).steps).toEqual(["active", "todo", "todo", "todo"]);
   });
@@ -83,11 +88,19 @@ describe("importView", () => {
     expect(Object.keys(IMPORT_COPY.steps).sort()).toEqual([...IMPORT_STEPS].sort());
   });
 
-  it("decides which sentence the count line shows, so the screen chooses nothing", () => {
-    // QA's finding: the component used to pick between `resumed(n)` and `resumedNoCount`
-    // with an `issues > 0` of its own, and inverting that ternary passed every test.
-    expect(importView(input({ resumed: true, issues: 0, phase: "metadata" })).line).toEqual({ kind: "resume-none" });
-    expect(importView(input({ resumed: true, issues: 1204, phase: "closed" })).line).toEqual({ kind: "resume", issues: 1204 });
+  it("decides which sentence the count line shows, words included", () => {
+    // QA's finding, twice over: the component first picked the kind with an `issues > 0`
+    // of its own, then mapped the kind to a string. Both were invisible to this suite.
+    // The sentence now travels in `line`, so a swapped pair of resume branches fails here.
+    expect(importView(input({ resumed: true, issues: 0, phase: "metadata" })).line).toEqual({
+      kind: "resume-none",
+      copy: IMPORT_COPY.resumedNoCount,
+    });
+    expect(importView(input({ resumed: true, issues: 1204, phase: "closed" })).line).toEqual({
+      kind: "resume",
+      copy: IMPORT_COPY.resumed(1204),
+      issues: 1204,
+    });
     expect(importView(input({ issues: 12, phase: "open" })).line).toEqual({ kind: "count", issues: 12, items: null, itemsTotal: null });
     expect(importView(input({ issues: 12, items: 3, itemsTotal: 40, phase: "items" })).line).toEqual({ kind: "count", issues: 12, items: 3, itemsTotal: 40 });
     // A stopped run shows its count, not "Resuming": the alert above it carries the
@@ -105,8 +118,20 @@ describe("importView", () => {
     // The bar is drawn from `progress`, not `line`: a resume in the items phase has no
     // count sentence and still needs the bar.
     const v = importView(input({ resumed: true, issues: 1204, items: 60, itemsTotal: 100, phase: "items" }));
-    expect(v.line).toEqual({ kind: "resume", issues: 1204 });
+    expect(v.line).toEqual({ kind: "resume", copy: IMPORT_COPY.resumed(1204), issues: 1204 });
     expect(v.progress).toBe("items");
+  });
+
+  it("carries the sentence, so the screen cannot map a kind to the wrong words", () => {
+    // The two resume sentences are the pair that got swapped: same kind of run, different
+    // count. If `line.copy` were derived anywhere but here, this would not hold.
+    const none = importView(input({ resumed: true, issues: 0, phase: "metadata" })).line;
+    const some = importView(input({ resumed: true, issues: 9, phase: "closed" })).line;
+    expect(none.kind === "resume-none" && none.copy).toBe("Resuming · no issues copied yet");
+    expect(some.kind === "resume" && some.copy).toBe("Resuming · 9 issues already copied");
+    // Both start the same way, and neither is the starting sentence.
+    expect(none.kind === "resume-none" && none.copy.startsWith("Resuming")).toBe(true);
+    expect(some.kind === "resume" && some.copy.startsWith("Resuming")).toBe(true);
   });
 
   it("says a resume continues rather than restarts", () => {

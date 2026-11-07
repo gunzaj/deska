@@ -57,19 +57,25 @@ export type ImportViewState = "starting" | "importing" | "resumed" | "failed";
 export type ImportProgressKind = "none" | "count" | "items";
 
 /**
- * The one sentence the count line shows, decided here rather than in the screen: the
- * component used to pick between `resumed(n)` and `resumedNoCount` with an
+ * The one sentence the count line shows, decided here rather than in the screen.
+ *
+ * The component used to pick between `resumed(n)` and `resumedNoCount` with an
  * `issues > 0` of its own, which no unit test could reach (no DOM tooling in the tree),
  * so an inverted ternary shipped the count sentence on a run that copied nothing with
- * the suite green (QA, D5).
+ * the suite green (QA, D5). Moving the choice here fixed *which* sentence, not *which
+ * words*: the component still owned the `kind → IMPORT_COPY` mapping, so swapping its
+ * two resume branches was invisible too. So the sentence travels with the kind — the
+ * screen renders `copy` and maps nothing (Chief, D5).
  *
- * `progress` cannot carry this: it also drives the progress bar, and a resume that
- * reaches the items phase must still draw the bar.
+ * `count` has no `copy`: it is markup around three numbers, not a string.
+ *
+ * `progress` cannot carry any of this: it also drives the progress bar, and a resume
+ * that reaches the items phase must still draw the bar.
  */
 export type ImportLine =
-  | { kind: "starting" }
-  | { kind: "resume-none" }
-  | { kind: "resume"; issues: number }
+  | { kind: "starting"; copy: string }
+  | { kind: "resume-none"; copy: string }
+  | { kind: "resume"; copy: string; issues: number }
   | { kind: "count"; issues: number; items: number | null; itemsTotal: number | null };
 
 export type ImportViewInput = {
@@ -110,11 +116,11 @@ export function importView(s: ImportViewInput): ImportView {
   const progress: ImportProgressKind = state === "starting" ? "none" : s.items > 0 || s.phase === "items" ? "items" : "count";
   const line: ImportLine =
     state === "starting"
-      ? { kind: "starting" }
+      ? { kind: "starting", copy: IMPORT_COPY.starting }
       : state === "resumed"
         ? s.issues > 0
-          ? { kind: "resume", issues: s.issues }
-          : { kind: "resume-none" }
+          ? { kind: "resume", copy: IMPORT_COPY.resumed(s.issues), issues: s.issues }
+          : { kind: "resume-none", copy: IMPORT_COPY.resumedNoCount }
         : { kind: "count", issues: s.issues, items: progress === "items" ? s.items : null, itemsTotal: progress === "items" ? s.itemsTotal : null };
   return { state, steps, progress, line };
 }
