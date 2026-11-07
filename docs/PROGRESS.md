@@ -8,7 +8,7 @@
 | D3 | done | [#4](https://github.com/gunzaj/deska/pull/4) | Auth server removed; PAT owner is the local user; onboarding step 1, Settings, §3.3 token states |
 | D4 | done | [#5](https://github.com/gunzaj/deska/pull/5) | Onboarding step 2, Settings remap, mapping by field ID, dimensions (`dim:<fieldId>`) everywhere |
 | D5 | done | [#10](https://github.com/gunzaj/deska/pull/10) | In-process sync, first import with resume, `/importing` |
-| D6 | todo | | |
+| D6 | done | [#13](https://github.com/gunzaj/deska/pull/13) | PR sync, tables, UI and links removed; migration 0003 |
 | D7 | todo | | |
 | D8 | todo | | |
 | D9 | todo | | |
@@ -74,6 +74,13 @@
 - D5: `failure` on `/api/sync-status` is the last *completed* run's failure, cleared only when a run succeeds, so a retry still reports what it is retrying. It is never read without `running`: `importView()` turns `failure && !running` into the failed state and a running retry into `resumed`, which is what keeps a live Retry button off an import that is already going.
 - D5: A resumed import draws its current step still (`active-idle`) and everything before it `done`; only a fresh start pulses. A relaunch reads as a continuation, not a restart.
 - D5: The Electron smoke grew the mock's sync routes (`DeskaSyncFields`, `DeskaSyncIssueTypes`, `DeskaIssueExtras`, paged `DeskaSyncItems`, and paged REST issues/labels/milestones/assignees behind a real `link` header) and one empty-seed test that walks onboarding → `/importing` → `/issues` on a 120-issue repo, so the import is proven to page rather than to stop at page one. It launches with `seed: ""` and `envTarget: false`: a seeded cache sets `issues.since` and redirects past the screen, and an env target imports while the UI gates on stored settings.
+- D5: Follow-up [#11](https://github.com/gunzaj/deska/pull/11) (another agent's): `importView()` now returns the count line with its sentence (`line`), and a resume with nothing copied reads "Resuming · no issues copied yet".
+- D6: Team members went with pull requests: they were only read to resolve PR review requests (`gh_team_members` dropped).
+- D6: Migration 0003 also cleans local data that pointed at pull requests, because the schemas are strict: task links of kind `pr` and PR saved views are deleted, `entity`/`pr` keys are stripped from other views, project sources keep only their issue filters (none → no source), `pulls` leaves stored sidebar layouts, and `prs.lastScan` is removed. A test runs it on seeded pre-D6 data.
+- D6: The REST issues endpoint still lists pull requests; sync skips those rows (as before) instead of fetching them. The fixture keeps one such row (#103) so the skip stays tested. A pasted `/pull/N` URL in quick add stays text.
+- D6: Release risk is down to two rules (top priority without assignee, scope added); the "no open PR" rule had no issue-only equivalent. Release notes list one line per issue.
+- D6: "Sync makes no PR calls" is a Vitest request log over the real GitHub clients with a stubbed `fetch` (`tests/sync/no-pr-calls.test.ts`), plus the same assertion on the Electron smoke's mock-GitHub log.
+- D6: Local e2e, `desktop:build` and `test:desktop` needed the agent sandbox off (it blocks binding local ports). Some e2e specs (tasks, mobile, smoke, user-menu) and the onboarding desktop test failed once on timing and passed on rerun.
 
 ## Maintainer to-do
 - [ ] Create a **read-only** fine-grained PAT: resource owner = the org, repository access = only the one repo; Repository → Metadata: Read, Repository → Issues: Read, Organization → Projects: Read, Organization → Issue types: Read (optional); nothing else. Then run the probe (report lands in `private/findings/`):
@@ -82,6 +89,7 @@
   GITHUB_REPO=<owner>/<repo> GITHUB_ORG=<org> GITHUB_PROJECT_NUMBER=<n> pnpm probe:pat
   ```
 - [ ] Try the D2 build on your Mac: `pnpm desktop:build`, then open `release/Deska-0.0.0-universal.dmg`. The app is unsigned, so the first time, right-click Deska.app → Open (or allow it under System Settings → Privacy & Security). Since D3 it opens on "Connect GitHub": paste a read-only fine-grained PAT (see the first item). The issue list still shows the fictional sample data until D5. Since D4, after the token it asks for the repository and project (step 2) and lets you map the fields; try it against your real project with the read-only PAT (reads only), and check Settings → Project and fields.
+- [ ] Review open [#12](https://github.com/gunzaj/deska/pull/12) (ADR-001: theme and density in app_settings, from another agent; outside the SPEC plan). `docs/UI-PASS.md` still describes PR rows.
 - [ ] Optional: add a `.env.example` if you want one (the agent could not write `.env.*` files). Use only fictional values.
 
 ## Blockers
