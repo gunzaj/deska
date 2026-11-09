@@ -2,13 +2,15 @@
 // again after a database recovery): open the database, then run the sync, the
 // daily backup check and the reminder loop.
 import { prepareDatabase } from "../db-bootstrap";
-import { backupDir, backupIfDue } from "../backup/files";
+import { backupDir, backupIfDue, syncMirror } from "../backup/files";
 import { setDbState } from "../backup/recover";
 import { syncService } from "../sync/service";
 import { startReminderService } from "./reminders";
 
 const CHECK_EVERY_MS = 60 * 60 * 1000;
 const SCHEDULE = Symbol.for("deska.backupSchedule");
+// desktop/server-entry.ts calls this when the second backup folder changes.
+const MIRROR_SYNC = Symbol.for("deska.backupMirrorSync");
 
 /** Opens (and migrates) the database and records whether that worked. */
 export async function openDatabase(): Promise<boolean> {
@@ -27,12 +29,13 @@ export async function openDatabase(): Promise<boolean> {
   }
 }
 
-/** A backup now if the newest is a day old, then again whenever the hour check finds it so. */
+/** A backup now if the newest is a day old, then again whenever the hour check finds it so; each check also copies what the second backup folder lacks. */
 function startBackupSchedule(): void {
   const g = globalThis as Record<symbol, unknown>;
   if (!backupDir() || g[SCHEDULE]) return;
   const check = () => backupIfDue().catch((e: unknown) => console.error(`deska: the daily backup failed: ${e instanceof Error ? e.message : String(e)}`));
   void check();
+  (g as Record<symbol, unknown>)[MIRROR_SYNC] = () => void syncMirror();
   const timer = setInterval(() => void check(), CHECK_EVERY_MS);
   timer.unref?.();
   g[SCHEDULE] = timer;

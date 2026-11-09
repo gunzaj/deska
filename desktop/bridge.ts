@@ -20,11 +20,18 @@ export type DesktopPrefs = {
   launchAtLogin: boolean;
   /** Dock badge: overdue + due today. */
   dockBadge: boolean;
+  /**
+   * A second folder every backup is also copied to (iCloud Drive, a sync folder,
+   * an external drive); "" = none. Chosen only through the folder dialog
+   * (`desktop.chooseBackupFolder`), never through `desktop.set`, so the page
+   * cannot name a path itself.
+   */
+  backupFolder: string;
 };
 
 export const DEFAULT_SHORTCUT = "Control+Alt+Space";
 
-export const DEFAULT_DESKTOP_PREFS: DesktopPrefs = { shortcut: DEFAULT_SHORTCUT, notifications: true, launchAtLogin: false, dockBadge: true };
+export const DEFAULT_DESKTOP_PREFS: DesktopPrefs = { shortcut: DEFAULT_SHORTCUT, notifications: true, launchAtLogin: false, dockBadge: true, backupFolder: "" };
 
 /** What Settings shows: the prefs plus whether the shortcut is registered right now. */
 export type DesktopState = { prefs: DesktopPrefs; shortcutActive: boolean; notificationsSupported: boolean; canLaunchAtLogin: boolean };
@@ -44,7 +51,11 @@ export interface DeskaBridge {
   /** Desktop-only settings; `set` reports a shortcut that could not be registered. */
   desktop: {
     get(): Promise<DesktopState>;
-    set(patch: Partial<DesktopPrefs>): Promise<{ state: DesktopState; error: string | null }>;
+    set(patch: Partial<Omit<DesktopPrefs, "backupFolder">>): Promise<{ state: DesktopState; error: string | null }>;
+    /** Opens the folder dialog; resolves with the new state (`error` when the folder was refused, none when the dialog was cancelled). */
+    chooseBackupFolder(): Promise<{ state: DesktopState; error: string | null }>;
+    /** Stops copying backups to the second folder (the copies already there stay). */
+    clearBackupFolder(): Promise<{ state: DesktopState; error: string | null }>;
   };
   /** The floating quick-add window (§4.6). */
   quickAdd: {
@@ -76,6 +87,8 @@ export const CHANNELS = {
   tokenStatus: "deska:token-status",
   desktopGet: "deska:desktop-get",
   desktopSet: "deska:desktop-set",
+  backupFolderChoose: "deska:backup-folder-choose",
+  backupFolderClear: "deska:backup-folder-clear",
   quickAddClose: "deska:quick-add-close",
   /** main → renderer */
   openTask: "deska:open-task",
@@ -95,6 +108,8 @@ export type ServerMessage =
     }
   /** `id` is echoed in a `token-ack` once the server holds the token. */
   | { type: "token"; token: string | null; source: "launch" | "user"; id: number }
+  /** The second backup folder (null = none), set by main from its prefs at start and on every change. */
+  | { type: "backup-mirror"; dir: string | null }
   /** Run a sync now: the Mac woke from sleep (powerMonitor "resume"). */
   | { type: "sync"; reason: "wake" }
   | { type: "stop" };

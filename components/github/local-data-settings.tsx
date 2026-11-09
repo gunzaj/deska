@@ -7,12 +7,16 @@ import { useCallback, useEffect, useState } from "react";
 import { Icon } from "../icons";
 
 type Backup = { name: string; createdAt: string; reason: string; bytes: number };
-type Status = { database: { ok: boolean; error: string | null }; backups: { enabled: boolean; items: Backup[] } };
+type Health = { error: string | null; failedAt: string | null; mirrorError: string | null; mirrorDir: string | null; mirrored: number; missing: number };
+type Status = { database: { ok: boolean; error: string | null }; backups: { enabled: boolean; items: Backup[]; health?: Health } };
 type Step = null | "cache" | "all-1" | "all-2";
 
 const button = "inline-flex h-8 items-center gap-1.5 rounded-md border border-line px-3 font-medium hover:bg-hover disabled:opacity-60";
 const danger = "inline-flex h-8 items-center gap-1.5 rounded-md bg-critical px-3 font-semibold text-brand-on disabled:opacity-60";
 const plain = "inline-flex h-8 items-center rounded-md px-3 font-medium hover:bg-hover";
+
+/** A backup older than this means the daily one is not happening (the app has not run, or it fails). */
+const STALE_MS = 3 * 86_400_000;
 
 const when = (iso: string) => new Date(iso).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
 
@@ -28,6 +32,9 @@ export function LocalDataSettings() {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<{ kind: "ok" | "error"; text: string } | null>(null);
   const [step, setStep] = useState<Step>(null);
+  // The second backup folder is chosen in the desktop shell's own dialog (window.deska); absent in a browser preview.
+  const desktop = typeof window === "undefined" ? undefined : window.deska?.desktop;
+  const canPickFolder = typeof desktop?.chooseBackupFolder === "function";
 
   const load = useCallback(async () => {
     try {
@@ -68,8 +75,18 @@ export function LocalDataSettings() {
     });
   }
 
+  async function folder(action: "chooseBackupFolder" | "clearBackupFolder") {
+    await run(async () => {
+      const r = await desktop?.[action]();
+      if (r?.error) throw new Error(r.error);
+      return action === "clearBackupFolder" ? "Backups are no longer copied to a second folder." : r?.state.prefs.backupFolder ? "Copying backups to the second folder." : undefined;
+    });
+  }
+
   const backups = status?.backups;
   const newest = backups?.items[0];
+  const health = backups?.health;
+  const stale = !!newest && Date.now() - new Date(newest.createdAt).getTime() > STALE_MS;
   return (
     <section id="local-data" aria-labelledby="local-data-settings" className="space-y-5 border-t border-line pt-6">
       <h2 id="local-data-settings" className="text-[15px] font-semibold">
@@ -92,12 +109,57 @@ export function LocalDataSettings() {
         ) : (
           <>
             <p className="text-[12.5px] text-muted" data-last-backup>
-              {newest ? `Last backup ${when(newest.createdAt)} · ${backups.items.length} kept (the newest 14).` : "No backup yet. One is taken daily and before every update of the database."}
+              {newest ? `Last backup ${when(newest.createdAt)} · ${backups.items.length} kept (every one of the last 14 days, then one a week for 8 weeks).` : "No backup yet. One is taken daily and before every update of the database."}
             </p>
+            {(health?.error || stale) && (
+              <p role="alert" className="text-[12.5px] font-medium text-critical" data-backup-warning>
+                {health?.error ? `The last backup failed: ${health.error}` : `The newest backup is from ${when(newest!.createdAt)}. Backups are due daily while Deska runs.`}
+              </p>
+            )}
             <button type="button" disabled={busy} onClick={() => void run(async () => (await post("/api/local-data/backup"), "Backup saved."))} className={button}>
               <Icon name="save" size={13} />
               Back up now
             </button>
+
+            <div className="space-y-2 pt-3" data-mirror>
+              <h4 className="text-[12.5px] font-semibold">Second folder</h4>
+              <p className="text-[12.5px] text-muted">
+                Every backup is also copied here, so losing this Mac&apos;s disk does not lose the backups too. Pick a folder that iCloud Drive, a Nextcloud or Dropbox client or an external drive keeps safe.
+              </p>
+              {health?.mirrorDir ? (
+                <>
+                  <p className="break-all font-mono text-[12px]" data-mirror-dir>
+                    {health.mirrorDir}
+                  </p>
+                  {health.mirrorError ? (
+                    <p role="alert" className="text-[12.5px] font-medium text-critical" data-mirror-error>
+                      Not copied: {health.mirrorError}
+                    </p>
+                  ) : (
+                    <p className="text-[12.5px] text-muted" data-mirror-ok>
+                      {health.missing === 0 ? "Up to date." : `${health.missing} not copied yet.`}
+                    </p>
+                  )}
+                </>
+              ) : (
+                <p className="text-[12.5px] text-muted">None chosen.</p>
+              )}
+              {canPickFolder ? (
+                <div className="flex flex-wrap items-center gap-2">
+                  <button type="button" disabled={busy} onClick={() => void folder("chooseBackupFolder")} className={button}>
+                    <Icon name="plus" size={13} />
+                    {health?.mirrorDir ? "Change folder…" : "Choose folder…"}
+                  </button>
+                  {health?.mirrorDir && (
+                    <button type="button" disabled={busy} onClick={() => void folder("clearBackupFolder")} className={plain}>
+                      Stop copying
+                    </button>
+                  )}
+                </div>
+              ) : (
+                <p className="text-[12.5px] text-muted">Choosing a folder works in the Deska desktop app.</p>
+              )}
+            </div>
           </>
         )}
       </div>

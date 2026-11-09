@@ -1,6 +1,7 @@
 // Desktop-only settings (SPEC §2.4, §4.6). Pure: main reads and writes the
 // JSON file, this decides what a file or a request may contain. A damaged or
 // hand-edited file falls back to the defaults per field, never to a crash.
+import { isAbsolute } from "node:path";
 import { DEFAULT_DESKTOP_PREFS, type DesktopPrefs } from "./bridge";
 
 const MODIFIERS = new Set(["Command", "Cmd", "Control", "Ctrl", "CommandOrControl", "CmdOrCtrl", "Alt", "Option", "Shift"]);
@@ -29,13 +30,17 @@ export function parseDesktopPrefs(raw: unknown): DesktopPrefs {
     notifications: typeof o.notifications === "boolean" ? o.notifications : d.notifications,
     launchAtLogin: typeof o.launchAtLogin === "boolean" ? o.launchAtLogin : d.launchAtLogin,
     dockBadge: typeof o.dockBadge === "boolean" ? o.dockBadge : d.dockBadge,
+    backupFolder: typeof o.backupFolder === "string" && (o.backupFolder === "" || (isAbsolute(o.backupFolder) && !o.backupFolder.includes("\0"))) ? o.backupFolder : d.backupFolder,
   };
 }
 
-/** A change request from the page: only known fields of the right type; `error` names the first refused one. */
-export function parsePrefsPatch(raw: unknown): { patch: Partial<DesktopPrefs>; error: string | null } {
+/**
+ * A change request from the page: only known fields of the right type; `error` names the first refused one.
+ * `backupFolder` is never accepted here: only the folder dialog in main sets it.
+ */
+export function parsePrefsPatch(raw: unknown): { patch: Partial<Omit<DesktopPrefs, "backupFolder">>; error: string | null } {
   const o = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {};
-  const patch: Partial<DesktopPrefs> = {};
+  const patch: Partial<Omit<DesktopPrefs, "backupFolder">> = {};
   let error: string | null = null;
   if (o.shortcut !== undefined) {
     if (typeof o.shortcut === "string" && validAccelerator(o.shortcut)) patch.shortcut = o.shortcut;

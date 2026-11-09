@@ -37,6 +37,7 @@ describe("/api/local-data", () => {
     expect(body.backups.enabled).toBe(true);
     expect(body.backups.items).toHaveLength(1);
     expect(Object.keys(body.backups.items[0]).sort()).toEqual(["bytes", "createdAt", "name", "reason"]);
+    expect(body.backups.health).toMatchObject({ error: null, mirrorDir: null, mirrorError: null, missing: 0 });
   });
 
   it("export is a JSON attachment", async () => {

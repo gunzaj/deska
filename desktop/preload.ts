@@ -14,6 +14,8 @@ const bridge: DeskaBridge = {
   desktop: {
     get: () => invoke("deska:desktop-get"),
     set: (patch) => invoke("deska:desktop-set", patch && typeof patch === "object" ? { ...patch } : {}),
+    chooseBackupFolder: () => invoke("deska:backup-folder-choose"),
+    clearBackupFolder: () => invoke("deska:backup-folder-clear"),
   },
   quickAdd: { close: () => invoke("deska:quick-add-close") },
   onOpenTask: (listener) => {

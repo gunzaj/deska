@@ -17,7 +17,7 @@ describe("global shortcut accelerators (D12)", () => {
 
 describe("desktop prefs (D12)", () => {
   it("defaults: ⌃⌥Space, notifications and badge on, launch at login off", () => {
-    expect(parseDesktopPrefs(null)).toEqual({ shortcut: "Control+Alt+Space", notifications: true, launchAtLogin: false, dockBadge: true });
+    expect(parseDesktopPrefs(null)).toEqual({ shortcut: "Control+Alt+Space", notifications: true, launchAtLogin: false, dockBadge: true, backupFolder: "" });
     expect(DEFAULT_DESKTOP_PREFS.launchAtLogin).toBe(false);
   });
 
@@ -27,7 +27,17 @@ describe("desktop prefs (D12)", () => {
       notifications: true,
       launchAtLogin: true,
       dockBadge: false,
+      backupFolder: "",
     });
+  });
+
+  it("the second backup folder must be an absolute path; anything else is no folder", () => {
+    expect(parseDesktopPrefs({ backupFolder: "/Volumes/Backup/Deska" }).backupFolder).toBe("/Volumes/Backup/Deska");
+    for (const bad of ["relative/dir", "~/Documents", 5, null, "/tmp/a\0b"]) expect(parseDesktopPrefs({ backupFolder: bad }).backupFolder, String(bad)).toBe("");
+  });
+
+  it("the page cannot set the backup folder through a patch", () => {
+    expect(parsePrefsPatch({ backupFolder: "/Users/someone/Documents" })).toEqual({ patch: {}, error: null });
   });
 
   it("a patch takes known fields of the right type and names a refused shortcut", () => {
