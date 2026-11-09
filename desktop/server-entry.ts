@@ -29,6 +29,9 @@ function reply(msg: ServerReply) {
 const TOKEN = Symbol.for("deska.githubToken");
 const TOKEN_STATE = Symbol.for("deska.githubTokenState");
 const DB = Symbol.for("deska.db");
+// lib/backup/files.ts: the second backup folder, and the hook that copies to it.
+const MIRROR = Symbol.for("deska.backupMirror");
+const MIRROR_SYNC = Symbol.for("deska.backupMirrorSync");
 // lib/sync/service.ts, registered when the Next server starts.
 const SYNC = Symbol.for("deska.syncService");
 // lib/desktop/reminders.ts sends reminders and the badge count to main through this.
@@ -114,8 +117,17 @@ function start(msg: Extract<ServerMessage, { type: "start" }>) {
   });
 }
 
+/** The second backup folder, from main's prefs; the server copies to it from the next backup (or at once, if it is up). */
+function setBackupMirror(dir: string | null) {
+  const g = globalThis as Record<symbol, unknown>;
+  g[MIRROR] = dir ?? undefined;
+  const sync = g[MIRROR_SYNC];
+  if (typeof sync === "function") (sync as (dir: string | null) => void)(dir);
+}
+
 onMessage((msg) => {
   if (msg.type === "start") start(msg);
+  else if (msg.type === "backup-mirror") setBackupMirror(typeof msg.dir === "string" ? msg.dir : null);
   else if (msg.type === "token") {
     setToken(msg.token, msg.source);
     reply({ type: "token-ack", id: msg.id });

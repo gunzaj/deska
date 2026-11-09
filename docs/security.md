@@ -90,7 +90,8 @@ All under `~/Library/Application Support/Deska/`, readable only by the user's ma
 |---|---|---|
 | Encrypted token | app data folder (`github-token.bin`) | `safeStorage` ciphertext only |
 | Local database | `db/` | A cache of the repository's issues and project values, the token owner's login, name and avatar URL, plus personal tasks, saved views, snoozes, watches and settings. **No token** |
-| Backups | `backups/` | JSON of local-only data (tasks, projects, labels, sections, views, snoozes, watches, settings). Daily, before each migration and before "Reset everything"; the newest 14 are kept. Files are owner-only (0600). **No token**, and any token-shaped text in a task is replaced by `[redacted]` |
+| Backups | `backups/` | JSON of local-only data (tasks, projects, labels, sections, views, snoozes, watches, settings). Daily, before each migration and before "Reset everything"; every backup of the last 14 days is kept, then one a week for 8 weeks. Files are owner-only (0600). **No token**, and any token-shaped text in a task is replaced by `[redacted]` |
+| Second backup folder (optional) | a folder the user picks in Settings; its path is in `desktop-prefs.json` | The same backup files, copied there after each backup. Chosen only with the native folder dialog (the page cannot name a path), never inside Deska's own data, written owner-only (0600). Deska only deletes files there that match its own backup names. **No token.** If it is in a synced folder (iCloud Drive, a Nextcloud or Dropbox client), the sync service then holds the user's tasks: that is the user's choice |
 | Settings | in the database (`app_settings`) | Repo, org, project number and pinned node ID, project title, field mapping by field ID (with the Priority order and the Status options that count as done), toggles. **No token** |
 
 Exports from Settings contain the same data as a backup, and never the token.

@@ -5,7 +5,7 @@
 // browser; every other URL and request is blocked (§2.2).
 import { fork, type ChildProcess } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { accessSync, constants as fsConstants, existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import http from "node:http";
 import net from "node:net";
 import path from "node:path";
@@ -360,6 +360,24 @@ function savePrefs() {
 /** Launch at login only makes sense for the installed app; in dev it would register the Electron binary. */
 const canLaunchAtLogin = () => app.isPackaged && process.platform === "darwin";
 
+/**
+ * Checks a folder picked for the second backup copy: it exists, is a folder, is
+ * writable, and is not Deska's own data (the database or the local backups).
+ * Null when fine, otherwise the reason to show.
+ */
+function backupFolderProblem(dir: string): string | null {
+  try {
+    if (!statSync(dir).isDirectory()) return "That is not a folder.";
+    accessSync(dir, fsConstants.W_OK);
+  } catch {
+    return "Deska cannot write to that folder. Pick another one.";
+  }
+  const own = app.getPath("userData");
+  const rel = path.relative(own, dir);
+  if (rel === "" || (!rel.startsWith("..") && !path.isAbsolute(rel))) return "Pick a folder outside Deska's own data. A copy there would not survive losing it.";
+  return null;
+}
+
 function desktopState(): DesktopState {
   return { prefs, shortcutActive, notificationsSupported: Notification.isSupported(), canLaunchAtLogin: canLaunchAtLogin() };
 }
@@ -531,6 +549,24 @@ function registerIpc() {
     applyLoginItem();
     return { state: desktopState(), error };
   });
+  /** Applies a new second backup folder ("" = none): stored, then handed to the server, which copies to it. */
+  const setBackupFolder = (dir: string, error: string | null = null) => {
+    prefs = { ...prefs, backupFolder: dir };
+    savePrefs();
+    server?.send({ type: "backup-mirror", dir: dir || null });
+    return { state: desktopState(), error };
+  };
+  ipcMain.handle(CHANNELS.backupFolderChoose, async (e) => {
+    if (!fromApp(e)) return null;
+    const win = BrowserWindow.fromWebContents(e.sender) ?? undefined;
+    const options = { title: "Choose a second folder for backups", buttonLabel: "Use this folder", properties: ["openDirectory", "createDirectory"] as ("openDirectory" | "createDirectory")[] };
+    const picked = win ? await dialog.showOpenDialog(win, options) : await dialog.showOpenDialog(options);
+    const dir = picked.filePaths[0];
+    if (picked.canceled || !dir) return { state: desktopState(), error: null };
+    const problem = backupFolderProblem(dir);
+    return problem ? { state: desktopState(), error: problem } : setBackupFolder(dir);
+  });
+  ipcMain.handle(CHANNELS.backupFolderClear, (e) => (fromApp(e) ? setBackupFolder("") : null));
   ipcMain.handle(CHANNELS.quickAddClose, (e) => {
     if (fromApp(e) && quickWindow && !quickWindow.isDestroyed() && e.sender === quickWindow.webContents) quickWindow.close();
   });
@@ -559,6 +595,8 @@ async function boot() {
   });
   // The stored token, before the window opens: the first page knows its user.
   const stored = readStoredToken();
+  // The second backup folder (D8 follow-up), so the first daily check can copy to it.
+  if (prefs.backupFolder) s.send({ type: "backup-mirror", dir: prefs.backupFolder });
   if (stored) void sendToken(s, stored, "launch").catch((err) => log(err instanceof Error ? err.message : String(err)));
 
   const ses = session.defaultSession;
