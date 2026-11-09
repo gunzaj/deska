@@ -812,7 +812,7 @@ test.describe("desktop shell", () => {
       await first.app.close();
     }
     // The prefs file keeps no secret and is read again on the next launch.
-    expect(JSON.parse(readFileSync(path.join(userData, "desktop-prefs.json"), "utf8"))).toEqual({ shortcut: "Control+Alt+K", notifications: true, launchAtLogin: false, dockBadge: false });
+    expect(JSON.parse(readFileSync(path.join(userData, "desktop-prefs.json"), "utf8"))).toEqual({ shortcut: "Control+Alt+K", notifications: true, launchAtLogin: false, dockBadge: false, backupFolder: "" });
     const second = await launch(userData, github);
     try {
       expect(await second.app.evaluate(({ globalShortcut }) => globalShortcut.isRegistered("Control+Alt+K"))).toBe(true);
