@@ -1,6 +1,6 @@
 {
   "name": "deska",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "private": true,
   "main": "desktop/dist/main.js",
   "engines": {
