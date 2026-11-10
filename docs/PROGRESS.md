@@ -19,7 +19,7 @@
 | D14 | done | [#21](https://github.com/gunzaj/deska/pull/21) | Version 1.0.0, About dialog, build write switch (`DESKA_WRITES=off`), release workflow, handoff doc; draft release v1.0.0 with the .dmg; no migration |
 | W0–W3 | todo | | Waits for the maintainer's go (§0.4); skipped until then |
 | D15 | done | [#28](https://github.com/gunzaj/deska/pull/28) | GitHub CLI login as a token source (`gh auth token`), login-shell PATH, new §3.3 states, onboarding + Settings; no migration |
-| AI0 | in progress | | AI providers and settings (§4.9): Settings → AI, Test connection, job runner, `ai_results` (migration 0007), API key store |
+| AI0 | done | [#29](https://github.com/gunzaj/deska/pull/29) | AI providers and settings (§4.9): Settings → AI, Test connection, job runner, `ai_results` (migration 0007), API key store |
 | AI1 | todo | | Issue triage suggestions |
 | AI2 | todo | | Task assist |
 | AI3 | todo | | Plan my day |
