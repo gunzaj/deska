@@ -29,6 +29,9 @@ export type Job = {
   result: unknown;
   /** A batch's members share its id; the UI shows "n of N". */
   batchId: string | null;
+  /** The provider and model this job was started with (null while off). */
+  provider: string | null;
+  model: string | null;
 };
 
 type Store = { jobs: Map<string, Job>; controllers: Map<string, AbortController>; tail: Promise<void> };
@@ -60,6 +63,11 @@ export function getJob(id: string): Job | null {
 /** Jobs that are queued or running, oldest first. */
 export function activeJobs(): Job[] {
   return [...store().jobs.values()].filter((j) => j.state === "queued" || j.state === "running").map(snapshot);
+}
+
+/** Every job of one batch that is still in memory, oldest first. */
+export function jobsOfBatch(batchId: string): Job[] {
+  return [...store().jobs.values()].filter((j) => j.batchId === batchId).map(snapshot);
 }
 
 /** Cancels a queued or running job. A finished one is left as it is. */
@@ -151,7 +159,7 @@ async function execute(job: Job, task: AiTask, settings: AiSettings, signal: Abo
  */
 export async function startJob(task: AiTask, opts: { batchId?: string } = {}): Promise<Job> {
   const s = store();
-  const job: Job = { id: randomUUID(), feature: task.feature, subject: task.subject, state: "queued", createdAt: now(), finishedAt: null, error: null, resultId: null, result: null, batchId: opts.batchId ?? null };
+  const job: Job = { id: randomUUID(), feature: task.feature, subject: task.subject, state: "queued", createdAt: now(), finishedAt: null, error: null, resultId: null, result: null, batchId: opts.batchId ?? null, provider: null, model: null };
   s.jobs.set(job.id, job);
   const { settings, failure } = await aiNotReady();
   if (failure) {
@@ -160,6 +168,8 @@ export async function startJob(task: AiTask, opts: { batchId?: string } = {}): P
     job.finishedAt = now();
     return snapshot(job);
   }
+  job.provider = settings.provider;
+  job.model = settings.model;
   const ctrl = new AbortController();
   s.controllers.set(job.id, ctrl);
   s.tail = s.tail.then(async () => {

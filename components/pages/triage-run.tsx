@@ -20,6 +20,7 @@ import { Icon } from "../icons";
 import { openPicker } from "../issue/field-picker";
 import { useIssueEdits } from "../issue/edits";
 import { IssueDetailView } from "../issue/detail";
+import { AI_TRIAGE_EVENT } from "../issue/ai-suggestion";
 import { EmptyHint, Kbd } from "../props";
 import { DefaultScopeChip } from "../app/default-scope-chip";
 import { useSnoozes } from "../triage/snoozes";
@@ -116,6 +117,9 @@ export function TriageRunPage() {
         step(-1);
       } else if (!cur) {
         return;
+      } else if (e.key === "i") {
+        e.preventDefault();
+        window.dispatchEvent(new CustomEvent(AI_TRIAGE_EVENT));
       } else if (e.key === "z") {
         e.preventDefault();
         setSnoozing(true);
@@ -193,6 +197,7 @@ export function TriageRunPage() {
             <span><Kbd>A</Kbd> assign</span>
             <span><Kbd>S</Kbd> / <Kbd>→</Kbd> skip</span>
             <span><Kbd>←</Kbd> back</span>
+            <span><Kbd>I</Kbd> AI suggestion</span>
             <span><Kbd>Z</Kbd> snooze</span>
             <span><Kbd>Esc</Kbd> exit</span>
             {!data.meta.writeMode && <span className="text-warning">{data.meta.editOffReason ?? EDITING_OFF}: read-only walk-through, snoozing still works.</span>}

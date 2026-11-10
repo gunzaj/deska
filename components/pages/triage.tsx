@@ -7,12 +7,13 @@ import { withDefaultScope } from "@/lib/client/team-scope";
 import { runExplorer } from "@/lib/client/explorer";
 import { isSnoozed, withoutSnoozed } from "@/lib/client/triage";
 import { useAppData } from "../app/provider";
-import { triageTabs } from "../triage/queues";
+import { triageTabs, useQueueRows } from "../triage/queues";
 import { useDefaultScope } from "../app/team-scope";
 import { Explorer } from "../explorer/explorer";
 import { Icon } from "../icons";
 import { useSnoozes } from "../triage/snoozes";
 import { SnoozedList } from "../triage/snoozed-list";
+import { QueueAi } from "../triage/queue-ai";
 import { btn } from "../ui/popover";
 
 export function TriagePage() {
@@ -21,6 +22,7 @@ export function TriagePage() {
   const TRIAGE_TABS = useMemo(() => triageTabs(data.meta), [data.meta]);
   const tab = TRIAGE_TABS.find((t) => t.id === params.get("tab")) ?? TRIAGE_TABS[0]!;
   const { snoozes } = useSnoozes();
+  const queue = useQueueRows(tab);
   const { scope } = useDefaultScope();
   const counts = useMemo(
     () => Object.fromEntries(TRIAGE_TABS.map((t) => [t.id, withoutSnoozed(runExplorer(data.issues, withDefaultScope(t.base, [], scope), [], data.meta), snoozes, data.meta.today).length])),
@@ -54,6 +56,7 @@ export function TriagePage() {
       headerExtra={
         <>
           <SnoozedList />
+          <QueueAi label={tab.label} numbers={queue.map((i) => i.number)} />
           <Link href={`/triage/run?tab=${tab.id}`} className={btn.primary} data-start-triage>
             <Icon name="play" size={13} />
             Start triage

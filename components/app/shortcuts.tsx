@@ -47,6 +47,7 @@ const GROUPS: { title: string; keys: [string[], string][] }[] = [
       [["A"], "Assign"],
       [["S"], "Skip to the next issue"],
       [["←"], "Previous issue"],
+      [["I"], "AI suggestion (when AI assist is on)"],
       [["Z"], "Snooze until a date"],
       [["Esc"], "Exit triage"],
     ],

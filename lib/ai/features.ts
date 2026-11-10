@@ -4,7 +4,7 @@
 export type AiFeatureInfo = { id: string; name: string; sends: string; milestone: string };
 
 export const AI_FEATURES: readonly AiFeatureInfo[] = [
-  { id: "issue-triage", name: "Issue triage", milestone: "AI1", sends: "The issue's title, body and comments (trimmed), its labels and mapped project fields, its parent, and up to 10 possible duplicates (number and title)." },
+  { id: "issue-triage", name: "Issue triage", milestone: "AI1", sends: "The issue's title, body and comments (trimmed), its labels and the repository's labels (names and IDs), its mapped project fields with their options, its parent, and up to 10 possible duplicates (number, title and state)." },
   { id: "task-assist", name: "Task assist", milestone: "AI2", sends: "The text you typed (or the Inbox tasks), the names of your task projects, sections and labels, and titles of cached issues that share words with it." },
   { id: "plan-my-day", name: "Plan my day", milestone: "AI3", sends: "Open tasks that are overdue or due within 7 days, Inbox tasks, and open issues assigned to you in the current sprint (title, state and due dates)." },
   { id: "ask", name: "Ask", milestone: "AI4", sends: "The issue as for triage, or up to 200 rows of an issue list (number, title, state, mapped fields, labels), and your question." },
