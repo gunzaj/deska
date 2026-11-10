@@ -21,7 +21,7 @@
 | D15 | done | [#28](https://github.com/gunzaj/deska/pull/28) | GitHub CLI login as a token source (`gh auth token`), login-shell PATH, new §3.3 states, onboarding + Settings; no migration |
 | AI0 | done | [#29](https://github.com/gunzaj/deska/pull/29) | AI providers and settings (§4.9): Settings → AI, Test connection, job runner, `ai_results` (migration 0007), API key store |
 | AI1 | done | [#30](https://github.com/gunzaj/deska/pull/30) | Issue triage suggestions: issue panel, triage-mode key `I`, "Suggest for this queue"; no migration |
-| AI2 | todo | | Task assist |
+| AI2 | done | [#31](https://github.com/gunzaj/deska/pull/31) | Task assist: ✨ in both quick-add windows and Tidy Inbox (batch, Accept/Edit/Dismiss, Undo); no migration |
 | AI3 | todo | | Plan my day |
 | AI4 | todo | | Ask |
 
@@ -158,7 +158,16 @@
 - AI1: The new e2e spec mocks the AI API routes in its own browser context instead of changing the shared e2e server's AI settings; the real server path (job, storage, schema, mock endpoint, fake `claude`) is covered by Vitest. It also found and fixed an AI0 load race in Settings → AI: the first `/api/ai/settings` response could overwrite a provider picked before it arrived (the form now takes the first load only; later loads refresh the view and the tested mark).
 - AI1: Ran this milestone on DeepSeek V4.1 Flash Max, though §0.6 recommends Opus 5.5 for AI1. The full local e2e run had three timing flakes (connection, sprint `[`, triage snooze) that passed on rerun, as in earlier milestones.
 
+- AI2: The quick-add parser stays the default: ✨ is an explicit button and there is no keyboard shortcut, because ⌘↵ is already "Add task" (the SPEC's "unless taken").
+- AI2: Tidy Inbox's "Inbox" is the open top-level tasks with no project (the Inbox location), not the Inbox page's default list of every task. One job per task sharing a batch id, capped at the first 200; the dialog says "the first 200 of N" above that.
+- AI2: A suggestion is stored in `ai_results` with `subject_kind = "task"`: quick-add subjects are `quick-add:<hash of the typed line>` (the line itself stays out of the key), Inbox subjects are the task id. Accepting a task suggestion is a normal local edit; the page applies it and marks the row accepted (or dismissed) through the existing outcome route. Issue results keep the write gate.
+- AI2: In Tidy Inbox a null field means "keep the current value"; in quick-add it means "no value". A section the suggestion names must belong to the project it names (or, with no project named, to the task's project), else it is dropped. The schema leaves out a part the user has no choices for (no projects, labels or cached issues).
+- AI2: Task text is trimmed to 4,000 characters per task; candidate issues are those whose titles share words (3+ letters, no stop words) with the task's title and the description's first 2,000 characters, up to 10. Tidy Inbox shows a stored suggestion again only while it was not accepted or dismissed; a changed task marks it "Outdated · Run again".
+- AI2: The Tidy Inbox dialog shows Accept / Edit (opens the task panel) / Dismiss per task and Accept all; every edit is a normal local edit with Undo, and closing the dialog cancels the batch's active jobs.
+- AI2: Ran this milestone on DeepSeek V4.1 Flash Max with two teammates (UI and server tests), though §0.6 recommends Sonnet 5.5 for AI2.
+
 ## Maintainer to-do
+- [ ] Try AI2 by hand on the built app: with a provider set up and Test connection passed in Settings → AI, type a line in quick add and press ✨; check the chips name only your own projects/sections/labels, then Add task. Open Inbox → Tidy Inbox, check the proposals, accept one and undo it, then accept all; try the global quick-add window (⌃⌥Space) too.
 - [ ] Try AI1 by hand on the built app: with Claude Code installed and signed in (or an OpenAI-compatible endpoint set up and Test connection passed) in Settings → AI, open an issue and click "Suggest with AI" (or press `I` in triage mode); check the suggestion shows Status/Priority/Team/Release/Labels, that Accept and Edit are disabled with the read-only reason, and that Dismiss works. Try "Suggest for this queue" on Triage (the Needs triage queue of the sample data has one issue, so the >20 confirmation can't be seen without real data).
 - [ ] Try AI0 by hand on the built app (Settings → AI): with Claude Code installed and signed in, choose "Claude Code", Test connection should say it is installed and signed in; sign out (`claude` → /logout) and it should say not signed in. With a model server on your network (or any OpenAI-compatible endpoint), set the base URL, model and optional key, and check the test. AI1's issue triage is the first feature that uses it.
 - [ ] Review the SPEC additions for AI assist (§4.9, Phase E) before AI0 starts. Confirm Phase C stays skipped until you say go.
