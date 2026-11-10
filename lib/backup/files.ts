@@ -8,6 +8,7 @@
 // A second, optional folder (the "mirror", chosen in Settings and handed over
 // by the desktop shell, never stored in the database) gets a copy of every
 // backup, so one lost disk does not take the data and its backups together.
+import { randomUUID } from "node:crypto";
 import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { sql } from "drizzle-orm";
@@ -40,7 +41,13 @@ export function listBackups(dir = backupDir()): BackupInfo[] {
   for (const name of readdirSync(dir)) {
     const m = NAME.exec(name);
     if (!m) continue;
-    out.push({ name, createdAt: fromStamp(m[1]!).toISOString(), reason: m[2] as BackupReason, bytes: statSync(path.join(dir, name)).size });
+    let bytes: number;
+    try {
+      bytes = statSync(path.join(dir, name)).size;
+    } catch {
+      continue; // deleted since readdir (a rotation running at the same time)
+    }
+    out.push({ name, createdAt: fromStamp(m[1]!).toISOString(), reason: m[2] as BackupReason, bytes });
   }
   return out.sort((a, b) => (a.name < b.name ? 1 : -1));
 }
@@ -81,6 +88,8 @@ const MIRROR = Symbol.for("deska.backupMirror");
 const HEALTH = Symbol.for("deska.backupHealth");
 
 type Health = { error: string | null; failedAt: string | null; mirrorError: string | null; mirrorCheckedAt: string | null };
+/** The folder the mirror fields were recorded for; kept out of what Settings sees. */
+type HealthSlot = Health & { mirrorFor?: string | null };
 const slot = globalThis as Record<symbol, unknown>;
 
 /** The folder backups are also copied to, or null. Set by the desktop shell over IPC (server-entry.ts), nowhere else. */
@@ -92,13 +101,16 @@ export function mirrorDir(): string | null {
 /** Called by the desktop shell's message; the folder itself is checked on the next copy. */
 export function setMirrorDir(dir: string | null): void {
   slot[MIRROR] = dir && path.isAbsolute(dir) ? dir : undefined;
-  health({ mirrorError: null, mirrorCheckedAt: null });
+  health({ mirrorError: null, mirrorCheckedAt: null, mirrorFor: undefined });
 }
 
-function health(patch?: Partial<Health>): Health {
-  const h = { error: null, failedAt: null, mirrorError: null, mirrorCheckedAt: null, ...((slot[HEALTH] as Health | undefined) ?? {}), ...patch };
+function health(patch?: Partial<HealthSlot>): Health {
+  const h: HealthSlot = { error: null, failedAt: null, mirrorError: null, mirrorCheckedAt: null, ...((slot[HEALTH] as HealthSlot | undefined) ?? {}), ...patch };
   slot[HEALTH] = h;
-  return h;
+  // A mirror error belongs to the folder it was recorded for: once the folder
+  // changes or is cleared (also when the shell sets the slot directly), it is gone.
+  const current = h.mirrorFor === undefined || h.mirrorFor === mirrorDir();
+  return { error: h.error, failedAt: h.failedAt, mirrorError: current ? h.mirrorError : null, mirrorCheckedAt: current ? h.mirrorCheckedAt : null };
 }
 
 /** What Settings shows about the health of the last backup and of the second folder. */
@@ -134,17 +146,26 @@ export function syncMirror(now = new Date()): { copied: string[]; error: string 
     const there = new Set(listBackups(to).map((b) => b.name));
     for (const b of listBackups(from).reverse()) {
       if (there.has(b.name)) continue;
-      const tmp = path.join(to, `.${b.name}.tmp`);
-      copyFileSync(path.join(from, b.name), tmp);
-      renameSync(tmp, path.join(to, b.name));
+      // A temp name of its own: two runs at once (a backup and the hourly
+      // check) must not rename each other's file away.
+      const tmp = path.join(to, `.${b.name}.${randomUUID()}.tmp`);
+      try {
+        copyFileSync(path.join(from, b.name), tmp);
+        renameSync(tmp, path.join(to, b.name));
+      } catch (e) {
+        rmSync(tmp, { force: true });
+        // Rotated away locally since it was listed: nothing to copy.
+        if (!existsSync(path.join(from, b.name))) continue;
+        throw e;
+      }
       copied.push(b.name);
     }
     rotateBackups(to, now);
-    health({ mirrorError: null, mirrorCheckedAt: now.toISOString() });
+    health({ mirrorError: null, mirrorCheckedAt: now.toISOString(), mirrorFor: to });
     return { copied, error: null };
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
-    health({ mirrorError: message, mirrorCheckedAt: now.toISOString() });
+    health({ mirrorError: message, mirrorCheckedAt: now.toISOString(), mirrorFor: to });
     return { copied, error: message };
   }
 }
@@ -206,6 +227,7 @@ export async function backupBeforeMigration(now = new Date()): Promise<BackupInf
   } catch {
     return null;
   }
+  // exportLocalData stamps `applied` (appliedSchemaVersion), not this build's count.
   if (applied === 0 || applied >= schemaVersion()) return null;
   try {
     return await writeBackup("migration", now);

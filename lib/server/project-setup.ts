@@ -104,7 +104,9 @@ export async function previewProject(repo: string, org: string, number: number):
 async function importFields(projectId: string, fields: SnapshotField[]): Promise<void> {
   const snapshot = partialSnapshot({ projectId, fields });
   if (dbDir()) {
-    await withLockedSyncKv(() => importFull(snapshot, new PostgresStore()), { waitMs: 30_000, retryMs: 250 });
+    const res = await withLockedSyncKv(() => importFull(snapshot, new PostgresStore()), { waitMs: 30_000, retryMs: 250 });
+    // The lock never came free: the fields are not cached, so this must not report success.
+    if (!res.ran) throw new HttpError(409, "A sync is running, try again");
   } else {
     const { getDemoStore } = await import("../demo/store");
     await importFull(snapshot, await getDemoStore());

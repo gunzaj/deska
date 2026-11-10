@@ -36,6 +36,7 @@ const DB = Symbol.for("deska.db");
 // lib/backup/files.ts: the second backup folder, and the hook that copies to it.
 const MIRROR = Symbol.for("deska.backupMirror");
 const MIRROR_SYNC = Symbol.for("deska.backupMirrorSync");
+const BACKUP_HEALTH = Symbol.for("deska.backupHealth");
 // lib/sync/service.ts, registered when the Next server starts.
 const SYNC = Symbol.for("deska.syncService");
 // lib/desktop/reminders.ts sends reminders and the badge count to main through this.
@@ -135,6 +136,9 @@ function start(msg: Extract<ServerMessage, { type: "start" }>) {
 function setBackupMirror(dir: string | null) {
   const g = globalThis as Record<symbol, unknown>;
   g[MIRROR] = dir ?? undefined;
+  // Like setMirrorDir: the last mirror error was about the old folder.
+  const h = g[BACKUP_HEALTH];
+  if (h && typeof h === "object") g[BACKUP_HEALTH] = { ...h, mirrorError: null, mirrorCheckedAt: null, mirrorFor: undefined };
   const sync = g[MIRROR_SYNC];
   if (typeof sync === "function") (sync as (dir: string | null) => void)(dir);
 }

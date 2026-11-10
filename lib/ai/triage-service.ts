@@ -13,7 +13,7 @@ import { demoDetail, fetchIssueDetail } from "../server/issue-detail";
 import { linkRepo, readAiSettings } from "../settings";
 import { getStore } from "../store";
 import { inputHash } from "./prompt";
-import { startJob, type Job } from "./runner";
+import { startJob, startJobs, type Job } from "./runner";
 import { aiStatus, type AiStatus } from "./status";
 import { latestResultRow, type StoredResult } from "./results";
 import { MAX_TRIAGE_CANDIDATES, TRIAGE_FEATURE, triageFieldChoices, triageTask, type TriageIssueInput, type TriageSuggestion } from "./triage";
@@ -140,6 +140,6 @@ export async function startQueueTriage(numbers: number[]): Promise<{ batchId: st
   }
   if (missing.length) return { batchId: null, jobs: [], missing };
   const batchId = randomUUID();
-  const jobs = await Promise.all(inputs.map((input) => startJob(triageTask(input), { batchId })));
+  const jobs = await startJobs(inputs.map((input) => triageTask(input)), { batchId });
   return { batchId, jobs, missing: [] };
 }
