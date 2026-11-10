@@ -18,7 +18,7 @@
 | D13 | done | [#20](https://github.com/gunzaj/deska/pull/20) | Project sections (create/rename/reorder/collapse/delete, drag between), Completed view, ⌘K search of descriptions and comments; migration 0006 |
 | D14 | done | [#21](https://github.com/gunzaj/deska/pull/21) | Version 1.0.0, About dialog, build write switch (`DESKA_WRITES=off`), release workflow, handoff doc; draft release v1.0.0 with the .dmg; no migration |
 | W0–W3 | todo | | Waits for the maintainer's go (§0.4); skipped until then |
-| D15 | todo | | GitHub CLI login (§3.1) |
+| D15 | done | [#28](https://github.com/gunzaj/deska/pull/28) | GitHub CLI login as a token source (`gh auth token`), login-shell PATH, new §3.3 states, onboarding + Settings; no migration |
 | AI0 | todo | | AI providers and settings (§4.9) |
 | AI1 | todo | | Issue triage suggestions |
 | AI2 | todo | | Task assist |
@@ -136,9 +136,13 @@
 - D14: `hardenedRuntime: true` is set but does nothing while unsigned. The draft release v1.0.0 was created by hand with the locally built .dmg (same code as `main`), with no tag; the `release.yml` workflow (on a `v*` tag) does the same in CI and needs the tag to match `package.json`.
 - D14: Ran this milestone on Sonnet 5.5 (§0.6 recommends it). Two e2e specs timing-flaked once and passed on rerun.
 - Backup follow-up (second folder, no D number; maintainer request): `desktop-prefs.json` gets `backupFolder`, set only by the folder dialog (`deska:backup-folder-choose` / `-clear`), never by `desktop.set`. Main sends it to the server as a `backup-mirror` message (also at launch); the server keeps it in a `globalThis` slot like the token. Retention is now 14 days of everything, then the newest per Monday-start week for 8 weeks, in both folders (replaces "newest 14"). The second folder is not created if missing, so an unplugged drive reports an error. Stale warning at 3 days is shown in Settings only, not as a global banner. Ran on Sonnet 5.5.
+- D15: Main runs only `gh auth token --hostname github.com` and `gh auth status --hostname github.com` (for "signed in as <login>"); the token goes to the server over IPC and is never stored (only `githubAuthSource: "gh"` in `desktop-prefs.json`). The server starts without `GH_TOKEN` / `GITHUB_TOKEN`. A 401 triggers one `gh-reread`; a 401 on that answer is final until launch, wake or "Check again". The "GitHub writes" setting doesn't exist before W0, so "switching source turns writes off" is the user token change W0's gate resets on.
+- D15: Tests use a fake `gh` on `DESKA_TEST_PATH` (honoured only with `DESKA_USER_DATA_DIR`). The "no gh" cases use an empty directory as PATH, not `/usr/bin`: CI runners ship a real `gh` there (caught by CI, fixed in the same PR).
+- D15: Ran this milestone on Fable 5.2 and finished it on Sonnet 5.5, though §0.6 recommends Opus 5.5 for D15.
 
 ## Maintainer to-do
-- [ ] Review the SPEC additions before the next session starts D15: GitHub CLI login (§1.3, §2.3, §3.1, §3.3, D15) and AI assist (§4.9, Phase E). Confirm Phase C stays skipped until you say go.
+- [ ] Review the SPEC additions for AI assist (§4.9, Phase E) before AI0 starts. Confirm Phase C stays skipped until you say go.
+- [ ] Try D15 by hand on the built app: with `gh` logged in, onboarding step 1 offers "Use my GitHub CLI login (signed in as …)"; check it connects without pasting, and that `gh auth refresh -h github.com -s read:project` is what it tells you when the scope is missing (needs your real login and org).
 - [ ] Review and publish the draft release `v1.0.0` (Releases page). Publishing creates the tag. Before that, try the .dmg on a clean Mac: install, open an unsigned app (steps in the notes), connect a real read-only PAT, map your project, use the core views, restart and check tasks and settings stayed. Check About shows 1.0.0 and the Releases link.
 - [ ] Create a **read-only** fine-grained PAT: resource owner = the org, repository access = only the one repo; Repository → Metadata: Read, Repository → Issues: Read, Organization → Projects: Read, Organization → Issue types: Read (optional); nothing else. Then run the probe (report lands in `private/findings/`):
   ```bash
