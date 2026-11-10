@@ -35,6 +35,10 @@ function fakeClient(remote: Record<string, unknown>, failTimes = 0): WriteClient
       remote[`${node}:state`] = "open";
       log.push(`reopen ${node}`);
     },
+    async createIssue() {
+      return { nodeId: "I_new", number: 999 };
+    },
+    async addProjectItem() {},
   };
 }
 
@@ -224,6 +228,10 @@ describe("write-back hardening (regression)", () => {
       async applyField() {},
       async closeIssue() {},
       async reopenIssue() {},
+      async createIssue() {
+        return { nodeId: "I_new", number: 999 };
+      },
+      async addProjectItem() {},
     };
     const audit: AuditRecord[] = [];
     const e = entry();

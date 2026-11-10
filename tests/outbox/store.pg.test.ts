@@ -44,6 +44,10 @@ function fakeClient(remote: Record<string, unknown>, opts: { failWith?: number }
       applied.push("reopen");
       remote.state = "open";
     },
+    async createIssue() {
+      return { nodeId: "I_created", number: 999 };
+    },
+    async addProjectItem() {},
   };
 }
 
@@ -262,6 +266,10 @@ describe("the outbox (W0: one process, no lease)", async () => {
       },
       async closeIssue() {},
       async reopenIssue() {},
+      async createIssue() {
+        return { nodeId: "I_created", number: 999 };
+      },
+      async addProjectItem() {},
     };
     const add = await edit({ field: "labels", next: { added: ["LA_2"], removed: [] } }, client);
     expect(add.status).toBe(202); // 502: queued for a retry

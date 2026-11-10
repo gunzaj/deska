@@ -32,6 +32,10 @@ describe("accepting an AI suggestion (W1)", async () => {
       },
       async closeIssue() {},
       async reopenIssue() {},
+      async createIssue() {
+        return { nodeId: "I_created", number: 999 };
+      },
+      async addProjectItem() {},
     };
   };
 

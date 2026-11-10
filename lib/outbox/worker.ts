@@ -1,5 +1,6 @@
+import type { CreateIssuePayload } from "./create";
 import type { OutboxEntry, OutboxStatus } from "./queue";
-import { closeSequence } from "./mutations";
+import { closeSequence, createSequence } from "./mutations";
 
 export type AuditRecord = {
   userId: string;
@@ -16,6 +17,10 @@ export interface WriteClient {
   applyField(issueNodeId: string, field: string | null, next: unknown): Promise<void>;
   closeIssue(issueNodeId: string): Promise<void>;
   reopenIssue(issueNodeId: string): Promise<void>;
+  /** Create the issue and return its node ID and number (W3). */
+  createIssue?(payload: CreateIssuePayload): Promise<{ nodeId: string; number: number }>;
+  /** Add an existing issue to the pinned project (W3). */
+  addProjectItem?(issueNodeId: string): Promise<void>;
 }
 
 /**
@@ -90,10 +95,7 @@ export async function attemptEntry(
   doneStatusOptionId: string,
   onStep?: (step: string, result?: unknown) => Promise<void>,
 ): Promise<Attempt> {
-  if (entry.op === "create") {
-    // The create job arrives with W3; no row of this op is ever enqueued before.
-    return { status: "failed", error: "creating an issue is not available in this build", tried: false };
-  }
+  if (entry.op === "create") return applyCreate(entry, client, onStep);
   const isState = entry.op === "close" || entry.op === "reopen";
   // Label/assignee deltas commute: concurrent edits to *different* labels
   // never conflict, so deltas skip the full-set stale check.
@@ -154,6 +156,47 @@ export async function attemptEntry(
       return { status: "done", error: null, tried: true };
     }
     await client.applyField(entry.issueNodeId, entry.field, entry.next);
+    return { status: "done", error: null, tried: true };
+  } catch (e) {
+    const tries = entry.attempts + 1;
+    if (isRetryable(e) && tries < MAX_ATTEMPTS) return { status: "retry", error: String(e), tried: true };
+    return { status: "failed", error: e instanceof NonRetryableError ? e.message : String(e), tried: true };
+  }
+}
+
+/**
+ * The create job's steps (W3): create the issue, add it to the pinned project,
+ * set the mapped fields and the Type. Each finished step is recorded, so a failure
+ * part-way resumes at the next one and never creates a second issue.
+ */
+async function applyCreate(entry: OutboxEntry, client: WriteClient, onStep?: (step: string, result?: unknown) => Promise<void>): Promise<Attempt> {
+  const payload = entry.next as CreateIssuePayload;
+  const steps = createSequence();
+  const at = entry.step ? steps.indexOf(entry.step as (typeof steps)[number]) : -1;
+  const confirmed = entry.result as { nodeId?: string } | null;
+  try {
+    let nodeId = confirmed?.nodeId ?? null;
+    let position = at;
+    if (!nodeId) {
+      if (!client.createIssue) throw new NonRetryableError("this build cannot create issues");
+      const created = await client.createIssue(payload);
+      nodeId = created.nodeId;
+      await onStep?.("create-issue", created);
+      position = 0;
+    }
+    if (position < 1) {
+      if (!client.addProjectItem) throw new NonRetryableError("this build cannot add issues to the project");
+      await client.addProjectItem(nodeId);
+      await onStep?.("add-to-project");
+    }
+    if (position < 2) {
+      for (const f of payload.fields) await client.applyField(nodeId, f.field, f.next);
+      await onStep?.("set-fields");
+    }
+    if (position < 3) {
+      if (payload.typeId) await client.applyField(nodeId, "type", payload.typeId);
+      await onStep?.("set-type");
+    }
     return { status: "done", error: null, tried: true };
   } catch (e) {
     const tries = entry.attempts + 1;

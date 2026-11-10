@@ -5,7 +5,8 @@ import { useCallback, useEffect, useId, useMemo, useRef, useState, type ReactNod
 import { encodeState, primaryDimension, sprintOn } from "@/lib/client/explorer";
 import { plainName } from "@/lib/client/format";
 import { PRESETS } from "@/lib/client/presets";
-import { mergeTaskHits, newIssueUrl, searchTasks } from "@/lib/client/palette";
+import { mergeTaskHits, searchTasks } from "@/lib/client/palette";
+import { openCreateIssue } from "../issue/create-issue";
 import { matchesCommand, searchIssues } from "@/lib/client/search";
 import type { ClientIssue } from "@/lib/client/types";
 import type { SearchHit, Task } from "@/lib/tasks/model";
@@ -198,7 +199,7 @@ export function CommandPalette() {
       },
       { id: "act:task", section: "Actions", label: "Add task", keywords: "new todo to-do create quick", icon: ico("plus"), hint: <Kbd>Q</Kbd>, run: () => openCompose() },
       { id: "act:help", section: "Actions", label: "Keyboard shortcuts", keywords: "help keys hotkeys", icon: ico("keyboard"), hint: <Kbd>?</Kbd>, run: () => window.dispatchEvent(new CustomEvent(HELP_EVENT)) },
-      { id: "act:newissue", section: "Actions", label: "Create issue on GitHub", keywords: "new issue file report bug", icon: ico("plus"), run: () => window.open(newIssueUrl(meta.repo), "_blank", "noopener") },
+      { id: "act:newissue", section: "Actions", label: "Create issue", keywords: "new issue file report bug", icon: ico("plus"), run: () => openCreateIssue() },
       {
         id: "act:github",
         section: "Actions",

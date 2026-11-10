@@ -2,7 +2,6 @@
 
 import Link from "next/link";
 import { HELP_EVENT } from "./palette";
-import { newIssueUrl } from "@/lib/client/palette";
 import { usePathname } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import { longAgo, plainName } from "@/lib/client/format";
@@ -22,6 +21,7 @@ import { ColorDot, ProjectDialog } from "../tasks/organize";
 import { dueCount } from "@/lib/tasks/counts";
 import { NotificationBell, useToday } from "../tasks/notifications";
 import { PALETTE_EVENT } from "./palette";
+import { openCreateIssue } from "../issue/create-issue";
 import { useAppData, useAppSync, useAppViews } from "./provider";
 import { useConnection } from "./connection";
 import { useTasksOnly } from "./tasks-only";
@@ -307,17 +307,18 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
           <p className="text-[13.5px] font-semibold tracking-tight">Deska</p>
           <p className="truncate text-[11px] text-faint">{tasksOnly ? "Tasks" : meta.repo}</p>
         </div>
-        {!tasksOnly && <a
-          href={newIssueUrl(meta.repo)}
-          target="_blank"
-          rel="noopener noreferrer"
-          title="New issue on GitHub"
-          aria-label="New issue on GitHub"
-          data-new-issue
-          className="grid size-7 place-items-center rounded-md text-muted hover:bg-hover hover:text-fg"
-        >
-          <Icon name="plus" size={15} />
-        </a>}
+        {!tasksOnly && (
+          <button
+            type="button"
+            onClick={() => openCreateIssue()}
+            title={meta.writeMode ? "New issue" : (meta.editOffReason ?? "Editing is off for this deployment")}
+            aria-label="New issue"
+            data-new-issue
+            className="grid size-7 place-items-center rounded-md text-muted hover:bg-hover hover:text-fg"
+          >
+            <Icon name="plus" size={15} />
+          </button>
+        )}
         <NotificationBell />
       </div>
 

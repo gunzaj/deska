@@ -1,5 +1,6 @@
 import { buildClientData } from "@/lib/client/build";
 import type { WireData } from "@/lib/client/types";
+import { listPendingCreates } from "@/lib/outbox/store";
 import { doneStatusOption } from "@/lib/outbox/runtime";
 import { writeGate } from "@/lib/writes/gate";
 import { demoSeed } from "@/lib/db-bootstrap";
@@ -40,12 +41,16 @@ export async function loadClientData(now = new Date()): Promise<ClientDataResult
   // The stored repository (links) and field mapping (§4.1) change without a
   // cache-generation bump: a remap must still reach the browser.
   const repo = (await currentTarget())?.repoFull;
-  const variant = `${demo ? "d" : "n"}${closeBlocked ? "c" : "o"}${writeMode ? "w" : "r"}s${settingsVersion()}`;
+  // W3: create jobs GitHub has not confirmed yet show as pending rows in the lists.
+  const pendingCreates = dbDir() ? await listPendingCreates().catch(() => []) : [];
+  const pendingKey = pendingCreates.map((p) => `${p.id}${p.status === "sending" ? "s" : "p"}`).join(",");
+  const variant = `${demo ? "d" : "n"}${closeBlocked ? "c" : "o"}${writeMode ? "w" : "r"}s${settingsVersion()}p${pendingKey}`;
   const key = `${generation}|${today}|${writeMode ? 1 : 0}|${variant}`;
   const build = () => {
     if (memo?.key !== key) {
       const data = buildClientData(store, { viewer: "", writeMode, demo, now, repo });
       data.meta.closeBlocked = closeBlocked;
+      data.meta.pendingCreates = pendingCreates;
       if (!writeMode) data.meta.editOffReason = gate.reason ?? undefined;
       memo = { key, data, json: JSON.stringify(data) };
     }

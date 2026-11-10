@@ -31,6 +31,7 @@ const FICTIONAL = new Set([
   "PVTI_1",
   "IT_bug",
   "IT_feature",
+  "IT_missing",
 ]);
 
 const NODE_ID = /\b(?:PVT|PVTF|PVTSSF|PVTIF|IT)_[A-Za-z0-9_-]+/g;

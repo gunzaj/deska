@@ -17,7 +17,7 @@
 //   closing again or reporting the user's own close as a conflict;
 // - every finished row writes an audit_log row; a done write is re-read from
 //   GitHub into the cache by the caller-supplied `refresh`.
-import { and, asc, desc, eq, isNull, lte, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNull, lte, or, sql } from "drizzle-orm";
 import { getDb } from "@/db";
 import { auditLog, outbox } from "@/db/schema";
 import { LOCAL_OWNER } from "@/lib/local-owner";
@@ -117,6 +117,22 @@ export async function enqueueEdit(e: NewEdit): Promise<OutboxRow> {
 export async function getEdit(id: string): Promise<OutboxRow | null> {
   const [r] = await getDb().select().from(outbox).where(eq(outbox.id, id)).limit(1);
   return r ? toRow(r) : null;
+}
+
+/**
+ * The create jobs GitHub hasn't confirmed yet (W3): the issue list shows each as
+ * a pending row until the job finishes and the re-read puts the real issue in.
+ */
+export async function listPendingCreates(): Promise<{ id: string; title: string; status: "pending" | "sending" }[]> {
+  const rows = await getDb()
+    .select()
+    .from(outbox)
+    .where(and(eq(outbox.op, "create"), inArray(outbox.status, ["pending", "sending"])))
+    .orderBy(asc(outbox.createdAt));
+  return rows.map((r) => {
+    const payload = (r.newJson ?? {}) as { title?: unknown };
+    return { id: r.id, title: typeof payload.title === "string" ? payload.title : "Untitled issue", status: r.status as "pending" | "sending" };
+  });
 }
 
 /** The local user's edits that aren't done: pending, sending, failed and conflicts, newest first. */
