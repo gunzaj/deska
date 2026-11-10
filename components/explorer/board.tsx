@@ -27,7 +27,8 @@ import {
   type KeyboardCoordinateGetter,
 } from "@dnd-kit/core";
 import { memo, useCallback, useMemo, useRef, useState, type ReactNode } from "react";
-import { boardMove, draggable, NO_VALUE } from "@/lib/client/board-move";
+import { boardMove, cardDragId, draggable, NO_VALUE } from "@/lib/client/board-move";
+import { rowKey } from "@/lib/client/list-nav";
 import { boardColumns, CARD_PAGE, type BoardField, type DisplayProp } from "@/lib/client/explorer";
 import type { ClientIssue } from "@/lib/client/types";
 import { useAppData } from "../app/provider";
@@ -97,6 +98,7 @@ const BoardCard = memo(function BoardCard({
   issue,
   field,
   colKey,
+  navKey,
   props,
   focused,
   canDrag,
@@ -108,16 +110,18 @@ const BoardCard = memo(function BoardCard({
   issue: ClientIssue;
   field: BoardField;
   colKey: string | null;
+  /** This card's place in j/k order (an issue can have a card in several columns). */
+  navKey: string;
   props: DisplayProp[];
   focused: boolean;
   canDrag: boolean;
   onOpen: (issue: ClientIssue) => void;
-  onFocus: (nodeId: string) => void;
+  onFocus: (navKey: string) => void;
   onMoveMenu?: (anchor: HTMLElement, issue: ClientIssue, fromKey: string | null) => void;
   idPrefix?: string;
 }) {
   const data: DragData = { issue, fromKey: colKey, backlog: idPrefix === "backlog:" };
-  const { attributes, listeners, setNodeRef, isDragging } = useDraggable({ id: `${idPrefix}${issue.nodeId}`, data, disabled: !canDrag });
+  const { attributes, listeners, setNodeRef, isDragging } = useDraggable({ id: cardDragId(issue.nodeId, colKey, idPrefix), data, disabled: !canDrag });
   const ref = useRef<HTMLDivElement | null>(null);
   return (
     <div
@@ -129,13 +133,13 @@ const BoardCard = memo(function BoardCard({
       {...(canDrag ? listeners : {})}
       // Reachable by Tab also when not draggable (U2); dnd-kit sets it when it is.
       {...(canDrag ? {} : { tabIndex: 0 })}
-      onFocus={() => onFocus(issue.nodeId)}
+      onFocus={() => onFocus(navKey)}
       aria-roledescription={canDrag ? "draggable issue" : undefined}
       aria-label={`#${issue.number} ${issue.title}`}
       data-issue={issue.number}
       data-peek-row
       onClick={() => onOpen(issue)}
-      onMouseMove={() => onFocus(issue.nodeId)}
+      onMouseMove={() => onFocus(navKey)}
       onKeyDown={(e) => {
         // Enter opens (dnd-kit only starts a drag on Space here).
         if (e.key === "Enter") onOpen(issue);
@@ -166,7 +170,7 @@ export function BoardLayout({
   rows,
   field,
   props,
-  focusedId,
+  focusedKey,
   onFocus,
   onOpen,
   dropRelease,
@@ -174,8 +178,9 @@ export function BoardLayout({
   rows: ClientIssue[];
   field: BoardField;
   props: DisplayProp[];
-  focusedId: string | null;
-  onFocus: (nodeId: string) => void;
+  /** The focused card's place (`rowKey(column, nodeId)`). */
+  focusedKey: string | null;
+  onFocus: (navKey: string) => void;
   onOpen: (i: ClientIssue) => void;
   /** The Release a backlog card dropped on this board gets (the Release page). */
   dropRelease?: string | null;
@@ -255,7 +260,7 @@ export function BoardLayout({
               </h2>
               <div className="flex min-h-12 flex-1 flex-col gap-1.5 overflow-y-auto px-1.5 pb-2">
                 {backlog.slice(0, CARD_PAGE).map((i) => (
-                  <BoardCard key={i.nodeId} idPrefix="backlog:" issue={i} field={field} colKey={null} props={props} focused={i.nodeId === focusedId} canDrag onOpen={onOpen} onFocus={onFocus} />
+                  <BoardCard key={i.nodeId} idPrefix="backlog:" issue={i} field={field} colKey={null} navKey={`backlog:${i.nodeId}`} props={props} focused={`backlog:${i.nodeId}` === focusedKey} canDrag onOpen={onOpen} onFocus={onFocus} />
                 ))}
                 {backlog.length === 0 && <p className="px-2 py-3 text-center text-[12px] text-faint">Nothing unplanned</p>}
               </div>
@@ -277,8 +282,9 @@ export function BoardLayout({
                       issue={i}
                       field={field}
                       colKey={col.key}
+                      navKey={rowKey(col.key, i.nodeId)}
                       props={props}
-                      focused={i.nodeId === focusedId}
+                      focused={rowKey(col.key, i.nodeId) === focusedKey}
                       canDrag={canDrag}
                       onOpen={onOpen}
                       onFocus={onFocus}

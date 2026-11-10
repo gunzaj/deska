@@ -6,6 +6,7 @@ import { hydrate } from "@/lib/client/hydrate";
 import { usePoll } from "@/lib/client/poll";
 import { reuseRows } from "@/lib/client/reuse";
 import { isUnauthorized } from "@/lib/client/session";
+import { viewerToday, withViewerToday } from "@/lib/client/today";
 import type { WireData, WireIssue } from "@/lib/client/types";
 
 /**
@@ -34,10 +35,14 @@ export function useIssueData(viewer: string, initialWire: WireData, initialEtag:
   // one (the browser turns a 304 into a cached 200) changes nothing (v5 3.3).
   const etag = useRef(initialEtag);
   const [overlay, setOverlay] = useState<Map<string, Partial<WireIssue>>>(() => new Map());
-  const data = useMemo(
-    () => hydrate(overlay.size ? { ...wire, issues: wire.issues.map((w) => (overlay.has(w.id) ? applyWire(w, overlay.get(w.id)!) : w)) } : wire),
-    [wire, overlay],
-  );
+  // The viewer's date, not the server's UTC one (lib/client/today.ts). Re-read
+  // on every refresh tick, so it rolls over at local midnight even while the
+  // payload (and its ETag) stays the same.
+  const [today, setToday] = useState(() => viewerToday());
+  const data = useMemo(() => {
+    const local = withViewerToday(wire, today);
+    return hydrate(overlay.size ? { ...local, issues: local.issues.map((w) => (overlay.has(w.id) ? applyWire(w, overlay.get(w.id)!) : w)) } : local);
+  }, [wire, overlay, today]);
   const wireRef = useRef(wire);
   wireRef.current = wire;
   const overlayRef = useRef(overlay);
@@ -74,6 +79,7 @@ export function useIssueData(viewer: string, initialWire: WireData, initialEtag:
   // everything behind the session-expired banner instead.
   const refresh = useCallback(async () => {
     const seq = ++fetchSeq.current;
+    setToday(viewerToday());
     let ok = false;
     try {
       const res = await fetch("/api/data");

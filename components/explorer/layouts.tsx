@@ -1,6 +1,7 @@
 "use client";
 
 import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { groupId, rowKey, type NavRow } from "@/lib/client/list-nav";
 import { DEFAULT_PROPS, dimensionLabel, type DisplayProp, type Group } from "@/lib/client/explorer";
 import { isDimKey } from "@/lib/sync/field-map";
 import type { ClientIssue, DimKey } from "@/lib/client/types";
@@ -12,7 +13,7 @@ import { useCells } from "./cells";
 const ROW_H = 38;
 const GROUP_H = 36;
 
-type Flat = { kind: "group"; group: Group; collapsed: boolean } | { kind: "issue"; issue: ClientIssue };
+type Flat = { kind: "group"; group: Group; collapsed: boolean } | { kind: "issue"; issue: ClientIssue; key: string };
 
 function useViewport(ref: React.RefObject<HTMLElement | null>) {
   const [vp, setVp] = useState({ top: 0, height: 800 });
@@ -67,18 +68,19 @@ function GroupHeader({ group, collapsed, onToggle }: { group: Group; collapsed: 
  */
 export type RowSelection = {
   isSelected: (nodeId: string) => boolean;
-  toggle: (issue: ClientIssue) => void;
-  click: (issue: ClientIssue, e: React.MouseEvent) => boolean;
+  /** `key`: the row's place (an issue can show in several groups), the anchor of a Shift+click range. */
+  toggle: (issue: ClientIssue, key: string) => void;
+  click: (issue: ClientIssue, e: React.MouseEvent, key: string) => boolean;
 };
 
-function SelectBox({ issue, selection }: { issue: ClientIssue; selection: RowSelection }) {
+function SelectBox({ issue, rowKey, selection }: { issue: ClientIssue; rowKey: string; selection: RowSelection }) {
   const on = selection.isSelected(issue.nodeId);
   return (
     <input
       type="checkbox"
       aria-label={`Select #${issue.number}`}
       checked={on}
-      onChange={() => selection.toggle(issue)}
+      onChange={() => selection.toggle(issue, rowKey)}
       onClick={(e) => e.stopPropagation()}
       className={`size-3.5 shrink-0 accent-brand ${on ? "" : "opacity-40 group-hover:opacity-100 focus:opacity-100"}`}
     />
@@ -98,36 +100,42 @@ export const IssueRow = memo(function IssueRow({
   onFocus,
   selection,
   tabbable,
+  rowKey,
 }: {
   issue: ClientIssue;
   props: DisplayProp[];
   focused: boolean;
   onOpen: (issue: ClientIssue) => void;
-  onFocus: (nodeId: string) => void;
+  /** Gets `rowKey` (else the node ID). */
+  onFocus: (key: string) => void;
   selection?: RowSelection;
   /** Roving focus (U2): the one row in the list that Tab reaches. */
   tabbable?: boolean;
+  /** This row's place in the list, when the issue can show more than once. */
+  rowKey?: string;
 }) {
   const c = useCells();
   const has = (p: DisplayProp) => props.includes(p);
   const picked = selection?.isSelected(issue.nodeId) ?? false;
+  const key = rowKey ?? issue.nodeId;
   return (
     <div
       tabIndex={tabbable ? 0 : -1}
       aria-current={focused ? "true" : undefined}
       data-issue={issue.number}
       data-row-id={issue.nodeId}
+      data-row-key={key}
       data-peek-row
       onClick={(e) => {
-        if (selection?.click(issue, e)) return;
+        if (selection?.click(issue, e, key)) return;
         onOpen(issue);
       }}
-      onMouseMove={() => onFocus(issue.nodeId)}
-      onFocus={() => onFocus(issue.nodeId)}
+      onMouseMove={() => onFocus(key)}
+      onFocus={() => onFocus(key)}
       className={`group relative flex h-full cursor-default items-center gap-2.5 border-b border-line-soft px-4 text-[13px] outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-focus ${picked ? "bg-brand-soft" : focused ? "bg-hover" : ""}`}
     >
       {focused && <span aria-hidden className="absolute inset-y-0 left-0 w-0.5 bg-brand" />}
-      {selection && <SelectBox issue={issue} selection={selection} />}
+      {selection && <SelectBox issue={issue} rowKey={key} selection={selection} />}
       {has("priority") && c.priority(issue)}
       {has("id") && <span className="w-[3.75rem] shrink-0">{c.id(issue)}</span>}
       {has("status") && c.status(issue)}
@@ -152,44 +160,47 @@ export const IssueRow = memo(function IssueRow({
 
 /**
  * Keep DOM focus on the focused row while focus is inside the list, so j/k
- * (which move `focusedId`) move the keyboard focus too (U2).
+ * (which move the focused row) move the keyboard focus too (U2).
  */
-function useRovingFocus(container: React.RefObject<HTMLElement | null>, focusedId: string | null) {
+function useRovingFocus(container: React.RefObject<HTMLElement | null>, focusedKey: string | null) {
   useEffect(() => {
     const root = container.current;
-    if (!root || !focusedId || !root.contains(document.activeElement)) return;
-    const el = root.querySelector<HTMLElement>(`[data-row-id="${CSS.escape(focusedId)}"]`);
+    if (!root || !focusedKey || !root.contains(document.activeElement)) return;
+    const el = root.querySelector<HTMLElement>(`[data-row-key="${CSS.escape(focusedKey)}"]`);
     if (el && el !== document.activeElement) el.focus({ preventScroll: true });
-  }, [container, focusedId]);
+  }, [container, focusedKey]);
 }
 
 export function ListLayout({
   groups,
+  collapsed,
+  onToggleGroup,
   props = DEFAULT_PROPS,
-  focusedId,
+  focusedKey,
   onFocus,
   onOpen,
   scrollRef,
   selection,
 }: {
   groups: Group[];
+  /** Collapsed groups (`groupId`). The explorer owns them, so j/k, ⌘A and bulk edit skip hidden rows. */
+  collapsed: ReadonlySet<string>;
+  onToggleGroup: (g: Group) => void;
   props?: DisplayProp[];
-  focusedId: string | null;
-  onFocus: (nodeId: string) => void;
+  /** The focused row's place (`rowKey(group, nodeId)`). */
+  focusedKey: string | null;
+  onFocus: (key: string) => void;
   onOpen: (i: ClientIssue) => void;
   scrollRef: React.RefObject<HTMLDivElement | null>;
   selection?: RowSelection;
 }) {
-  // Keyed by field too, so collapsing "No status" doesn't collapse "No priority" after regrouping.
-  // Groups that start collapsed (the sprint's "Not planned") until the user toggles them.
-  const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set(groups.filter((g) => g.collapsed).map((g) => `${g.field}:${g.key}`)));
   const grouped = !(groups.length === 1 && groups[0]!.key === "all");
   const flat = useMemo<Flat[]>(() => {
     const out: Flat[] = [];
     for (const g of groups) {
-      const isCollapsed = collapsed.has(`${g.field}:${g.key}`);
+      const isCollapsed = collapsed.has(groupId(g));
       if (grouped) out.push({ kind: "group", group: g, collapsed: isCollapsed });
-      if (!isCollapsed) for (const i of g.rows) out.push({ kind: "issue", issue: i });
+      if (!isCollapsed) for (const i of g.rows) out.push({ kind: "issue", issue: i, key: rowKey(g.key, i.nodeId) });
     }
     return out;
   }, [groups, collapsed, grouped]);
@@ -209,9 +220,9 @@ export function ListLayout({
   // Roving focus (U2): Tab reaches one row, the focused one or else the first.
   const tabId = useMemo(() => {
     const issues = flat.filter((f): f is Extract<Flat, { kind: "issue" }> => f.kind === "issue");
-    return issues.find((f) => f.issue.nodeId === focusedId)?.issue.nodeId ?? issues[0]?.issue.nodeId ?? null;
-  }, [flat, focusedId]);
-  useRovingFocus(list, focusedId);
+    return issues.find((f) => f.key === focusedKey)?.key ?? issues[0]?.key ?? null;
+  }, [flat, focusedKey]);
+  useRovingFocus(list, focusedKey);
 
   // Binary search the first visible item, then render a small overscan window.
   let lo = 0;
@@ -228,15 +239,15 @@ export function ListLayout({
 
   // Keep the keyboard-focused row in view.
   useEffect(() => {
-    if (!focusedId) return;
-    const idx = flat.findIndex((f) => f.kind === "issue" && f.issue.nodeId === focusedId);
+    if (!focusedKey) return;
+    const idx = flat.findIndex((f) => f.kind === "issue" && f.key === focusedKey);
     const el = scrollRef.current;
     if (idx < 0 || !el) return;
     const top = tops[idx]!;
     const bottom = top + ROW_H;
     if (top < el.scrollTop + GROUP_H) el.scrollTop = Math.max(0, top - GROUP_H);
     else if (bottom > el.scrollTop + el.clientHeight) el.scrollTop = bottom - el.clientHeight;
-  }, [focusedId, flat, tops, scrollRef]);
+  }, [focusedKey, flat, tops, scrollRef]);
 
   return (
     <div ref={list} role="list" aria-label="Issues" style={{ height: total, position: "relative" }}>
@@ -248,24 +259,17 @@ export function ListLayout({
             <GroupHeader
               group={f.group}
               collapsed={f.collapsed}
-              onToggle={() =>
-                setCollapsed((s) => {
-                  const n = new Set(s);
-                  const k = `${f.group.field}:${f.group.key}`;
-                  if (n.has(k)) n.delete(k);
-                  else n.add(k);
-                  return n;
-                })
-              }
+              onToggle={() => onToggleGroup(f.group)}
             />
           </div>
         ) : (
-          <div key={`i:${f.issue.nodeId}:${idx}`} role="listitem" style={style}>
+          <div key={`i:${f.key}`} role="listitem" style={style}>
             <IssueRow
               issue={f.issue}
+              rowKey={f.key}
               props={props}
-              focused={f.issue.nodeId === focusedId}
-              tabbable={f.issue.nodeId === tabId}
+              focused={f.key === focusedKey}
+              tabbable={f.key === tabId}
               onOpen={onOpen}
               onFocus={onFocus}
               selection={selection}
@@ -301,18 +305,18 @@ export function TableLayout({
   props = DEFAULT_PROPS,
   sort,
   onSort,
-  focusedId,
+  focusedKey,
   onFocus,
   onOpen,
   scrollRef,
   selection,
 }: {
-  rows: ClientIssue[];
+  rows: NavRow[];
   props?: DisplayProp[];
   sort: { field: string; dir: "asc" | "desc" }[];
   onSort: (field: string, additive?: boolean) => void;
-  focusedId: string | null;
-  onFocus: (nodeId: string) => void;
+  focusedKey: string | null;
+  onFocus: (key: string) => void;
   onOpen: (i: ClientIssue) => void;
   scrollRef: React.RefObject<HTMLDivElement | null>;
   selection?: RowSelection & { all: boolean; toggleAll: () => void };
@@ -327,18 +331,18 @@ export function TableLayout({
   const start = Math.max(0, Math.floor((vp.top - HEAD) / ROW_H) - 8);
   const end = Math.min(rows.length, Math.ceil((vp.top + vp.height) / ROW_H) + 8);
   const body = useRef<HTMLDivElement>(null);
-  const tabId = rows.find((r) => r.nodeId === focusedId)?.nodeId ?? rows[0]?.nodeId ?? null;
-  useRovingFocus(body, focusedId);
+  const tabId = rows.find((r) => r.key === focusedKey)?.key ?? rows[0]?.key ?? null;
+  useRovingFocus(body, focusedKey);
 
   useEffect(() => {
-    if (!focusedId) return;
-    const idx = rows.findIndex((r) => r.nodeId === focusedId);
+    if (!focusedKey) return;
+    const idx = rows.findIndex((r) => r.key === focusedKey);
     const el = scrollRef.current;
     if (idx < 0 || !el) return;
     const top = HEAD + idx * ROW_H;
     if (top < el.scrollTop + HEAD) el.scrollTop = top - HEAD;
     else if (top + ROW_H > el.scrollTop + el.clientHeight) el.scrollTop = top + ROW_H - el.clientHeight;
-  }, [focusedId, rows, scrollRef]);
+  }, [focusedKey, rows, scrollRef]);
 
   const cell = (p: DisplayProp, i: ClientIssue): ReactNode => {
     if (isDimKey(p)) return c.dim(p, i) ?? <span className="text-faint">—</span>;
@@ -419,32 +423,33 @@ export function TableLayout({
         ))}
       </div>
       <div ref={body} role="rowgroup" style={{ height: rows.length * ROW_H, position: "relative" }}>
-        {rows.slice(start, end).map((i, k) => {
+        {rows.slice(start, end).map(({ key, issue: i }, k) => {
           const idx = start + k;
-          const focused = i.nodeId === focusedId;
+          const focused = key === focusedKey;
           const picked = selection?.isSelected(i.nodeId) ?? false;
           return (
             <div
-              key={i.nodeId}
+              key={key}
               role="row"
-              tabIndex={i.nodeId === tabId ? 0 : -1}
+              tabIndex={key === tabId ? 0 : -1}
               aria-current={focused ? "true" : undefined}
-              onFocus={() => onFocus(i.nodeId)}
+              onFocus={() => onFocus(key)}
               data-issue={i.number}
               data-row-id={i.nodeId}
+              data-row-key={key}
               data-peek-row
               onClick={(e) => {
-                if (selection?.click(i, e)) return;
+                if (selection?.click(i, e, key)) return;
                 onOpen(i);
               }}
-              onMouseMove={() => onFocus(i.nodeId)}
+              onMouseMove={() => onFocus(key)}
               className={`group absolute left-0 right-0 flex items-center border-b border-line-soft text-[12.5px] outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-focus ${picked ? "bg-brand-soft" : focused ? "bg-hover" : ""}`}
               style={{ top: idx * ROW_H, height: ROW_H }}
             >
               {focused && <span aria-hidden className="absolute inset-y-0 left-0 w-0.5 bg-brand" />}
               {selection && (
                 <div role="cell" className="flex w-8 shrink-0 items-center justify-end">
-                  <SelectBox issue={i} selection={selection} />
+                  <SelectBox issue={i} rowKey={key} selection={selection} />
                 </div>
               )}
               <div role="cell" className="w-[76px] shrink-0 pl-4">

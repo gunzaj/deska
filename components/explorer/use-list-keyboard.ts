@@ -2,18 +2,20 @@
 
 import { useEffect, useRef, type RefObject } from "react";
 import { keyboardBusy } from "@/lib/client/keyboard";
+import { focusIndex, stepFocus } from "@/lib/client/list-nav";
 import { ISSUE_LIST_KEYS } from "@/lib/client/shortcuts";
 
 /**
  * The keyboard of a list explorer (v5 4.6): `/` focuses the search box, j/k
  * and the arrows move the focused row (clamped, from the first row when
  * nothing is focused), and everything else goes to `onKey`. Nothing fires
- * while a text field has focus.
+ * while a text field has focus. Rows are told apart by `key`, not by issue:
+ * grouped by Label or Assignee one issue shows in several places.
  */
-export function useListKeyboard<T extends { nodeId: string }>({
+export function useListKeyboard<T extends { key: string }>({
   order,
-  focusedId,
-  setFocusedId,
+  focusedKey,
+  setFocusedKey,
   searchRef,
   onMoved,
   onChord,
@@ -21,8 +23,8 @@ export function useListKeyboard<T extends { nodeId: string }>({
 }: {
   /** The rows in the order they are shown. */
   order: readonly T[];
-  focusedId: string | null;
-  setFocusedId: (nodeId: string | null) => void;
+  focusedKey: string | null;
+  setFocusedKey: (key: string | null) => void;
   searchRef: RefObject<HTMLInputElement | null>;
   /** After the focus moved to `next`: follow it in a side panel, scroll it into view. */
   onMoved?: (next: T) => void;
@@ -31,12 +33,12 @@ export function useListKeyboard<T extends { nodeId: string }>({
   /** Any other key outside a text field; `index` is the focused row's position or -1. */
   onKey?: (e: KeyboardEvent, index: number) => void;
 }) {
-  const latest = useRef({ order, focusedId, setFocusedId, searchRef, onMoved, onChord, onKey });
-  latest.current = { order, focusedId, setFocusedId, searchRef, onMoved, onChord, onKey };
+  const latest = useRef({ order, focusedKey, setFocusedKey, searchRef, onMoved, onChord, onKey });
+  latest.current = { order, focusedKey, setFocusedKey, searchRef, onMoved, onChord, onKey };
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
-      const { order, focusedId, setFocusedId, searchRef, onMoved, onChord, onKey } = latest.current;
+      const { order, focusedKey, setFocusedKey, searchRef, onMoved, onChord, onKey } = latest.current;
       if (onChord?.(e)) return;
       if (e.metaKey || e.ctrlKey || e.altKey) return;
       if (e.key === "/" && !keyboardBusy(e)) {
@@ -45,13 +47,13 @@ export function useListKeyboard<T extends { nodeId: string }>({
         return;
       }
       if (keyboardBusy(e)) return;
-      const idx = focusedId ? order.findIndex((r) => r.nodeId === focusedId) : -1;
+      const idx = focusIndex(order, focusedKey);
       const action = ISSUE_LIST_KEYS[e.key];
       if (action === "next" || action === "prev") {
         e.preventDefault();
-        const next = order[Math.max(0, Math.min(order.length - 1, idx + (action === "next" ? 1 : idx < 0 ? 1 : -1)))];
+        const next = stepFocus(order, focusedKey, action === "next" ? 1 : -1);
         if (!next) return;
-        setFocusedId(next.nodeId);
+        setFocusedKey(next.key);
         onMoved?.(next);
         return;
       }
