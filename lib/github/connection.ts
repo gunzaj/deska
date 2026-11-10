@@ -343,8 +343,9 @@ export async function checkToken(token: string | null, target: CheckTarget | nul
     }),
   };
 
-  // The read-only state of SPEC §3.3 is the write detection of §3.4.
-  s = { ...s, readOnly: s.writeAccess === "no", readOnlyMessage: s.writeAccess === "no" ? (s.writeAccessMessage ?? MESSAGES.readOnly) : null };
+  // The read-only state of SPEC §3.3 is the write detection of §3.4: the
+  // short message is "Read-only token"; the detail names the permission.
+  s = { ...s, readOnly: s.writeAccess === "no", readOnlyMessage: s.writeAccess === "no" ? MESSAGES.readOnly : null };
   const all = Object.values(outcomes);
   const first = <K extends Outcome["kind"]>(kind: K) => all.find((o): o is Extract<Outcome, { kind: K }> => o.kind === kind);
   const hard = first("invalid") ?? first("rate-limited") ?? first("offline");
