@@ -17,7 +17,7 @@ describe("global shortcut accelerators (D12)", () => {
 
 describe("desktop prefs (D12)", () => {
   it("defaults: ⌃⌥Space, notifications and badge on, launch at login off", () => {
-    expect(parseDesktopPrefs(null)).toEqual({ shortcut: "Control+Alt+Space", notifications: true, launchAtLogin: false, dockBadge: true, backupFolder: "" });
+    expect(parseDesktopPrefs(null)).toEqual({ shortcut: "Control+Alt+Space", notifications: true, launchAtLogin: false, dockBadge: true, backupFolder: "", githubAuthSource: "token" });
     expect(DEFAULT_DESKTOP_PREFS.launchAtLogin).toBe(false);
   });
 
@@ -28,6 +28,7 @@ describe("desktop prefs (D12)", () => {
       launchAtLogin: true,
       dockBadge: false,
       backupFolder: "",
+      githubAuthSource: "token",
     });
   });
 

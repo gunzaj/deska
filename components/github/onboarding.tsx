@@ -1,7 +1,7 @@
 "use client";
 
-// Onboarding (SPEC D3, D4). Step 1: paste a fine-grained token, see who it
-// belongs to and what it can read. Step 2: the repository and org project,
+// Onboarding (SPEC D3, D4, D15). Step 1: use the GitHub CLI's login or paste
+// a token, see who it belongs to and what it can read. Step 2: the repository and org project,
 // and which project field is Status, Priority, Sprint and the dimensions.
 import { useEffect, useState } from "react";
 import type { ConnectionStatus } from "@/lib/github/token-states";
@@ -9,7 +9,7 @@ import type { SetupState } from "@/lib/server/project-setup";
 import { Logo } from "../icons";
 import { fetchConnection } from "../app/connection";
 import { loadSetup, ProjectPicker } from "./mapping";
-import { hasBridge, TokenForm, TokenGuide, TokenSummary } from "./token";
+import { GithubCliOption, hasBridge, TokenForm, TokenGuide, TokenSummary, useGithubCli } from "./token";
 
 /** Step 2: pick the project and map its fields; the app opens once both are stored. */
 function ProjectStep({ onBack }: { onBack: () => void }) {
@@ -79,6 +79,19 @@ export function Onboarding() {
   const [desktop, setDesktop] = useState<boolean | null>(null);
   const [replacing, setReplacing] = useState(false);
   const [step, setStep] = useState<1 | 2>(1);
+  const [checking, setChecking] = useState(false);
+  const { cli, reload: reloadCli } = useGithubCli();
+  // The GitHub CLI source with something wrong (not installed, logged out, a missing scope, refused).
+  const cliProblem = !!status && status.source === "gh" && status.state !== "ok";
+
+  /** "Check again": main reads the GitHub CLI's token again, then GitHub is asked. */
+  async function checkAgain() {
+    setChecking(true);
+    await window.deska?.github?.recheck().catch(() => null);
+    await reloadCli();
+    setStatus(await fetchConnection(true));
+    setChecking(false);
+  }
 
   useEffect(() => {
     setDesktop(hasBridge());
@@ -94,9 +107,9 @@ export function Onboarding() {
     <main className="min-h-dvh overflow-auto p-6">
       <div className="mx-auto w-full max-w-xl rounded-2xl border border-line bg-surface p-8 shadow-modal">
         <Logo size={36} />
-        <p className="mt-5 text-[12px] font-medium uppercase tracking-wide text-faint">Step 1 of 2 · GitHub token</p>
+        <p className="mt-5 text-[12px] font-medium uppercase tracking-wide text-faint">Step 1 of 2 · GitHub sign-in</p>
         <h1 className="mt-1 text-[22px] font-medium tracking-tight">Connect GitHub</h1>
-        <p className="mt-1.5 text-[13.5px] text-muted">Deska reads one repository and one project (organization or personal) with your own GitHub token. No account, no server.</p>
+        <p className="mt-1.5 text-[13.5px] text-muted">Deska reads one repository and one project (organization or personal) with your own GitHub login or token. No account, no server.</p>
 
         {desktop === false ? (
           <p role="status" className="mt-6 rounded-md border border-line bg-hover p-3 text-[12.5px]">
@@ -105,14 +118,24 @@ export function Onboarding() {
         ) : null}
 
         {status && !connected && status.state !== "missing" && status.state !== "preview" && (
-          <div className="mt-6">
+          <div className="mt-6 space-y-3">
             <TokenSummary status={status} />
+            {cliProblem && (
+              <button type="button" disabled={checking} onClick={() => void checkAgain()} className="inline-flex h-8 items-center rounded-md border border-line px-3 text-[12.5px] font-medium hover:bg-hover disabled:opacity-60">
+                {checking ? "Checking…" : "Check again"}
+              </button>
+            )}
           </div>
         )}
 
         {connected ? (
           <div className="mt-6 space-y-5">
             <TokenSummary status={status!} />
+            {cliProblem && (
+              <button type="button" disabled={checking} onClick={() => void checkAgain()} className="inline-flex h-8 items-center rounded-md border border-line px-3 text-[12.5px] font-medium hover:bg-hover disabled:opacity-60">
+                {checking ? "Checking…" : "Check again"}
+              </button>
+            )}
             <div className="flex flex-wrap items-center gap-3">
               <button
                 type="button"
@@ -122,18 +145,33 @@ export function Onboarding() {
                 Continue
               </button>
               <button type="button" onClick={() => setReplacing(true)} className="text-[12.5px] font-medium text-brand-text hover:underline">
-                Use a different token
+                {status?.source === "gh" ? "Paste a token instead" : "Use a different token"}
               </button>
             </div>
           </div>
         ) : desktop ? (
           <div className="mt-6 space-y-6">
-            <TokenForm
-              onChecked={(s) => {
-                setStatus(s);
-                setReplacing(false);
-              }}
-            />
+            {status?.source !== "gh" || replacing ? (
+              <GithubCliOption
+                cli={cli}
+                label="Use my GitHub CLI login"
+                onChecked={(s) => {
+                  setStatus(s);
+                  setReplacing(false);
+                }}
+              />
+            ) : null}
+            <section aria-labelledby="paste-token" className="space-y-2">
+              <h2 id="paste-token" className="text-[13px] font-semibold">
+                {cliProblem ? "Paste a token instead" : cli?.cli === "ok" ? "Or paste a token" : "Paste a token"}
+              </h2>
+              <TokenForm
+                onChecked={(s) => {
+                  setStatus(s);
+                  setReplacing(false);
+                }}
+              />
+            </section>
             <section aria-labelledby="token-guide">
               <h2 id="token-guide" className="mb-2 text-[13px] font-semibold">
                 How to create it

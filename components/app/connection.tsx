@@ -6,7 +6,7 @@
 // list (the explorer asks `connectionProblem` before it says "No issues").
 import Link from "next/link";
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import type { ConnectionStatus } from "@/lib/github/token-states";
+import { GH_COMMANDS, type ConnectionStatus } from "@/lib/github/token-states";
 import { Icon } from "../icons";
 
 type ConnectionCtx = {
@@ -39,12 +39,18 @@ export function ConnectionProvider({ children }: { children: ReactNode }) {
   const [status, setStatus] = useState<ConnectionStatus | null>(null);
   const [checking, setChecking] = useState(false);
   const last = useRef(0);
+  const source = useRef<ConnectionStatus["source"]>("token");
 
   const load = useCallback(async (refresh: boolean) => {
     last.current = Date.now();
     if (refresh) setChecking(true);
+    // "Check again" with the GitHub CLI source: main reads its token again first (SPEC §2.3).
+    if (refresh && source.current === "gh") await window.deska?.github?.recheck().catch(() => null);
     const s = await fetchConnection(refresh);
-    if (s) setStatus(s);
+    if (s) {
+      source.current = s.source;
+      setStatus(s);
+    }
     if (refresh) setChecking(false);
     return s;
   }, []);
@@ -73,13 +79,22 @@ export function connectionProblem(s: ConnectionStatus | null): boolean {
 
 /** What to do about a state, under its message. */
 export function problemHint(s: ConnectionStatus): string | null {
+  const gh = s.source === "gh";
   switch (s.state) {
     case "missing-permission":
-      return "Add the permission to the token on GitHub (Settings → Developer settings → Fine-grained tokens → Edit), then check again.";
+      return gh ? "Your GitHub CLI login can't read this. Check your access to the repository and project, then check again." : "Add the permission to the token on GitHub (Settings → Developer settings → Fine-grained tokens → Edit), then check again.";
     case "awaiting-approval":
-      return "An org owner approves fine-grained tokens under the org's Settings → Personal access tokens → Pending requests.";
+      return gh
+        ? "An org owner approves it under the org's Settings → Third-party Access → OAuth app policy. Or paste a token instead."
+        : "An org owner approves fine-grained tokens under the org's Settings → Personal access tokens → Pending requests.";
     case "invalid":
-      return "Create a new token on GitHub and replace it in Settings.";
+      return gh ? `Run ${GH_COMMANDS.login} in a terminal, then check again.` : "Create a new token on GitHub and replace it in Settings.";
+    case "gh-not-found":
+      return `Install it (brew install gh) and run ${GH_COMMANDS.login} in a terminal, then check again. Showing cached data.`;
+    case "gh-logged-out":
+      return `Run ${GH_COMMANDS.login} in a terminal, then check again. Showing cached data.`;
+    case "missing-scope":
+      return s.command ? `Run ${s.command} in a terminal, then check again.` : null;
     case "offline":
       return "Showing cached data. Deska tries again in a moment.";
     case "rate-limited":
@@ -126,12 +141,19 @@ export function ConnectionBanner() {
         <Link href="/onboarding" className="rounded-md px-2 py-0.5 font-medium hover:bg-hover">
           Connect GitHub
         </Link>
+      ) : status.source === "gh" ? (
+        // The GitHub CLI's token isn't replaced here: the way out is another source.
+        status.state === "gh-not-found" || status.state === "gh-logged-out" || status.state === "invalid" || status.state === "awaiting-approval" ? (
+          <Link href="/settings#token" className="rounded-md px-2 py-0.5 font-medium hover:bg-hover">
+            Paste a token instead
+          </Link>
+        ) : null
       ) : status.state === "invalid" || status.expiryWarning ? (
         <Link href="/settings#token" className="rounded-md px-2 py-0.5 font-medium hover:bg-hover">
           Replace token
         </Link>
       ) : null}
-      {problem && status.state !== "missing" && status.state !== "invalid" && (
+      {problem && status.state !== "missing" && (status.state !== "invalid" || status.source === "gh") && (
         <button type="button" disabled={checking} onClick={() => void recheck()} className="rounded-md px-2 py-0.5 font-medium hover:bg-hover disabled:opacity-60">
           {checking ? "Checking…" : "Check again"}
         </button>

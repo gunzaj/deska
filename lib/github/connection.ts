@@ -10,6 +10,7 @@ import { redactSecrets } from "../redact";
 import { createReadOnlyClient, type ProbeResponse, type ReadOnlyClient } from "./probe";
 import {
   EXPIRY_WARNING_DAYS,
+  GH_COMMANDS,
   hhmm,
   MESSAGES,
   permissionName,
@@ -60,7 +61,7 @@ function messageOf(data: unknown): string {
 }
 
 const NOT_ACCESSIBLE = /resource not accessible by (?:personal access|integration)/i;
-const ORG_POLICY = /fine-grained personal access token|has not (?:yet )?approved|requires approval|forbids access/i;
+const ORG_POLICY = /fine-grained personal access token|has not (?:yet )?approved|requires approval|forbids access|OAuth App access restrictions/i;
 
 function rateLimitReset(res: ProbeResponse, now: Date): Date | null {
   const h = res.headers;
@@ -75,10 +76,27 @@ function rateLimitReset(res: ProbeResponse, now: Date): Date | null {
 
 /** Scopes of a classic token (`x-oauth-scopes`) that are not read-only. Fine-grained tokens send no such header. */
 const READ_ONLY_SCOPES = /^(?:read:[a-z_]+|user:email|user:follow|repo:status|repo_deployment|public_repo)$/;
-export function writeScopesWarning(header: string | null | undefined): string | null {
-  if (!header?.trim()) return null;
-  const writes = header.split(",").map((x) => x.trim()).filter((x) => x && !READ_ONLY_SCOPES.test(x));
-  return writes.length ? MESSAGES.writeScopes(writes) : null;
+export function writeScopesWarning(header: string | null | undefined, source: "token" | "gh" = "token"): string | null {
+  const writes = (parseScopes(header) ?? []).filter((x) => !READ_ONLY_SCOPES.test(x));
+  if (!writes.length) return null;
+  return source === "gh" ? MESSAGES.ghCanWrite(writes) : MESSAGES.writeScopes(writes);
+}
+
+/** `x-oauth-scopes` as a list; null when GitHub sent none (a fine-grained token). */
+export function parseScopes(header: string | null | undefined): string[] | null {
+  if (header === null || header === undefined || !header.trim()) return null;
+  return header.split(",").map((x) => x.trim()).filter(Boolean);
+}
+
+/**
+ * The project scope a GitHub CLI login lacks (SPEC §3.1): `read:project`, or
+ * `project` once writes are on (`project` covers reading too). Null when it is
+ * there, or when the token has no classic scopes to read.
+ */
+export function missingProjectScope(scopes: string[] | null, writes: boolean): string | null {
+  if (!scopes) return null;
+  if (scopes.includes("project")) return null;
+  return writes ? "project" : scopes.includes("read:project") ? null : "read:project";
 }
 
 /** One response, classified. Exported for tests. */
@@ -130,6 +148,10 @@ export type CheckOptions = {
   timeZone?: string;
   /** Tests: a client to use instead of building one. */
   client?: ReadOnlyClient;
+  /** Where the token comes from; "gh" checks the login's scopes and words the states for the GitHub CLI. */
+  source?: "token" | "gh";
+  /** GitHub writes are on (SPEC §3.4): a GitHub CLI login then needs `project`, not just `read:project`. */
+  writes?: boolean;
 };
 
 const PROJECT_QUERY = `query DeskaProjectCheck($org: String!, $number: Int!) {
@@ -140,9 +162,12 @@ const ISSUE_TYPES_QUERY = `query DeskaIssueTypesCheck($org: String!) {
   organization: repositoryOwner(login: $org) { ... on Organization { issueTypes(first: 1) { totalCount } } }
 }`;
 
-function base(now: Date): ConnectionStatus {
+function base(now: Date, source: "token" | "gh" = "token"): ConnectionStatus {
   return {
     state: "ok",
+    source,
+    scopes: null,
+    command: null,
     message: null,
     login: null,
     name: null,
@@ -164,6 +189,13 @@ export function missingStatus(now = new Date()): ConnectionStatus {
   return { ...base(now), state: "missing", message: MESSAGES.missing };
 }
 
+/** The GitHub CLI source without a token: `gh` is missing, or it is logged out (SPEC §3.3). */
+export function ghCliStatus(cli: "not-found" | "logged-out", now = new Date()): ConnectionStatus {
+  return cli === "not-found"
+    ? { ...base(now, "gh"), state: "gh-not-found", message: MESSAGES.ghNotFound, command: GH_COMMANDS.login }
+    : { ...base(now, "gh"), state: "gh-logged-out", message: MESSAGES.ghLoggedOut, command: GH_COMMANDS.login };
+}
+
 /** The status outside the desktop app: no token, nothing to report. */
 export function previewStatus(now = new Date()): ConnectionStatus {
   return { ...base(now), state: "preview" };
@@ -181,9 +213,10 @@ function withState(s: ConnectionStatus, outcome: Extract<Outcome, { kind: "inval
  */
 export async function checkToken(token: string | null, target: CheckTarget | null, opts: CheckOptions = {}): Promise<ConnectionStatus> {
   const now = opts.now ?? new Date();
+  const source = opts.source ?? "token";
   if (!token) return missingStatus(now);
   const client = opts.client ?? createReadOnlyClient(token, opts.fetch ?? fetch, { apiBase: opts.apiBase, userAgent: "deska", timeoutMs: 15_000 });
-  let s = base(now);
+  let s = base(now, source);
 
   const user = await call(() => client.rest("GET", "/user"), now);
   if (user.outcome.kind === "invalid" || user.outcome.kind === "offline" || user.outcome.kind === "rate-limited") return withState(s, user.outcome, opts.timeZone);
@@ -194,6 +227,7 @@ export async function checkToken(token: string | null, target: CheckTarget | nul
   const u = user.outcome.data as { login?: unknown; name?: unknown; avatar_url?: unknown } | null;
   if (typeof u?.login !== "string" || !u.login) return { ...s, state: "offline", message: MESSAGES.offline };
   const expires = parseExpiration(user.res?.headers["github-authentication-token-expiration"]);
+  const scopes = parseScopes(user.res?.headers["x-oauth-scopes"]);
   s = {
     ...s,
     login: u.login,
@@ -202,13 +236,18 @@ export async function checkToken(token: string | null, target: CheckTarget | nul
     expiresAt: expires?.toISOString() ?? null,
     expiryWarning:
       expires && expires.getTime() - now.getTime() < EXPIRY_WARNING_DAYS * 86_400_000 ? MESSAGES.expiring(expires.toISOString().slice(0, 10)) : null,
-    scopeWarning: writeScopesWarning(user.res?.headers["x-oauth-scopes"]),
+    scopes,
+    scopeWarning: writeScopesWarning(user.res?.headers["x-oauth-scopes"], source),
     // Write permissions can't be read off a fine-grained token without trying
     // a write, and Deska is read-only until Phase C: every token counts as
     // read-only (decided in D3, revisited in W0).
     readOnly: true,
     readOnlyMessage: MESSAGES.readOnly,
   };
+  // A GitHub CLI login without the project scope can't read any project:
+  // name the scope and the command, before any project read fails less clearly.
+  const scope = source === "gh" ? missingProjectScope(scopes, opts.writes === true) : null;
+  if (scope) return { ...s, state: "missing-scope", message: MESSAGES.ghMissingScope([scope]), missing: [scope], command: GH_COMMANDS.addScope(scope) };
   if (!target) return s;
 
   const { owner, repo, org, projectNumber } = target;
@@ -252,7 +291,7 @@ export async function checkToken(token: string | null, target: CheckTarget | nul
   const required = (["metadata", "issues", "projects"] as const).map((k) => outcomes[k]);
   const outOfReach = (o: Outcome) => o.kind === "not-found" || o.kind === "org-refused";
   if (required.some((o) => o.kind === "org-refused") || (outOfReach(outcomes.metadata) && outcomes.projects.kind !== "ok")) {
-    return { ...s, state: "awaiting-approval", message: MESSAGES.awaitingApproval };
+    return { ...s, state: "awaiting-approval", message: source === "gh" ? MESSAGES.ghNotApproved : MESSAGES.awaitingApproval };
   }
 
   const missing = PERMISSIONS.filter((p) => p.required && outcomes[p.key].kind !== "ok").map((p) => permissionName(p.key));

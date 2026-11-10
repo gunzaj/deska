@@ -11,7 +11,7 @@ Everything someone needs to install, run and look after Deska v1.0.
 
 ## Permissions
 
-Create a **fine-grained personal access token** with resource owner = your org and repository access = **only the one repository** Deska reads. Classic tokens are not supported.
+Create a **fine-grained personal access token** with resource owner = your org and repository access = **only the one repository** Deska reads. A classic token with read-only scopes also works (see [`security.md`](security.md)). If you use the GitHub CLI, onboarding also offers "Use my GitHub CLI login": nothing to paste and no token stored, but that login can write, so Deska's own write switch is what keeps it read-only.
 
 | Permission | v1.0 (read-only) | Later, with writes |
 |---|---|---|

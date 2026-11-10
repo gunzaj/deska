@@ -10,7 +10,8 @@ import http from "node:http";
 import net from "node:net";
 import path from "node:path";
 import { app, BrowserWindow, dialog, globalShortcut, ipcMain, Menu, Notification, powerMonitor, safeStorage, session, shell, utilityProcess, type IpcMainInvokeEvent, type UtilityProcess, type WebContents } from "electron";
-import { CHANNELS, DEFAULT_DESKTOP_PREFS, CLASSIC_TOKEN, FINE_GRAINED_TOKEN, type DesktopPrefs, type DesktopState, type ReminderAction, type ReminderItem, type ServerMessage, type ServerReply, type TokenStatus } from "./bridge";
+import { CHANNELS, DEFAULT_DESKTOP_PREFS, CLASSIC_TOKEN, FINE_GRAINED_TOKEN, type DesktopPrefs, type DesktopState, type GithubAuthStatus, type ReminderAction, type ReminderItem, type ServerMessage, type ServerReply, type TokenAuth, type TokenStatus } from "./bridge";
+import { fallbackPath, readGhLogin, readGhToken, resolveLoginPath, serverEnv, type GhRead } from "./gh";
 import { aboutDetails, parseBuildInfo, RELEASES_URL, type BuildInfo } from "./about";
 import { classifyUrl, requestAllowed } from "./navigation";
 import { parseDesktopPrefs, parsePrefsPatch } from "./prefs";
@@ -118,6 +119,7 @@ function startServerProcess(port: number, secret: string): Server {
     port,
     secret,
     dbDir,
+    loginPath,
     env: {
       // The build's write switch (SPEC §3.4): "off" refuses writes whatever
       // the other two gates say. Never read from the user's environment.
@@ -134,9 +136,9 @@ function startServerProcess(port: number, secret: string): Server {
     },
   };
   const entry = path.join(__dirname, "server-entry.js");
-  // The child's environment carries no secret: those arrive over IPC.
-  const env = { ...process.env } as Record<string, string>;
-  for (const k of Object.keys(env)) if (k.startsWith("DESKA_") || k === "ELECTRON_RUN_AS_NODE") delete env[k];
+  // The child's environment carries no secret: those arrive over IPC. A
+  // GitHub token exported in the shell that started Deska is dropped too.
+  const env = serverEnv(process.env);
   const origin = `http://127.0.0.1:${port}`;
 
   if (mode === "development") {
@@ -253,7 +255,7 @@ let tokenMessageId = 0;
 const tokenAcks = new Map<number, () => void>();
 
 /** Hands the token (or its removal) to the server and waits until it holds it. */
-function sendToken(s: Server, token: string | null, source: "launch" | "user"): Promise<void> {
+function sendToken(s: Server, token: string | null, source: "launch" | "user", extra: { auth?: TokenAuth; reread?: boolean } = {}): Promise<void> {
   const id = ++tokenMessageId;
   return new Promise<void>((resolve, reject) => {
     const timer = setTimeout(() => {
@@ -264,7 +266,7 @@ function sendToken(s: Server, token: string | null, source: "launch" | "user"): 
       clearTimeout(timer);
       resolve();
     });
-    s.send({ type: "token", token, source, id });
+    s.send({ type: "token", token, source, id, ...extra });
   });
 }
 
@@ -276,6 +278,48 @@ function readStoredToken(): string | null {
     log("the stored GitHub token could not be decrypted");
     return null;
   }
+}
+
+// --- GitHub CLI login (SPEC §2.3, §3.1) ---------------------------------------
+
+/** The login-shell PATH, resolved once per launch: where `gh` (and, for the server, `claude`) live. */
+let loginPath = fallbackPath();
+/** What the server was last told, so a wake that finds nothing new sends nothing. Memory only. */
+let ghSent: { state: GhRead["state"]; token: string | null } | null = null;
+
+async function resolvePath(): Promise<string> {
+  // Tests put a fake `gh` on a PATH of their own. Honoured only with a
+  // throwaway profile (DESKA_USER_DATA_DIR): the real profile always asks the login shell.
+  const test = process.env.DESKA_USER_DATA_DIR ? process.env.DESKA_TEST_PATH : undefined;
+  return test || resolveLoginPath();
+}
+
+/**
+ * Reads the GitHub CLI's token and hands it (or why there is none) to the
+ * server. The token is held by this function and the IPC message only.
+ */
+async function applyGh(s: Server, source: "launch" | "user", opts: { force?: boolean; reread?: boolean } = {}): Promise<GhRead> {
+  const read = await readGhToken(loginPath);
+  const token = read.state === "ok" ? read.token : null;
+  const same = ghSent?.state === read.state && ghSent.token === token;
+  ghSent = { state: read.state, token };
+  if (!same || opts.force) await sendToken(s, token, source, { auth: { source: "gh", cli: read.state }, reread: opts.reread });
+  return read;
+}
+
+const logError = (err: unknown) => log(err instanceof Error ? err.message : String(err));
+
+/** `withLogin` also asks `gh auth status` for the account name (onboarding's button); a re-check doesn't need it. */
+async function githubAuthStatus(known?: GhRead, withLogin = true): Promise<GithubAuthStatus> {
+  const cli = (known ?? (await readGhToken(loginPath))).state;
+  return { source: prefs.githubAuthSource, cli, cliLogin: cli === "ok" && withLogin ? await readGhLogin(loginPath) : null };
+}
+
+function setAuthSource(source: DesktopPrefs["githubAuthSource"]) {
+  if (source === "token") ghSent = null;
+  if (prefs.githubAuthSource === source) return;
+  prefs = { ...prefs, githubAuthSource: source };
+  savePrefs();
 }
 
 // --- window -----------------------------------------------------------------
@@ -521,14 +565,35 @@ function registerIpc() {
     if (!FINE_GRAINED_TOKEN.test(value) && !CLASSIC_TOKEN.test(value)) throw new Error("Deska needs a GitHub personal access token. It starts with github_pat_ (fine-grained) or ghp_ (classic).");
     if (!safeStorage.isEncryptionAvailable()) throw new Error("The system keychain is not available.");
     writeFileSync(tokenFile(), safeStorage.encryptString(value), { mode: 0o600 });
-    await sendToken(server, value, "user");
+    setAuthSource("token");
+    await sendToken(server, value, "user", { auth: { source: "token" } });
     return tokenStatus();
   });
   ipcMain.handle(CHANNELS.tokenClear, async (e) => {
     if (!fromApp(e) || !server) return tokenStatus();
+    // "Disconnect GitHub": the stored token goes, and the GitHub CLI source is
+    // turned off (the CLI itself stays logged in).
     rmSync(tokenFile(), { force: true });
-    await sendToken(server, null, "user");
+    setAuthSource("token");
+    await sendToken(server, null, "user", { auth: { source: "token" } });
     return tokenStatus();
+  });
+  ipcMain.handle(CHANNELS.githubStatus, (e) => (fromApp(e) ? githubAuthStatus() : null));
+  ipcMain.handle(CHANNELS.githubUseCli, async (e) => {
+    if (!fromApp(e) || !server) return null;
+    const read = await readGhToken(loginPath);
+    // Nothing to switch to: the page shows what is wrong with the CLI.
+    if (read.state !== "ok") return githubAuthStatus(read);
+    // The stored token goes first: with this source nothing of the token is on disk.
+    rmSync(tokenFile(), { force: true });
+    setAuthSource("gh");
+    ghSent = { state: "ok", token: read.token };
+    await sendToken(server, read.token, "user", { auth: { source: "gh", cli: "ok" } });
+    return githubAuthStatus(read);
+  });
+  ipcMain.handle(CHANNELS.githubRecheck, async (e) => {
+    if (!fromApp(e) || !server) return null;
+    return githubAuthStatus(prefs.githubAuthSource === "gh" ? await applyGh(server, "launch", { force: true }) : undefined, false);
   });
   ipcMain.handle(CHANNELS.tokenStatus, (e) => (fromApp(e) ? tokenStatus() : null));
   ipcMain.handle(CHANNELS.desktopGet, (e) => (fromApp(e) ? desktopState() : null));
@@ -573,7 +638,8 @@ function registerIpc() {
 }
 
 async function boot() {
-  const port = await freePort();
+  const [port, resolvedPath] = await Promise.all([freePort(), resolvePath()]);
+  loginPath = resolvedPath;
   // 256 bits per launch, never written anywhere (SPEC §2.2).
   const secret = randomBytes(32).toString("hex");
   launchSecret = secret;
@@ -590,14 +656,23 @@ async function boot() {
       badgeCount = m.count;
       return applyBadge();
     }
+    // GitHub refused the GitHub CLI's token: read it again, once (the server asks only once per token).
+    if (m?.type === "gh-reread") {
+      if (prefs.githubAuthSource === "gh") void applyGh(s, "launch", { force: true, reread: true }).catch(logError);
+      return;
+    }
     if (m?.type === "token-ack") tokenAcks.get(m.id)?.();
     tokenAcks.delete((m as { id?: number } | undefined)?.id as number);
   });
-  // The stored token, before the window opens: the first page knows its user.
-  const stored = readStoredToken();
   // The second backup folder (D8 follow-up), so the first daily check can copy to it.
   if (prefs.backupFolder) s.send({ type: "backup-mirror", dir: prefs.backupFolder });
-  if (stored) void sendToken(s, stored, "launch").catch((err) => log(err instanceof Error ? err.message : String(err)));
+  // The token, before the window opens: the first page knows its user. With
+  // the GitHub CLI source it is read from `gh` now and never stored.
+  const tokenReady = (
+    prefs.githubAuthSource === "gh"
+      ? applyGh(s, "launch", { force: true }).then(() => undefined)
+      : Promise.resolve(readStoredToken()).then((stored) => (stored ? sendToken(s, stored, "launch", { auth: { source: "token" } }) : undefined))
+  ).catch(logError);
 
   const ses = session.defaultSession;
   // Nothing reaches the network from the window but the app and GitHub images.
@@ -610,6 +685,7 @@ async function boot() {
   await ses.cookies.set({ url: s.origin, name: LAUNCH_COOKIE, value: secret, httpOnly: true, sameSite: "strict", secure: false });
 
   await waitForServer(s.origin, secret, DEV ? 180_000 : 60_000);
+  await tokenReady;
   await offerRecovery(s.origin, secret);
   // Opened by "launch at login": stay in the background; the Dock icon opens a window.
   if (!app.getLoginItemSettings().wasOpenedAtLogin) createWindow(s.origin);
@@ -620,7 +696,13 @@ async function boot() {
 
 // Back from sleep: sync now (SPEC D5), once the network had a moment.
 function onResume() {
-  setTimeout(() => server?.send({ type: "sync", reason: "wake" }), WAKE_SYNC_DELAY_MS);
+  setTimeout(() => {
+    const s = server;
+    if (!s) return;
+    // The GitHub CLI may have a new token (or none) since the Mac went to sleep.
+    const reread = prefs.githubAuthSource === "gh" ? applyGh(s, "launch").then(() => undefined, logError) : Promise.resolve();
+    void reread.then(() => s.send({ type: "sync", reason: "wake" }));
+  }, WAKE_SYNC_DELAY_MS);
 }
 
 app.on("web-contents-created", (_e, contents) => {

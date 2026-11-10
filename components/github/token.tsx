@@ -4,8 +4,9 @@
 // and Settings. The token goes from this field straight into the preload
 // bridge (SPEC §2.3): never over HTTP, never into state that outlives the
 // submit, never back out of main.
-import { useState, type FormEvent } from "react";
-import { PERMISSIONS, type ConnectionStatus, type PermissionResult } from "@/lib/github/token-states";
+import { useEffect, useState, type FormEvent } from "react";
+import type { GithubAuthStatus } from "@/desktop/bridge";
+import { GH_COMMANDS, PERMISSIONS, type ConnectionStatus, type PermissionResult } from "@/lib/github/token-states";
 import { Icon } from "../icons";
 import { fetchConnection } from "../app/connection";
 
@@ -19,6 +20,76 @@ function bridgeError(e: unknown): string {
 
 export function hasBridge(): boolean {
   return typeof window !== "undefined" && !!window.deska;
+}
+
+/** What main knows about the GitHub CLI (installed, logged in, as whom); null outside the app or in an older build. */
+export function useGithubCli(): { cli: GithubAuthStatus | null; reload: () => Promise<GithubAuthStatus | null> } {
+  const [cli, setCli] = useState<GithubAuthStatus | null>(null);
+  const reload = async () => {
+    const next = (await window.deska?.github?.status().catch(() => null)) ?? null;
+    setCli(next);
+    return next;
+  };
+  useEffect(() => {
+    void reload();
+  }, []);
+  return { cli, reload };
+}
+
+/** A command for the user to run in a terminal. Deska shows it and never runs it. */
+export function Command({ children }: { children: string }) {
+  return (
+    <code data-command className="block w-fit max-w-full select-all overflow-x-auto rounded-md border border-line bg-field px-2 py-1 font-mono text-[12px]">
+      {children}
+    </code>
+  );
+}
+
+/**
+ * "Use my GitHub CLI login" (SPEC §3.1): main reads the token with
+ * `gh auth token` and hands it to the local server; nothing is pasted and
+ * nothing of the token is stored. Shown only when `gh` is installed and
+ * logged in, unless `always` (Settings), where it says what is missing.
+ */
+export function GithubCliOption({ cli, label, always = false, onChecked }: { cli: GithubAuthStatus | null; label: string; always?: boolean; onChecked: (s: ConnectionStatus | null) => void }) {
+  const [busy, setBusy] = useState(false);
+  const [problem, setProblem] = useState<GithubAuthStatus["cli"] | null>(null);
+  if (!cli || (cli.cli !== "ok" && !always)) return null;
+  const state = problem ?? cli.cli;
+
+  async function use() {
+    const bridge = window.deska?.github;
+    if (!bridge) return;
+    setBusy(true);
+    setProblem(null);
+    const after = await bridge.useCli().catch(() => null);
+    if (!after || after.cli !== "ok") {
+      setProblem(after?.cli ?? "logged-out");
+      setBusy(false);
+      return;
+    }
+    const status = await fetchConnection(true);
+    setBusy(false);
+    onChecked(status);
+  }
+
+  return (
+    <div className="space-y-2" data-github-cli={state}>
+      <button type="button" disabled={busy} onClick={() => void use()} className="inline-flex h-9 items-center gap-2 rounded-md bg-brand px-3.5 font-semibold text-brand-on hover:bg-brand-hover disabled:opacity-60">
+        {busy ? "Checking…" : label}
+        {state === "ok" && cli.cliLogin ? <span className="font-normal">(signed in as {cli.cliLogin})</span> : null}
+      </button>
+      {state !== "ok" ? (
+        <div role="alert" className="space-y-1.5 text-[12.5px]">
+          <p className="font-medium text-critical">{state === "not-found" ? "GitHub CLI isn't installed" : "GitHub CLI isn't logged in"}</p>
+          <p className="text-muted">{state === "not-found" ? "Install it (brew install gh), then run this in a terminal and try again:" : "Run this in a terminal, then try again:"}</p>
+          <Command>{GH_COMMANDS.login}</Command>
+        </div>
+      ) : (
+        <p className="text-[11.5px] text-faint">Deska reads the token from the GitHub CLI each time it starts and never stores it. It never logs the CLI in or out.</p>
+      )}
+    </div>
+  );
 }
 
 /**
@@ -139,7 +210,7 @@ export function TokenGuide() {
           ))}
         </tbody>
       </table>
-      <p className="text-faint">Classic tokens and OAuth apps are not supported. Deska never writes to GitHub with a read-only token.</p>
+      <p className="text-faint">Deska has no OAuth app of its own. It never writes to GitHub with a read-only token.</p>
     </div>
   );
 }
@@ -168,6 +239,12 @@ export function TokenSummary({ status }: { status: ConnectionStatus }) {
           {status.message}
         </p>
       )}
+      {problem && status.command && (
+        <div className="space-y-1.5">
+          <p className="text-muted">{status.state === "gh-not-found" ? "Install the GitHub CLI (brew install gh), then run this in a terminal and check again:" : "Run this in a terminal, then check again:"}</p>
+          <Command>{status.command}</Command>
+        </div>
+      )}
       {status.expiryWarning && (
         <p className="flex items-start gap-1.5 text-warning">
           <Icon name="clock" size={13} className="mt-0.5 shrink-0" />
@@ -182,6 +259,14 @@ export function TokenSummary({ status }: { status: ConnectionStatus }) {
       )}
       {status.login && (
         <dl className="grid grid-cols-[max-content_1fr] gap-x-4 gap-y-1">
+          <dt className="text-faint">Sign-in</dt>
+          <dd data-auth-source={status.source}>{status.source === "gh" ? "GitHub CLI login (not stored by Deska)" : "Personal access token"}</dd>
+          {status.scopes && (
+            <>
+              <dt className="text-faint">Scopes</dt>
+              <dd data-scopes>{status.scopes.length ? status.scopes.join(", ") : "None"}</dd>
+            </>
+          )}
           <dt className="text-faint">Expires</dt>
           <dd>{status.expiresAt ? status.expiresAt.slice(0, 10) : "No expiration date reported"}</dd>
           <dt className="text-faint">Access</dt>

@@ -16,7 +16,8 @@
 //
 // `--use-mock-keychain` keeps safeStorage off the real macOS keychain (no
 // prompts, nothing left behind); it still encrypts.
-import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import http from "node:http";
 import os from "node:os";
 import path from "node:path";
@@ -29,6 +30,8 @@ const root = process.cwd();
 
 // Obviously fake, and assembled so no token-shaped literal is committed.
 const TOKEN = ["github", "pat", "TEST", "FAKE", "SMOKE", "0".repeat(20)].join("_");
+// What the fake GitHub CLI prints (D15): an OAuth-shaped token, just as fake.
+const GH_TOKEN = ["gho", `TESTFAKESMOKE${"0".repeat(24)}`].join("_");
 
 function packagedApp(): string | null {
   if (process.env.DESKA_SMOKE_TARGET === "staged") return null;
@@ -52,6 +55,8 @@ type MockGitHub = {
   orgProjects: MockProject[];
   /** Per-request latency on the issue pages, so a first import's progress can be observed. */
   delayMs: number;
+  /** `x-oauth-scopes` GitHub reports for the fake GitHub CLI's token (D15). */
+  ghScopes: string;
   close(): Promise<void>;
 };
 
@@ -90,6 +95,7 @@ async function mockGitHub(): Promise<MockGitHub> {
     requests: [] as MockGitHub["requests"],
     projects: "ok" as MockGitHub["projects"],
     delayMs: 0,
+    ghScopes: "gist, read:org, read:project, repo",
     orgProjects: [
       { id: "PVT_acme_widgets_roadmap", number: 7, title: "Widgets Roadmap", closed: false, fields: snapshot.fields },
       { id: "PVT_acme_ops_board", number: 3, title: "Ops Board", closed: false, fields: altFields() },
@@ -122,7 +128,10 @@ async function mockGitHub(): Promise<MockGitHub> {
         return json(200, rows.slice(start, start + perPage), headers);
       };
       // Octokit sends `bearer …` from GraphQL and `token …` from REST.
-      if (auth?.replace(/^(bearer|token) /i, "") !== TOKEN) return json(401, { message: "Bad credentials" });
+      const sent = auth?.replace(/^(bearer|token) /i, "");
+      if (sent !== TOKEN && sent !== GH_TOKEN) return json(401, { message: "Bad credentials" });
+      // The GitHub CLI's OAuth token: classic scopes, no expiry.
+      if (sent === GH_TOKEN && req.method === "GET" && url.pathname === "/user") return json(200, { login: "alice", name: "Alice", avatar_url: null }, { "x-oauth-scopes": mock.ghScopes });
       if (req.method === "GET" && url.pathname === "/user") {
         return json(200, { login: "alice", name: "Alice", avatar_url: null }, { "github-authentication-token-expiration": "2027-03-01 00:00:00 UTC" });
       }
@@ -222,13 +231,16 @@ type Launched = { app: ElectronApplication; win: Page; origin: string; logs: () 
  * token check uses them until a project is chosen). Without it the app knows
  * only what onboarding step 2 stores (D4).
  */
-async function launch(userData: string, github: MockGitHub, opts: { seed?: string; envTarget?: boolean } = {}): Promise<Launched> {
+async function launch(userData: string, github: MockGitHub, opts: { seed?: string; envTarget?: boolean; ghDir?: string } = {}): Promise<Launched> {
   const env: Record<string, string> = {};
   for (const [k, v] of Object.entries(process.env)) if (v !== undefined && !k.startsWith("DESKA_") && !k.startsWith("GITHUB_")) env[k] = v;
   Object.assign(env, {
     DESKA_USER_DATA_DIR: userData,
     DESKA_DEMO_SEED: opts.seed ?? "fixtures",
     DESKA_GITHUB_API_URL: github.url,
+    // The PATH `gh` is looked up on (D15): a folder with a fake `gh`, or none.
+    // Never the login shell's, so no test can reach a real GitHub CLI.
+    DESKA_TEST_PATH: `${opts.ghDir ? `${opts.ghDir}:` : ""}/usr/bin:/bin`,
     ...(opts.envTarget === false ? {} : { GITHUB_REPO: "acme/widgets", GITHUB_ORG: "acme", GITHUB_PROJECT_NUMBER: "7" }),
   });
   const exe = packagedApp();
@@ -264,6 +276,18 @@ async function connect(win: Page, origin: string) {
   await win.getByRole("button", { name: "Continue" }).click();
   await chooseProject(win, origin, "Widgets Roadmap");
   await expect(win.getByText("Bug: crash on start")).toBeVisible({ timeout: 60_000 });
+}
+
+/** A fake `gh` in `dir`: logged in as alice with GH_TOKEN, or logged out. It logs how it was called. */
+function fakeGh(dir: string, state: "logged-in" | "logged-out") {
+  mkdirSync(dir, { recursive: true });
+  const log = `printf '%s\\n' "$*" >> "${dir}/calls.log"`;
+  const body =
+    state === "logged-in"
+      ? `case "$1 $2" in\n  "auth token") echo "${GH_TOKEN}" ;;\n  "auth status") echo "  ✓ Logged in to github.com account alice (keyring)" ;;\n  *) exit 2 ;;\nesac`
+      : `echo "no oauth token found for github.com" >&2\nexit 1`;
+  writeFileSync(path.join(dir, "gh"), `#!/bin/sh\n${log}\n${body}\n`);
+  chmodSync(path.join(dir, "gh"), 0o755);
 }
 
 /** A raw request from outside the app window, with full control of Host and Cookie. */
@@ -321,7 +345,7 @@ test.describe("desktop shell", () => {
       // The renderer has no Node, only the typed bridge.
       expect(await win.evaluate(() => typeof (globalThis as { require?: unknown }).require)).toBe("undefined");
       expect(await win.evaluate(() => typeof (globalThis as { process?: unknown }).process)).toBe("undefined");
-      expect(await win.evaluate(() => Object.keys(window.deska ?? {}).sort())).toEqual(["appInfo", "desktop", "notify", "onOpenTask", "openExternal", "quickAdd", "token"]);
+      expect(await win.evaluate(() => Object.keys(window.deska ?? {}).sort())).toEqual(["appInfo", "desktop", "github", "notify", "onOpenTask", "openExternal", "quickAdd", "token"]);
       expect(await win.evaluate(() => window.deska!.appInfo())).toMatchObject({ name: "Deska", platform: "darwin" });
       // main refuses anything that is not a GitHub PAT, with its own words.
       expect(await win.evaluate(() => window.deska!.token.set("ghp_classic").then(() => "stored", (e: Error) => e.message))).toContain("GitHub personal access token");
@@ -587,6 +611,138 @@ test.describe("desktop shell", () => {
     }
   });
 
+  test("D15: a logged-in GitHub CLI connects without pasting; nothing of its token is stored; logged out, missing and missing a scope each say so", async () => {
+    const ghDir = path.join(userData, "..", `${path.basename(userData)}-bin`);
+    fakeGh(ghDir, "logged-in");
+    const first = await launch(userData, github, { ghDir });
+    try {
+      const { win, origin } = first;
+      await win.waitForURL(`${origin}/onboarding`);
+      // Offered first, with the account the CLI is signed in as; then paste; then tasks only.
+      const useCli = win.getByRole("button", { name: /Use my GitHub CLI login/ });
+      await expect(useCli).toContainText("signed in as alice", { timeout: 60_000 });
+      const order = await win.evaluate(() => {
+        const y = (sel: string) => document.querySelector(sel)?.getBoundingClientRect().top ?? -1;
+        return [y("[data-github-cli]"), y("#github-token"), y("[data-skip-github]")];
+      });
+      expect(order.every((v) => v >= 0) && order[0]! < order[1]! && order[1]! < order[2]!, JSON.stringify(order)).toBe(true);
+      await useCli.click();
+      await expect(win.getByText("Connected as")).toContainText("@alice", { timeout: 30_000 });
+      await expect(win.locator('[data-auth-source="gh"]')).toContainText("GitHub CLI login");
+      await expect(win.locator("[data-scopes]")).toHaveText("gist, read:org, read:project, repo");
+      // `repo` can write: Settings says the write gate is what keeps Deska read-only.
+      await expect(win.getByText(/The GitHub CLI login can also write \(gist, repo\)/)).toBeVisible();
+      await win.getByRole("button", { name: "Continue" }).click();
+      await chooseProject(win, origin, "Widgets Roadmap");
+      await expect(win.getByText("Bug: crash on start")).toBeVisible({ timeout: 60_000 });
+      await expect(win.locator("[data-connection-state]")).toHaveCount(0);
+      await expect(win.locator("[data-user-menu]").first()).toContainText("alice");
+
+      // The mock saw the CLI's token, reads only.
+      expect(github.requests.some((r) => r.auth?.endsWith(GH_TOKEN))).toBe(true);
+      for (const r of github.requests) expect(r.method === "GET" || (r.method === "POST" && r.path === "/graphql"), `${r.method} ${r.path}`).toBe(true);
+      // Deska only reads from the CLI: never a login or a refresh.
+      const calls = readFileSync(path.join(ghDir, "calls.log"), "utf8").trim().split("\n");
+      expect([...new Set(calls)].sort()).toEqual(["auth status --hostname github.com", "auth token --hostname github.com"]);
+
+      // No token file, and the token is in no file of the profile: only the choice of source is stored.
+      expect(existsSync(path.join(userData, "github-token.bin"))).toBe(false);
+      expect(filesContaining(userData, GH_TOKEN)).toEqual([]);
+      expect(JSON.parse(readFileSync(path.join(userData, "desktop-prefs.json"), "utf8"))).toMatchObject({ githubAuthSource: "gh" });
+      expect(first.logs()).not.toContain(GH_TOKEN);
+      // Nor in any process's arguments or environment (macOS shows both for one's own processes).
+      expect(execFileSync("ps", ["-A", "-ww", "-E", "-o", "command="], { encoding: "utf8", maxBuffer: 64 * 1024 * 1024 })).not.toContain(GH_TOKEN);
+      // Nor anywhere the renderer can reach.
+      const leaks = await win.evaluate(async (token) => {
+        const found: string[] = [];
+        if (document.documentElement.outerHTML.includes(token)) found.push("DOM");
+        for (const api of ["/api/connection?refresh=1", "/api/data", "/api/sync-status", "/api/local-data/export"]) {
+          if ((await fetch(api).then((r) => r.text())).includes(token)) found.push(api);
+        }
+        return found;
+      }, GH_TOKEN);
+      expect(leaks).toEqual([]);
+    } finally {
+      await first.app.close();
+    }
+
+    // A relaunch reads the token from the CLI again: no onboarding, nothing stored in between.
+    const second = await launch(userData, github, { ghDir });
+    try {
+      const { win, origin } = second;
+      await win.goto(`${origin}/settings`);
+      await expect(win.locator('[data-connection-summary="ok"]')).toContainText("@alice", { timeout: 60_000 });
+      await expect(win.locator('[data-auth-source="gh"]')).toBeVisible();
+      const again = win.getByRole("button", { name: "Check again" }).first();
+
+      // Logged out of the CLI: its own message, the command to run, and the way to a pasted token.
+      fakeGh(ghDir, "logged-out");
+      await again.click();
+      await expect(win.locator('[data-connection-summary="gh-logged-out"]')).toContainText("GitHub CLI isn't logged in", { timeout: 30_000 });
+      await expect(win.locator('[data-connection-summary] [data-command]')).toHaveText("gh auth login");
+      const banner = win.locator('[data-connection-state="gh-logged-out"]');
+      await expect(banner).toContainText("GitHub CLI isn't logged in");
+      await expect(banner.getByRole("link", { name: "Paste a token instead" })).toBeVisible();
+      await expect(win.getByRole("heading", { name: "Paste a token instead" })).toBeVisible();
+      // The cached data stays up, under the banner: an error is never an empty list.
+      await win.goto(`${origin}/issues`);
+      await expect(win.getByText("Bug: crash on start")).toBeVisible({ timeout: 60_000 });
+      await expect(win.locator('[data-connection-state="gh-logged-out"]')).toBeVisible();
+
+      // The CLI gone from the PATH: a different message.
+      rmSync(path.join(ghDir, "gh"));
+      await win.locator("[data-connection-state]").getByRole("button", { name: "Check again" }).click();
+      await expect(win.locator('[data-connection-state="gh-not-found"]')).toContainText("GitHub CLI isn't installed", { timeout: 30_000 });
+
+      // Back, but the login lacks read:project: the scope and the exact command.
+      github.ghScopes = "gist, read:org, repo";
+      fakeGh(ghDir, "logged-in");
+      await win.locator("[data-connection-state]").getByRole("button", { name: "Check again" }).click();
+      const scope = win.locator('[data-connection-state="missing-scope"]');
+      await expect(scope).toContainText("Your GitHub CLI login is missing the read:project scope", { timeout: 30_000 });
+      await expect(scope).toContainText("gh auth refresh -h github.com -s read:project");
+
+      // The scope added: connected again, without a restart.
+      github.ghScopes = "gist, project, read:org, repo";
+      await scope.getByRole("button", { name: "Check again" }).click();
+      await expect(win.locator("[data-connection-state]")).toHaveCount(0, { timeout: 30_000 });
+
+      // "Paste a token instead": the source switches, and now a token file exists (encrypted).
+      await win.goto(`${origin}/settings`);
+      await win.getByLabel("Personal access token").fill(TOKEN);
+      await win.getByRole("button", { name: "Use this token" }).click();
+      await expect(win.locator('[data-auth-source="token"]')).toBeVisible({ timeout: 30_000 });
+      expect(existsSync(path.join(userData, "github-token.bin"))).toBe(true);
+      expect(JSON.parse(readFileSync(path.join(userData, "desktop-prefs.json"), "utf8"))).toMatchObject({ githubAuthSource: "token" });
+      expect(filesContaining(userData, GH_TOKEN)).toEqual([]);
+      expect(filesContaining(userData, TOKEN)).toEqual([]);
+      // And back from Settings: the stored token is deleted again.
+      await win.getByRole("button", { name: /^Use GitHub CLI login/ }).click();
+      await expect(win.locator('[data-auth-source="gh"]')).toBeVisible({ timeout: 30_000 });
+      expect(existsSync(path.join(userData, "github-token.bin"))).toBe(false);
+      expect(second.logs()).not.toContain(GH_TOKEN);
+    } finally {
+      await second.app.close();
+      rmSync(ghDir, { recursive: true, force: true });
+    }
+  });
+
+  test("D15: without a GitHub CLI, onboarding offers only the token and tasks only", async () => {
+    const { app, win, origin } = await launch(userData, github);
+    try {
+      await win.waitForURL(`${origin}/onboarding`);
+      await expect(win.getByRole("heading", { name: "Paste a token" })).toBeVisible({ timeout: 60_000 });
+      await expect(win.getByRole("button", { name: /GitHub CLI/ })).toHaveCount(0);
+      await expect(win.locator("[data-skip-github]")).toBeVisible();
+      expect(await win.evaluate(() => window.deska!.github!.status())).toEqual({ source: "token", cli: "not-found", cliLogin: null });
+      // Asking to use a CLI that isn't there changes nothing.
+      expect(await win.evaluate(() => window.deska!.github!.useCli())).toMatchObject({ source: "token", cli: "not-found" });
+      expect(existsSync(path.join(userData, "desktop-prefs.json")) ? JSON.parse(readFileSync(path.join(userData, "desktop-prefs.json"), "utf8")).githubAuthSource : "token").toBe("token");
+    } finally {
+      await app.close();
+    }
+  });
+
   test("the connection and a saved view survive a relaunch; disconnecting returns to onboarding", async () => {
     const view = { name: "Smoke: open bugs", layout: "list", filters: [{ field: "state", op: "in", values: ["open"] }], sort: [] };
     const first = await launch(userData, github);
@@ -812,7 +968,7 @@ test.describe("desktop shell", () => {
       await first.app.close();
     }
     // The prefs file keeps no secret and is read again on the next launch.
-    expect(JSON.parse(readFileSync(path.join(userData, "desktop-prefs.json"), "utf8"))).toEqual({ shortcut: "Control+Alt+K", notifications: true, launchAtLogin: false, dockBadge: false, backupFolder: "" });
+    expect(JSON.parse(readFileSync(path.join(userData, "desktop-prefs.json"), "utf8"))).toEqual({ shortcut: "Control+Alt+K", notifications: true, launchAtLogin: false, dockBadge: false, backupFolder: "", githubAuthSource: "token" });
     const second = await launch(userData, github);
     try {
       expect(await second.app.evaluate(({ globalShortcut }) => globalShortcut.isRegistered("Control+Alt+K"))).toBe(true);

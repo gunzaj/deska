@@ -1,6 +1,6 @@
 # Deska security overview
 
-For security reviewers and org admins deciding whether to approve a Deska token. Deska is a macOS desktop app that reads one GitHub repository and one organization Project (v2) with the user's own fine-grained personal access token (PAT). It has no backend, no hosting and no OAuth app.
+For security reviewers and org admins deciding whether to approve a Deska token. Deska is a macOS desktop app that reads one GitHub repository and one organization Project (v2) with the user's own fine-grained personal access token (PAT) or, if the user chooses, the login of the GitHub CLI they already use. It has no backend, no hosting and no OAuth app of its own.
 
 This page describes the design in [`SPEC.md`](SPEC.md). The desktop shell and the local server hardening below landed in D2, token entry, onboarding and the token checks in D3. In-process sync lands in D5; until then the app shows a fictional demo dataset. Check [`PROGRESS.md`](PROGRESS.md) for what is built.
 
@@ -10,6 +10,7 @@ This page describes the design in [`SPEC.md`](SPEC.md). The desktop shell and th
 Electron main process
   ├─ window, menus, dock badge, global shortcut, native notifications
   ├─ token store (safeStorage → Keychain-backed key)
+  ├─ login-shell PATH, resolved once per launch (finds `gh`)
   └─ spawns ─► utilityProcess: Next.js standalone server
                  ├─ binds 127.0.0.1:<random free port>
                  ├─ API routes, view engine, task service
@@ -31,7 +32,7 @@ A **fine-grained PAT** (recommended):
 - Resource owner: the organization.
 - Repository access: **only the one repository** Deska reads.
 
-A **classic PAT** is also accepted, for when an org has not approved a fine-grained one. It cannot be limited to one repository, so use it only with read-only scopes: `read:project` (add `read:org` if the project isn't found) for a public repository, which needs no other scope. A private repository would need the `repo` scope, which can write; avoid that. Deska reads the token's scopes (`x-oauth-scopes`) and warns in Settings when one of them can write. OAuth tokens are not supported.
+A **classic PAT** is also accepted, for when an org has not approved a fine-grained one. It cannot be limited to one repository, so use it only with read-only scopes: `read:project` (add `read:org` if the project isn't found) for a public repository, which needs no other scope. A private repository would need the `repo` scope, which can write; avoid that. Deska reads the token's scopes (`x-oauth-scopes`) and warns in Settings when one of them can write. Pasting an OAuth token is not supported; the GitHub CLI's login, below, is the one way an OAuth token is used.
 
 ### Permissions
 
@@ -48,6 +49,18 @@ Facts worth knowing:
 - The Projects permission is **org-wide**: GitHub can't scope a PAT to one project. Deska pins the project's node ID when the user picks it and refuses to write to any other project.
 - A **read-only PAT makes writes impossible on GitHub's side**, whatever the app's code does.
 - Orgs can require admin approval of fine-grained PATs and cap their lifetime. Deska tells the user when a token looks like it's awaiting approval and warns 14 days before it expires.
+
+### GitHub CLI login (optional)
+
+Instead of pasting a token, the user can pick "Use my GitHub CLI login" when the GitHub CLI (`gh`) is installed and logged in. It is offered, never chosen for them.
+
+- **What Deska runs.** Two read-only commands: `gh auth token --hostname github.com` (the token, on standard output) and `gh auth status --hostname github.com` (the account name, to show "signed in as …"). It finds `gh` on the PATH of the user's login shell, which the main process asks for once per launch (`$SHELL -l -c`, 5 s limit, then a fallback of the usual Homebrew folders). Deska never runs `gh auth login` or `gh auth refresh`; it shows the command for the user to run. It never uses the GitHub CLI's client ID and has no OAuth flow of its own.
+- **What the token is.** An OAuth token issued to the GitHub CLI's own OAuth app, with classic scopes. An org that restricts OAuth apps approves the GitHub CLI once for all its members; until then Deska says "Your org may need to approve the GitHub CLI app".
+- **Scopes.** The CLI's defaults include `repo` and `read:org`. Deska also needs `read:project` (`project` once writes are on), which the user adds with `gh auth refresh -h github.com -s read:project`. Deska reads the scopes from `x-oauth-scopes`, lists them in Settings, and names a missing one together with that command.
+- **Why the write gate matters more here.** `repo` can write to every repository the user can, and it cannot be narrowed to one repository or to read-only. So a GitHub CLI token always counts as able to write, GitHub will not refuse a write on Deska's behalf, and the first line of the write gate below gives no protection. What keeps Deska read-only with this source is the rest of the gate: "GitHub writes" is off by default and turns off again on every switch of source, a build made with `DESKA_WRITES=off` (v1.0) refuses writes outright, and the write client has an operation allowlist with no delete in it. Settings says so next to the scopes. Reviewers who want GitHub itself to enforce read-only should have people use a read-only fine-grained PAT instead.
+- **Where the token lives.** Main reads it at launch, when the Mac wakes, once after GitHub answers 401, and on "Check again", and hands it to the local server in the same IPC message as a stored token. It is held in memory only: **never written to disk** (no `github-token.bin` exists with this source; the only thing stored is the choice, `githubAuthSource: "gh"`, in `desktop-prefs.json`), and never passed to another process in arguments or environment. The local server is also started without any `GH_TOKEN` or `GITHUB_TOKEN` the user's shell may have exported. The same redaction covers it (`gho_…` and any value equal to the token).
+- **A 401** makes Deska read the token from the CLI again, once. If GitHub refuses that one too, the app shows "Your GitHub token is invalid or expired" over the cached data.
+- **Turning it off.** "Disconnect GitHub" or "Paste a token instead" turns the source off. Neither logs the GitHub CLI out. Switching to this source deletes any stored token first.
 
 ### Storage
 
@@ -77,7 +90,7 @@ The UI is a Next.js app served by a local process. Other software on the Mac mus
 - **Per-launch secret:** main generates 256 random bits, passes them to the server over IPC and sets them as an `HttpOnly`, `SameSite=Strict` cookie on the window's session before the first page load. Every request (pages and API) without it gets **403**.
 - Any `Host` header other than `127.0.0.1:<port>` gets **403** (blocks DNS rebinding).
 - Mutating requests must carry a matching `Origin`. Pages have a strict Content Security Policy.
-- The renderer runs with `contextIsolation: true`, `sandbox: true` and `nodeIntegration: false`. The preload bridge exposes only token entry, notifications, open-external and app info.
+- The renderer runs with `contextIsolation: true`, `sandbox: true` and `nodeIntegration: false`. The preload bridge exposes only token entry, the GitHub sign-in source (use the GitHub CLI login, its state, check again; never a token), notifications, open-external and app info.
 - Navigation is locked to the app's own origin. `https://github.com/*` links open in the default browser; every other external URL is blocked.
 - Nothing is loaded from the network at runtime except the GitHub API. The window itself may only fetch images from GitHub's hosts (`github.com`, `*.githubusercontent.com`) for avatars and issue attachments; every other request it makes outside the app is cancelled.
 - One app instance per user profile, so two servers never open the same database.
@@ -88,7 +101,8 @@ All under `~/Library/Application Support/Deska/`, readable only by the user's ma
 
 | What | Where | Contains |
 |---|---|---|
-| Encrypted token | app data folder (`github-token.bin`) | `safeStorage` ciphertext only |
+| Encrypted token | app data folder (`github-token.bin`) | `safeStorage` ciphertext only. Absent with the GitHub CLI source, which stores no token |
+| Desktop settings | `desktop-prefs.json` | The quick-add shortcut, notification, Dock badge and launch-at-login toggles, the second backup folder's path, and the GitHub sign-in source (`token` or `gh`). **No token** |
 | Local database | `db/` | A cache of the repository's issues and project values, the token owner's login, name and avatar URL, plus personal tasks, saved views, snoozes, watches and settings. **No token** |
 | Backups | `backups/` | JSON of local-only data (tasks, projects, labels, sections, views, snoozes, watches, settings). Daily, before each migration and before "Reset everything"; every backup of the last 14 days is kept, then one a week for 8 weeks. Files are owner-only (0600). **No token**, and any token-shaped text in a task is replaced by `[redacted]` |
 | Second backup folder (optional) | a folder the user picks in Settings; its path is in `desktop-prefs.json` | The same backup files, copied there after each backup. Chosen only with the native folder dialog (the page cannot name a path), never inside Deska's own data, written owner-only (0600). Deska only deletes files there that match its own backup names. **No token.** If it is in a synced folder (iCloud Drive, a Nextcloud or Dropbox client), the sync service then holds the user's tasks: that is the user's choice |
@@ -112,8 +126,8 @@ Exports from Settings contain the same data as a backup, and never the token.
 
 Deska v1.0 is **read-only**. Writes (planning edits, close/reopen, create issue) come later, and a GitHub write happens only when **all three** hold:
 
-1. **The token has write permissions** (Issues: Read and write, Projects: Read and write). With a read-only token GitHub refuses every write.
-2. **Settings → "GitHub writes" is on.** It's off by default, and turns off again after every token change.
+1. **The token has write permissions** (Issues: Read and write, Projects: Read and write). With a read-only token GitHub refuses every write. A GitHub CLI login always has them (its `repo` scope), so with that source only 2 and 3 stand between Deska and a write.
+2. **Settings → "GitHub writes" is on.** It's off by default, and turns off again after every token change, which includes switching between a pasted token and the GitHub CLI login.
 3. **The build allows writes.** A binary built with `DESKA_WRITES=off` refuses writes whatever 1 and 2 say. v1.0 is built this way.
 
 When writes are on, each one follows an intentional user action, checks that the value hasn't changed on GitHub since it was read, shows success or failure, and re-reads the issue afterwards. Bulk edits over 50 issues ask for confirmation first. Allowed operations:
