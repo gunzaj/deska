@@ -31,10 +31,10 @@ export async function loadClientData(now = new Date()): Promise<ClientDataResult
   // Sample data: the in-memory preview, or a database seeded with it (D2).
   const demo = (!dbDir() && demoEnabled()) || demoSeed() !== null;
   const today = now.toISOString().slice(0, 10);
-  // closeBlocked is derived from STATUS_DONE_OPTION_ID, which can change on a
-  // redeploy without a cache-generation bump; it must be part of the ETag too.
-  const closeBlocked = writeMode ? (() => {
-    const d = doneStatusOption(store);
+  // closeBlocked is derived from the Done Status chosen in Settings (W2), which
+  // can change without a cache-generation bump; it is part of the ETag too.
+  const closeBlocked = writeMode ? await (async () => {
+    const d = await doneStatusOption(store);
     return d.ok ? null : d.reason;
   })() : null;
   // The stored repository (links) and field mapping (§4.1) change without a
