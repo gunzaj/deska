@@ -15,6 +15,7 @@ import { usePoll } from "@/lib/client/poll";
 import { useAppData } from "../app/provider";
 import { useOpenIssue } from "../app/open-issue";
 import { Icon } from "../icons";
+import { Dialog } from "../ui/dialog";
 import { btn } from "../ui/popover";
 import { useToast } from "../ui/toast";
 
@@ -34,6 +35,17 @@ type Suggestion = {
   fresh: boolean;
 };
 type View = { suggestion: Suggestion | null; ai: { ready: boolean; reason: string | null } };
+
+/** The suggestion parts the model actually proposed (SPEC §4.9). */
+function suggestedParts(result: TriageSuggestion, hasSprint: boolean): string[] {
+  return [
+    ...(result.status ? ["status"] : []),
+    ...(result.priority ? ["priority"] : []),
+    ...(result.dimension ? ["dimension"] : []),
+    ...(result.sprint && hasSprint ? ["sprint"] : []),
+    ...(result.labels?.length ? ["labels"] : []),
+  ];
+}
 
 const CONFIDENCE: Record<string, string> = { low: "low confidence", medium: "medium confidence", high: "high confidence" };
 const FLAG: Record<TriageFlag["flag"], string> = { needs_info: "Needs info", probably_fixed: "Probably fixed", stale: "Stale" };
@@ -55,12 +67,14 @@ function Row({ label, children }: { label: string; children: ReactNode }) {
 }
 
 export function IssueAiSuggestion({ number }: { number: number }) {
-  const { data, byNumber, option, release } = useAppData();
+  const { data, byNumber, option, release, refresh } = useAppData();
   const open = useOpenIssue();
   const { toast } = useToast();
   const [view, setView] = useState<View | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [job, setJob] = useState<Job | null>(null);
+  /** The parts the Edit dialog keeps checked; null = the dialog is closed. */
+  const [editing, setEditing] = useState<Set<string> | null>(null);
   const [runError, setRunError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const meta = data.meta;
@@ -150,18 +164,24 @@ export function IssueAiSuggestion({ number }: { number: number }) {
     setView((v) => (v ? { ...v, suggestion: null } : v));
   }, [suggestion?.id, toast]);
 
-  const accept = useCallback(async () => {
-    const id = suggestion?.id;
-    if (!id) return;
-    try {
-      await call(`/api/ai/results/${id}/outcome`, "POST", { outcome: "accepted" });
-      setJob(null);
-      setView((v) => (v ? { ...v, suggestion: null } : v));
-      toast({ message: "Accepted." });
-    } catch (e) {
-      toast({ message: e instanceof Error ? e.message : String(e) });
-    }
-  }, [suggestion?.id, toast]);
+  const accept = useCallback(
+    async (parts?: string[]) => {
+      const id = suggestion?.id;
+      if (!id) return;
+      try {
+        const out = await call(`/api/ai/results/${id}/outcome`, "POST", { outcome: "accepted", ...(parts ? { parts } : {}) });
+        setJob(null);
+        setView((v) => (v ? { ...v, suggestion: null } : v));
+        // The outbox re-read the issue; pull the new values into the page.
+        await refresh();
+        const applied = (out.applied as string[] | undefined) ?? [];
+        toast({ message: applied.length ? `Accepted: ${applied.join(", ")}.` : "Accepted; nothing had to change." });
+      } catch (e) {
+        toast({ message: e instanceof Error ? e.message : String(e) });
+      }
+    },
+    [suggestion?.id, toast, refresh],
+  );
 
   // Loading, or AI off with nothing to show: the issue panel stays clean.
   if (!view) {
@@ -279,6 +299,7 @@ export function IssueAiSuggestion({ number }: { number: number }) {
             </button>
             <button
               type="button"
+              onClick={() => setEditing(new Set(suggestedParts(suggestion.result, meta.mapping.sprint != null)))}
               className={btn.outline}
               disabled={!meta.writeMode || !suggestion.id}
               title={!meta.writeMode ? (meta.editOffReason ?? EDITING_OFF) : "Adjust the suggestion before accepting"}
@@ -299,6 +320,53 @@ export function IssueAiSuggestion({ number }: { number: number }) {
             )}
           </div>
           {!meta.writeMode && <p className="text-[11.5px] text-faint">{meta.editOffReason ?? EDITING_OFF}: accepting a GitHub change is off.</p>}
+          <Dialog open={editing != null} onClose={() => setEditing(null)} label="Accept suggestion" width={420}>
+            {editing && (
+              <div className="space-y-3 p-4">
+                <p className="text-[13px] font-semibold">Apply which parts?</p>
+                <p className="text-[12px] text-muted">The suggestion only changes the parts you keep checked; nothing else is touched.</p>
+                <ul className="space-y-1.5">
+                  {suggestedParts(suggestion.result, meta.mapping.sprint != null).map((part) => (
+                    <li key={part}>
+                      <label className="flex items-center gap-2 text-[13px]">
+                        <input
+                          type="checkbox"
+                          className="size-3.5 accent-brand"
+                          checked={editing.has(part)}
+                          onChange={(e) =>
+                            setEditing((cur) => {
+                              const next = new Set(cur ?? []);
+                              if (e.target.checked) next.add(part);
+                              else next.delete(part);
+                              return next;
+                            })
+                          }
+                        />
+                        <span className="capitalize">{part}</span>
+                      </label>
+                    </li>
+                  ))}
+                </ul>
+                <div className="flex justify-end gap-1.5">
+                  <button type="button" onClick={() => setEditing(null)} className={btn.ghost}>
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const parts = [...editing];
+                      setEditing(null);
+                      void accept(parts);
+                    }}
+                    className={btn.outline}
+                    data-ai-apply
+                  >
+                    <Icon name="check" size={13} /> Apply
+                  </button>
+                </div>
+              </div>
+            )}
+          </Dialog>
         </>
       ) : (
         <div className="space-y-1.5">

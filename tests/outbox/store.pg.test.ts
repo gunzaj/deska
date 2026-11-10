@@ -340,4 +340,34 @@ describe("the outbox (W0: one process, no lease)", async () => {
     await edit({ field: "priority", base: LOW, next: HIGH }, fakeClient({ priority: null }));
     expect((await listOpenEdits()).map((e) => e.status)).toEqual(["conflict"]);
   });
+
+describe("each §4.8 planning field goes through the outbox (W1)", () => {
+  it("writes the mapped dimension, Release, Type and Milestone by ID", async () => {
+    const cases: { body: Parameters<typeof submitEdit>[0]["body"]; expected: string }[] = [
+      { body: { field: "dim:PVTSSF_acme_team", base: null, next: "c0000002" }, expected: 'dim:PVTSSF_acme_team="c0000002"' },
+      { body: { field: "release", base: null, next: "e0000023" }, expected: 'release="e0000023"' },
+      { body: { field: "type", base: "IT_acme_bug", next: "IT_acme_feature" }, expected: 'type="IT_acme_feature"' },
+      { body: { field: "milestone", base: null, next: "M_1" }, expected: 'milestone="M_1"' },
+    ];
+    for (const c of cases) {
+      const client = fakeClient({ type: "IT_acme_bug" });
+      const r = await edit(c.body, client);
+      expect(r.status, JSON.stringify(c.body)).toBe(200);
+      expect(client.applied).toEqual([c.expected]);
+    }
+  });
+
+  it("two edits to different labels both survive: deltas commute and skip the stale check", async () => {
+    const labels = new Set<string>();
+    const client = fakeClient({ labels: [] });
+    client.applyField = async (_n, _f, next) => {
+      const d = next as { added: string[]; removed: string[] };
+      for (const l of d.added) labels.add(l);
+      for (const l of d.removed) labels.delete(l);
+    };
+    expect((await edit({ field: "labels", next: { added: ["LA_1"], removed: [] } }, client)).status).toBe(200);
+    expect((await edit({ field: "labels", next: { added: ["LA_2"], removed: [] } }, client)).status).toBe(200);
+    expect([...labels].sort()).toEqual(["UI", "dashboard"]);
+  });
+});
 });
