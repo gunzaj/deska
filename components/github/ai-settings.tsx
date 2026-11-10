@@ -3,7 +3,7 @@
 // Settings → AI (SPEC §4.9): provider, model, endpoint, API key, timeout, extra
 // instructions, what each feature sends, and Test connection. Off by default;
 // nothing leaves the Mac until the chosen provider passes the test.
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { AiKeyStatus } from "../../desktop/bridge";
 import { AI_PROVIDERS, CLAUDE_MODELS, DEFAULT_AI_SETTINGS, DEFAULT_CLAUDE_MODEL, MAX_EXTRA_INSTRUCTIONS, MAX_TIMEOUT_SEC, MIN_TIMEOUT_SEC, type AiProvider, type AiSettings, type TestResult } from "@/lib/ai/types";
 
@@ -38,11 +38,17 @@ export function AiSettingsSection() {
   // The key is entered through the desktop shell's bridge, never over HTTP (SPEC §2.3).
   const bridge = typeof window === "undefined" ? undefined : window.deska?.aiKey;
 
+  const loaded = useRef(false);
   const load = useCallback(async () => {
     try {
       const v = (await call("/api/ai/settings")) as unknown as View;
       setView(v);
-      setDraft(v.settings);
+      // The first load fills the form. A later one (after Test connection) must
+      // not overwrite a provider the user picked while it was still arriving.
+      if (!loaded.current) {
+        loaded.current = true;
+        setDraft(v.settings);
+      }
     } catch (e) {
       setMessage({ kind: "error", text: e instanceof Error ? e.message : String(e) });
     }

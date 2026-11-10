@@ -155,6 +155,7 @@
 - AI1: The free key in triage mode is `I` (§4.9 asks for one; recorded here). It asks for a suggestion for the issue on screen, or says why AI can't run.
 - AI1: "Suggest for this queue" asks for the issues of the locked tab filters, not the user's extra filters, one job each sharing a batch id. The page keeps the states it has already seen (the runner prunes finished jobs), confirms above 20 with the count, and Cancel cancels every queued or running job of the batch.
 - AI1: Accepting a GitHub change is W1's outbox: the accept route refuses with 409 and the write-off reason while writes are off, and with 501 while writes are on (this build has no write path). Dismiss is local (`ai_results.dismissed_at`). Edit is disabled like Accept.
+- AI1: The new e2e spec mocks the AI API routes in its own browser context instead of changing the shared e2e server's AI settings; the real server path (job, storage, schema, mock endpoint, fake `claude`) is covered by Vitest. It also found and fixed an AI0 load race in Settings → AI: the first `/api/ai/settings` response could overwrite a provider picked before it arrived (the form now takes the first load only; later loads refresh the view and the tested mark).
 - AI1: Ran this milestone on DeepSeek V4.1 Flash Max, though §0.6 recommends Opus 5.5 for AI1. The full local e2e run had three timing flakes (connection, sprint `[`, triage snooze) that passed on rerun, as in earlier milestones.
 
 ## Maintainer to-do

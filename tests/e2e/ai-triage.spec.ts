@@ -1,11 +1,10 @@
 import { expect, test, type Page } from "@playwright/test";
-import { chatOk, mockEndpoint, type MockEndpoint } from "../ai/helpers";
 import { as, writesOn } from "./helpers";
 
 // SPEC §4.9, AI1: issue triage suggestions in the issue panel, the free key in
-// triage mode and "Suggest for this queue". The model is a mock endpoint on
-// 127.0.0.1; nothing real is called. The e2e servers run with writes off, so
-// Accept is disabled with the reason.
+// triage mode and "Suggest for this queue". The AI API routes are mocked here so
+// the specs never touch the shared AI settings (the e2e servers are shared with
+// other specs); the server side (jobs, storage, schema) is covered by Vitest.
 
 /** A schema-valid suggestion for fixture issue #102 (Team c0000001, Release e0000023). */
 const SUGGESTION = {
@@ -19,32 +18,47 @@ const SUGGESTION = {
   flags: [{ flag: "needs_info", reason: "No reproduction steps." }],
 };
 
-async function configure(page: Page, url: string) {
-  const saved = await page.request.post("/api/ai/settings", {
-    data: { provider: "openai", model: "tiny-model", baseUrl: url, timeoutSec: 120, extraInstructions: "" },
-  });
-  expect(saved.ok()).toBe(true);
-  const tested = await page.request.post("/api/ai/test");
-  expect(await tested.json()).toMatchObject({ ok: true });
-}
+const JOB_ID = "22222222-2222-4222-8222-222222222222";
+const RESULT_ID = "33333333-3333-4333-8333-333333333333";
+const DONE_AT = "2026-11-10T09:00:00.000Z";
 
-async function resetAi(page: Page) {
-  await page.request.post("/api/ai/settings", {
-    data: { provider: "off", model: "sonnet", baseUrl: "", timeoutSec: 120, extraInstructions: "" },
-  });
-}
+const job = (state: string, over: Record<string, unknown> = {}) => ({
+  id: JOB_ID,
+  feature: "issue-triage",
+  subject: "102",
+  state,
+  createdAt: DONE_AT,
+  finishedAt: state === "done" ? DONE_AT : null,
+  error: null,
+  resultId: state === "done" ? RESULT_ID : null,
+  result: state === "done" ? SUGGESTION : null,
+  batchId: null,
+  provider: "openai",
+  model: "tiny-model",
+  ...over,
+});
 
-/** The mock endpoint answers chat requests with `answer` (and lists a model). */
-function answerWith(ep: MockEndpoint, answer: unknown) {
-  ep.handle((r) => (r.url.endsWith("/models") ? [200, { data: [{ id: "tiny-model" }] }] : [200, chatOk(answer)]));
+/** Intercept the issue's AI routes: ready, a suggestion run, a poll and the outcome. */
+async function mockSuggestion(page: Page) {
+  const sent: string[] = [];
+  await page.route("**/api/issues/102/ai", async (route) => {
+    sent.push(route.request().method());
+    if (route.request().method() === "POST") await route.fulfill({ json: { job: job("running") } });
+    else await route.fulfill({ json: { suggestion: null, ai: { ready: true, reason: null } } });
+  });
+  await page.route("**/api/ai/jobs/*", (route) => route.fulfill({ json: { job: job("done") } }));
+  await page.route("**/api/ai/results/*/outcome", async (route) => {
+    const body = route.request().postDataJSON() as { outcome: string };
+    sent.push(`outcome:${body.outcome}`);
+    await route.fulfill({ json: { ok: true, outcome: body.outcome } });
+  });
+  return sent;
 }
 
 test("the issue panel shows a suggestion and Accept is disabled while writes are off", async ({ browser }) => {
-  const ep = await mockEndpoint();
   const { context, page } = await as(browser);
+  const sent = await mockSuggestion(page);
   try {
-    await configure(page, ep.url);
-    answerWith(ep, SUGGESTION);
     await page.goto("/issues/102");
     const section = page.getByRole("region", { name: "AI suggestion" });
     await expect(section).toBeVisible();
@@ -58,28 +72,25 @@ test("the issue panel shows a suggestion and Accept is disabled while writes are
     await expect(accept).toHaveAttribute("title", "Editing is off for this deployment");
     await section.getByRole("button", { name: "Dismiss" }).click();
     await expect(section.getByRole("button", { name: "Suggest with AI" })).toBeVisible();
+    // React's dev StrictMode mounts the section twice: two GETs on open.
+    expect(sent.filter((s) => s !== "GET")).toEqual(["POST", "outcome:dismissed"]);
+    expect(sent.filter((s) => s === "GET").length).toBeGreaterThanOrEqual(1);
   } finally {
-    await resetAi(page);
     await context.close();
-    await ep.close();
   }
 });
 
 test("the free key in triage mode asks for a suggestion", async ({ browser }) => {
-  const ep = await mockEndpoint();
   const { context, page } = await as(browser);
+  await mockSuggestion(page);
   try {
-    await configure(page, ep.url);
-    answerWith(ep, SUGGESTION);
     await page.goto("/triage/run?tab=needs");
     const section = page.getByRole("region", { name: "AI suggestion" });
     await expect(section).toBeVisible();
     await page.keyboard.press("i");
     await expect(section).toContainText("The app crashes when it starts.");
   } finally {
-    await resetAi(page);
     await context.close();
-    await ep.close();
   }
 });
 
@@ -88,31 +99,18 @@ test("Suggest for this queue confirms a big batch and can be cancelled", async (
   // 25 synthetic issues join the one fixture issue in the Needs triage queue.
   await writesOn(page, { extraIssues: 25 });
   const batchId = "11111111-1111-4111-8111-111111111111";
-  const job = (i: number, n: number, state: string) => ({
-    id: `00000000-0000-4000-8000-${String(i + 1).padStart(12, "0")}`,
-    feature: "issue-triage",
-    subject: String(n),
-    state,
-    createdAt: new Date().toISOString(),
-    finishedAt: null,
-    error: null,
-    resultId: null,
-    result: null,
-    batchId,
-    provider: "openai",
-    model: "tiny-model",
-  });
+  const batchJob = (i: number, n: number, state: string) => job(state, { id: `00000000-0000-4000-8000-${String(i + 1).padStart(12, "0")}`, subject: String(n), batchId });
   let numbers: number[] = [];
   const cancelled: string[] = [];
   await page.route("**/api/ai/status", (route) => route.fulfill({ json: { ready: true, reason: null } }));
   await page.route("**/api/ai/triage-queue", async (route) => {
     numbers = (route.request().postDataJSON() as { numbers: number[] }).numbers;
-    await route.fulfill({ json: { batchId, jobs: numbers.map((n, i) => job(i, n, "queued")) } });
+    await route.fulfill({ json: { batchId, jobs: numbers.map((n, i) => batchJob(i, n, "queued")) } });
   });
-  await page.route("**/api/ai/jobs?batch=*", (route) => route.fulfill({ json: { jobs: numbers.map((n, i) => job(i, n, "running")) } }));
+  await page.route("**/api/ai/jobs?batch=*", (route) => route.fulfill({ json: { jobs: numbers.map((n, i) => batchJob(i, n, "running")) } }));
   await page.route("**/api/ai/jobs/*/cancel", async (route) => {
     cancelled.push(route.request().url());
-    await route.fulfill({ json: { job: job(0, 0, "cancelled") } });
+    await route.fulfill({ json: { job: batchJob(0, 0, "cancelled") } });
   });
   try {
     await page.goto("/triage?tab=needs");
