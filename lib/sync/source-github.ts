@@ -401,11 +401,12 @@ export class GitHubSource implements SyncSource {
   /**
    * The issue's project item with its field values, or null when the
    * issue isn't in the project (W1: re-read after a write, with the writer's token).
+   * The owner may be an organization or a user (§1.2), so both fragments ask for `login`.
    */
   async fetchProjectItem(issueNodeId: string): Promise<SnapshotProjectItem | null> {
     const res = await this.gql(
       `query($id:ID!) { node(id:$id) { ... on Issue { projectItems(first:50) { nodes {
-        id updatedAt project { number owner { ... on Organization { login } } }
+        id updatedAt project { number owner { ... on Organization { login } ... on User { login } } }
         fieldValues(first:50) { nodes {
           ... on ProjectV2ItemFieldSingleSelectValue { optionId field { ... on ProjectV2FieldCommon { id name } } }
           ... on ProjectV2ItemFieldIterationValue { iterationId field { ... on ProjectV2FieldCommon { id name } } }

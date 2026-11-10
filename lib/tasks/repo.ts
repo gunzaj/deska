@@ -482,13 +482,22 @@ async function writeLinks(db: Db, taskId: string, links: TaskLink[]) {
   }
 }
 
+const SNOOZE_KIND = "snooze";
+
 async function remindersFor(ids: string[]): Promise<Map<string, Reminder[]>> {
   const out = new Map<string, Reminder[]>();
   if (!ids.length) return out;
   const rows = await conn().select().from(taskReminders).where(inArray(taskReminders.taskId, ids));
   for (const r of rows) {
+    // A snoozed reminder is stored as kind "snooze" (the column is plain text).
     const rem: Reminder | null =
-      r.kind === "absolute" && r.at ? { id: r.id, kind: "absolute", at: r.at.toISOString() } : r.kind === "relative" ? { id: r.id, kind: "relative", offsetMin: r.offsetMin ?? 0 } : null;
+      r.kind === "absolute" && r.at
+        ? { id: r.id, kind: "absolute", at: r.at.toISOString() }
+        : r.kind === SNOOZE_KIND && r.at
+          ? { id: r.id, kind: "absolute", at: r.at.toISOString(), snooze: true }
+          : r.kind === "relative"
+            ? { id: r.id, kind: "relative", offsetMin: r.offsetMin ?? 0 }
+            : null;
     if (rem) out.set(r.taskId, [...(out.get(r.taskId) ?? []), rem]);
   }
   return out;
@@ -500,7 +509,7 @@ async function writeReminders(db: Db, taskId: string, reminders: Reminder[]) {
     await db.insert(taskReminders).values(
       reminders.map((r) =>
         r.kind === "absolute"
-          ? { id: r.id, taskId, kind: "absolute", at: new Date(r.at), offsetMin: null }
+          ? { id: r.id, taskId, kind: r.snooze ? SNOOZE_KIND : "absolute", at: new Date(r.at), offsetMin: null }
           : { id: r.id, taskId, kind: "relative", offsetMin: r.offsetMin, at: null },
       ),
     );
@@ -834,7 +843,7 @@ export class PostgresTaskRepo implements TaskRepo {
     const absolute = conn()
       .select({ id: taskReminders.taskId })
       .from(taskReminders)
-      .where(and(eq(taskReminders.kind, "absolute"), gt(taskReminders.at, since), lte(taskReminders.at, until)));
+      .where(and(inArray(taskReminders.kind, ["absolute", SNOOZE_KIND]), gt(taskReminders.at, since), lte(taskReminders.at, until)));
     const rows = await conn()
       .select()
       .from(tasksTable)

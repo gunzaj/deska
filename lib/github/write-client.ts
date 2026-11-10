@@ -372,12 +372,43 @@ export class GitHubWriteClient implements WriteClient {
       ...(payload.assigneeLogins.length ? { assignees: payload.assigneeLogins } : {}),
       ...(payload.milestoneNumber != null ? { milestone: payload.milestoneNumber } : {}),
     });
-    const data = created as { node_id?: unknown; number?: unknown };
+    // Octokit resolves to the response ({ status, headers, data }); the issue is in `data`.
+    const data = ((created as { data?: unknown } | null)?.data ?? {}) as { node_id?: unknown; number?: unknown };
     if (typeof data.node_id !== "string" || !data.node_id || typeof data.number !== "number") {
       throw new NonRetryableError("GitHub created the issue but returned no node ID; nothing else was written");
     }
     this.items.set(data.node_id, "");
     return { nodeId: data.node_id, number: data.number };
+  }
+
+  /**
+   * An issue this token's user already created from `payload` at or after `since`
+   * (W3). A create whose answer was lost (a timeout, a 502 after GitHub committed)
+   * is looked up before it is sent again, so a retry never makes a second issue.
+   */
+  async findCreatedIssue(payload: CreateIssuePayload, since: Date): Promise<{ nodeId: string; number: number } | null> {
+    const me = await this.rest.users.getAuthenticated();
+    const login = me.data.login;
+    // A little slack for clock skew between this machine and GitHub.
+    const from = new Date(since.getTime() - 5 * 60_000);
+    const res = await this.rest.issues.listForRepo({
+      owner: this.owner,
+      repo: this.repo,
+      creator: login,
+      state: "all",
+      sort: "created",
+      direction: "desc",
+      since: from.toISOString(),
+      per_page: 50,
+    });
+    const hit = res.data.find(
+      (i) =>
+        !i.pull_request &&
+        i.title === payload.title &&
+        (i.body ?? "") === payload.body &&
+        new Date(i.created_at).getTime() >= from.getTime(),
+    );
+    return hit ? { nodeId: hit.node_id, number: hit.number } : null;
   }
 
   /** Add an existing issue to the pinned project (W3); reuses the item lookup. */

@@ -106,6 +106,21 @@ export function schemaVersion(): number {
   return journal.entries.length;
 }
 
+/**
+ * How many migrations this database has applied (drizzle's own table). A
+ * backup taken before pending migrations run is stamped with this, not with
+ * `schemaVersion()`, so the previous build can still import it after a
+ * rollback. Falls back to `schemaVersion()` when the table cannot be read.
+ */
+export async function appliedSchemaVersion(): Promise<number> {
+  try {
+    const res = await getDb().execute(sql`SELECT count(*)::int AS n FROM drizzle.__drizzle_migrations`);
+    return Number((res.rows[0] as { n: number }).n);
+  } catch {
+    return schemaVersion();
+  }
+}
+
 function requireDb() {
   if (!dbDir()) throw new LocalDataError("There is no local database in this run.", 409);
   return getDb();
@@ -121,7 +136,7 @@ export async function exportLocalData(now = new Date()): Promise<LocalData> {
     const res = await db.execute(sql.raw(`SELECT coalesce(jsonb_agg(to_jsonb(t)), '[]'::jsonb) AS rows FROM ${t.name} t`));
     tables[t.name] = (res.rows[0] as { rows: Record<string, unknown>[] }).rows;
   }
-  return redactDeep({ kind: BACKUP_KIND, v: BACKUP_VERSION, createdAt: now.toISOString(), schemaVersion: schemaVersion(), tables });
+  return redactDeep({ kind: BACKUP_KIND, v: BACKUP_VERSION, createdAt: now.toISOString(), schemaVersion: await appliedSchemaVersion(), tables });
 }
 
 const documentSchema = z.object({
@@ -224,6 +239,16 @@ const KEPT_STATE = `key NOT LIKE 'github.%' AND key NOT IN ('views.seeded', '${G
  * and the settings (project and field mapping) stay.
  */
 export async function resetGithubCache(): Promise<void> {
+  await clearGithubCache();
+  void syncService().request("project");
+}
+
+/**
+ * Drop the GitHub cache and the sync cursors with the sync paused, without
+ * starting a new sync (the caller does). Also used when the user switches to
+ * another repository or project: the old cursors and rows must not carry over.
+ */
+export async function clearGithubCache(): Promise<void> {
   const db = requireDb();
   await withSyncPaused(async () => {
     await db.transaction(async (tx) => {
@@ -234,7 +259,6 @@ export async function resetGithubCache(): Promise<void> {
     });
   });
   afterLocalDataChange();
-  void syncService().request("project");
 }
 
 /**

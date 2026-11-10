@@ -16,8 +16,12 @@ export const PRIORITIES: { value: Priority; label: string; short: string }[] = [
   { value: 4, label: "Low", short: "P4" },
 ];
 
-/** Extra reminder (§12.6): minutes before the due time, or an absolute instant. */
-export type Reminder = { id: string; kind: "relative"; offsetMin: number } | { id: string; kind: "absolute"; at: string };
+/**
+ * Extra reminder (§12.6): minutes before the due time, or an absolute instant.
+ * `snooze` marks an absolute one made by Snooze: it belongs to the current
+ * occurrence only, so completing that occurrence drops it instead of moving it.
+ */
+export type Reminder = { id: string; kind: "relative"; offsetMin: number } | { id: string; kind: "absolute"; at: string; snooze?: true };
 
 export type Recurrence = { rule: string; text: string; fromCompletion: boolean };
 
@@ -130,7 +134,7 @@ const recurrence = z.object({
 });
 const reminderInput = z.union([
   z.object({ kind: z.literal("relative"), offsetMin: z.number().int().min(0).max(60 * 24 * 14) }),
-  z.object({ kind: z.literal("absolute"), at: z.string().datetime() }),
+  z.object({ kind: z.literal("absolute"), at: z.string().datetime(), snooze: z.literal(true).optional() }),
 ]);
 const reminders = z.array(reminderInput).max(10);
 export type ReminderInput = z.infer<typeof reminderInput>;

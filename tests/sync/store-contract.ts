@@ -9,7 +9,8 @@ import { partialSnapshot, type SnapshotProjectItem } from "@/lib/sync/types";
 import { fixtureSnapshot } from "../fixtures/github";
 
 export type ContractStore = ImportStore & { importSnapshot: ImportStore["importSnapshot"] };
-export type ContractSetup = { store: ContractStore; read: () => Promise<ReadModel> };
+/** `changes`: the recorded field history (F0) as issue node ID and field. */
+export type ContractSetup = { store: ContractStore; read: () => Promise<ReadModel>; changes: () => Promise<{ issueNodeId: string; field: string }[]> };
 
 const item = (itemId: string, issueNodeId: string, updatedAt?: string): SnapshotProjectItem => ({
   itemId,
@@ -51,6 +52,37 @@ export function storeContract(label: string, setup: () => Promise<ContractSetup>
       // An older one arriving late does not displace it.
       await s.store.importSnapshot(partialSnapshot({ projectItems: [item("PVTI_old", "I_bug", "2026-09-01T00:00:00Z")] }));
       expect(await itemsOf("I_bug")).toEqual(["PVTI_b"]);
+    });
+
+    it("a stale issue payload changes nothing: row, labels, assignees, parent or history (v5 2.1)", async () => {
+      const issue = fixtureSnapshot().issues.find((i) => i.nodeId === "I_sub")!;
+      await s.store.importSnapshot(partialSnapshot({ issues: [{ ...issue, updatedAt: "2026-10-12T10:00:00Z" }] }));
+      const before = (await s.read()).issues.get("I_sub")!;
+      const history = (await s.changes()).length;
+      await s.store.importSnapshot(
+        partialSnapshot({
+          issues: [{ ...issue, updatedAt: "2026-10-12T09:00:00Z", state: "closed", labelIds: ["LA_1"], assigneeIds: ["U_1"], parentNodeId: null }],
+        }),
+      );
+      const after = (await s.read()).issues.get("I_sub")!;
+      expect({ state: after.state, labels: after.labelIds, assignees: after.assigneeIds, parent: after.parentNodeId }).toEqual({
+        state: before.state,
+        labels: before.labelIds,
+        assignees: before.assigneeIds,
+        parent: "I_epic",
+      });
+      expect(await s.changes()).toHaveLength(history);
+    });
+
+    it("a stale project item payload records no history (v5 2.1)", async () => {
+      const current = fixtureSnapshot().projectItems.find((p) => p.issueNodeId === "I_epic")!;
+      await s.store.importSnapshot(partialSnapshot({ projectItems: [{ ...current, updatedAt: "2026-10-12T10:00:00Z" }] }));
+      const history = (await s.changes()).length;
+      await s.store.importSnapshot(
+        partialSnapshot({ projectItems: [{ ...current, statusOpt: "a0000006", priorityOpt: null, dims: {}, updatedAt: "2026-10-12T09:00:00Z" }] }),
+      );
+      expect((await s.read()).projectItems.get(current.itemId)).toMatchObject({ statusOpt: current.statusOpt, priorityOpt: current.priorityOpt });
+      expect(await s.changes()).toHaveLength(history);
     });
 
     it("a scan's prune removes unseen items and keeps the seen ones", async () => {

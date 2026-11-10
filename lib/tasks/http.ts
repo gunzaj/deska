@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { displayRepo } from "@/lib/config";
+import { linkRepo } from "@/lib/settings";
 import { renderMarkdownLite, sanitizeHtml } from "@/lib/server/issue-detail";
 import { getStore } from "@/lib/store";
 import type { ReadModel } from "@/lib/sync/read-model";
@@ -34,15 +34,19 @@ export async function resolver(): Promise<Resolve> {
 }
 
 /** A task plus its rendered description, for the panel. */
-export function withHtml(task: Task) {
-  return { task, descriptionHtml: task.description ? sanitizeHtml(renderMarkdownLite(task.description, displayRepo())) : "" };
+export async function withHtml(task: Task) {
+  const repo = await linkRepo();
+  return { task, descriptionHtml: task.description ? sanitizeHtml(renderMarkdownLite(task.description, repo)) : "" };
 }
 
-export function fail(r: Extract<Result<unknown>, { ok: false }>) {
+export async function fail(r: Extract<Result<unknown>, { ok: false }>) {
   // A conflict carries the current task so the client can show it (S9).
-  if (r.status === 409 && r.current) return NextResponse.json({ error: r.error, current: withHtml(r.current) }, { status: 409 });
+  if (r.status === 409 && r.current) return NextResponse.json({ error: r.error, current: await withHtml(r.current) }, { status: 409 });
   return NextResponse.json({ error: r.error }, { status: r.status });
 }
 
 /** A comment plus its rendered markdown. */
-export const withBodyHtml = (c: TaskComment) => ({ ...c, bodyHtml: sanitizeHtml(renderMarkdownLite(c.body, displayRepo())) });
+export const withBodyHtml = async (c: TaskComment) => {
+  const repo = await linkRepo();
+  return { ...c, bodyHtml: sanitizeHtml(renderMarkdownLite(c.body, repo)) };
+};

@@ -72,7 +72,8 @@ describe("due times and recurrence (§12.5)", () => {
     // 18:00 Prague on Thu 22 Oct (CEST) -> 18:00 Prague on Thu 29 Oct (CET).
     const after = (done.body.task.reminders as { id: string; at: string }[])[0]!;
     expect(after.at).toBe("2026-10-29T17:00:00.000Z");
-    expect(after.id).not.toBe(before.id);
+    // Same ID: the dedupe key carries the instant, so an undo that moves it back stays fired.
+    expect(after.id).toBe(before.id);
   });
 
   it("every! counts from the completion day; Complete forever ends the recurrence", async () => {
@@ -82,6 +83,14 @@ describe("due times and recurrence (§12.5)", () => {
     const forever = await patch(body.task.id, { completed: true, endRecurrence: true });
     expect(forever.body.task.completedAt).not.toBeNull();
     expect(forever.body.task.recurrence).toBeNull();
+  });
+
+  it("every! completed the day before it is due moves past the due date and can be completed again", async () => {
+    vi.useFakeTimers({ now: new Date("2026-11-09T10:00:00Z"), toFake: ["Date"] });
+    const { body } = await create({ title: "Stretch", dueDate: "2026-11-10", recurrence: { rule: "FREQ=DAILY", text: "every! day", fromCompletion: true } });
+    expect((await patch(body.task.id, { completed: true })).body.task.dueDate).toBe("2026-11-11");
+    vi.setSystemTime(new Date("2026-11-11T10:00:00Z"));
+    expect((await patch(body.task.id, { completed: true })).body.task.dueDate).toBe("2026-11-12");
   });
 
   it("every month from the 31st keeps returning to the month's end", async () => {

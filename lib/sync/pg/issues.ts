@@ -59,12 +59,18 @@ export async function upsertIssueRows(tx: Tx, list: SnapshotIssue[], ctx: Ctx = 
   const stats = emptyStats();
   const before = list.length
     ? await tx
-        .select({ id: issues.id, nodeId: issues.ghNodeId, state: issues.state })
+        .select({ id: issues.id, nodeId: issues.ghNodeId, state: issues.state, updatedAt: issues.updatedAt })
         .from(issues)
         .where(inArray(issues.ghNodeId, [...new Set(list.map((i) => i.nodeId))]))
     : [];
   const was = new Map(before.map((r) => [r.nodeId!, r]));
   for (const i of list) if (!was.has(i.nodeId)) ctx.fresh.add(i.nodeId);
+  // Older than the stored row: `notOlder` skips the row, and nothing else of it is written either.
+  for (const i of list) {
+    const b = was.get(i.nodeId);
+    if (b?.updatedAt && new Date(i.updatedAt) < b.updatedAt) ctx.stale.add(i.nodeId);
+    else ctx.stale.delete(i.nodeId);
+  }
   const groups = new Map<string, { props: string[]; rows: SnapshotIssue[] }>();
   for (const i of list) {
     const props: string[] = [...ISSUE_PROPS];
@@ -93,7 +99,7 @@ export async function upsertIssueRows(tx: Tx, list: SnapshotIssue[], ctx: Ctx = 
   const moved: ChangeRow[] = [];
   for (const i of list) {
     const b = was.get(i.nodeId);
-    if (b && b.state !== i.state) moved.push({ issueId: b.id, field: "state", oldValue: b.state, newValue: i.state });
+    if (b && b.state !== i.state && !ctx.stale.has(i.nodeId)) moved.push({ issueId: b.id, field: "state", oldValue: b.state, newValue: i.state });
   }
   await recordChanges(tx, moved, ctx.source);
   return stats;
@@ -104,9 +110,12 @@ export async function upsertIssueRows(tx: Tx, list: SnapshotIssue[], ctx: Ctx = 
  * links whose parent is already cached. Returns the parent links that must
  * wait for a later page (their parent wasn't written yet).
  */
-export async function importIssuePage(tx: Tx, page: SnapshotIssue[], ctx: Ctx = newCtx()): Promise<{ stats: StoreStats; deferred: SnapshotIssue[] }> {
+export async function importIssuePage(tx: Tx, incoming: SnapshotIssue[], ctx: Ctx = newCtx()): Promise<{ stats: StoreStats; deferred: SnapshotIssue[] }> {
   const stats = emptyStats();
-  add(stats, await upsertIssueRows(tx, page, ctx));
+  add(stats, await upsertIssueRows(tx, incoming, ctx));
+  // A stale payload's labels, assignees and parent are as old as its row: leave them.
+  const page = incoming.filter((i) => !ctx.stale.has(i.nodeId));
+  stats.unchanged += 2 * (incoming.length - page.length);
   const ids = await uuidsOf(
     tx,
     page.map((i) => i.nodeId),

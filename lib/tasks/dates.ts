@@ -82,16 +82,25 @@ function offsetMinutes(utcMs: number, tz: string): number {
 
 /**
  * The UTC instant of a wall-clock date and time in `tz` (e.g. a due time of
- * 15:00 in Europe/Prague). Two passes settle DST edges; a time skipped by a
- * spring-forward resolves to the instant just after the gap.
+ * 15:00 in Europe/Prague). Around a DST change the zone has two offsets, the
+ * one before it and the one after; a wall time that one of them reproduces is
+ * that instant (the earlier one when a fall-back repeats the hour). A time
+ * skipped by a spring-forward reproduces under neither: read with the offset
+ * from before the change it lands just after the gap (02:30 → 03:30), in
+ * zones east and west of UTC alike.
  */
 export function zonedToUtc(date: string, time: string, tz: string): Date {
   const [y = 0, m = 1, d = 1] = date.split("-").map(Number);
   const [hh = 0, mm = 0] = time.split(":").map(Number);
   const wall = Date.UTC(y, m - 1, d, hh, mm);
-  let utc = wall - offsetMinutes(wall, tz) * 60_000;
-  utc = wall - offsetMinutes(utc, tz) * 60_000;
-  return new Date(utc);
+  const DAY = 86_400_000;
+  const before = offsetMinutes(wall - DAY, tz);
+  const after = offsetMinutes(wall + DAY, tz);
+  const valid = [before, after]
+    .map((o) => wall - o * 60_000)
+    .filter((utc) => wall - offsetMinutes(utc, tz) * 60_000 === utc)
+    .sort((a, b) => a - b);
+  return new Date(valid[0] ?? wall - before * 60_000);
 }
 
 /** Whole calendar days from `from` to `to` (both YYYY-MM-DD). */

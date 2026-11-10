@@ -18,6 +18,7 @@ import {
   stateOf,
   type DisplayProp,
   type ExplorerState,
+  type Group,
 } from "@/lib/client/explorer";
 import dynamic from "next/dynamic";
 import { pluralize } from "@/lib/client/format";
@@ -47,7 +48,16 @@ const BoardLayout = dynamic(() => import("./board").then((m) => m.BoardLayout), 
 });
 import { BulkBar } from "./bulk";
 import { ListLayout, TableLayout, type RowSelection } from "./layouts";
-import { rangeIds } from "@/lib/client/bulk";
+import {
+  boardNavRows,
+  collapsedGroups,
+  focusForIssue,
+  listNavRows,
+  rangeNodeIds,
+  shownNodeIds,
+  toggleGroup,
+  visibleSelection,
+} from "@/lib/client/list-nav";
 import { DefaultScopeChip, useDefaultScopeApplies } from "../app/default-scope-chip";
 import { useDefaultScope } from "../app/team-scope";
 import { useNarrow } from "../app/use-narrow";
@@ -147,24 +157,31 @@ export function Explorer({
   const narrow = useNarrow();
   const layout = state.layout === "table" && narrow ? "list" : state.layout;
   const groups = useMemo(() => groupIssues(rows, layout === "list" ? state.groupBy : undefined, data.meta), [rows, state.groupBy, layout, data.meta]);
+  // Collapsed groups live here, not in the list, so hidden rows are out of j/k, ⌘A and bulk edit.
+  // Only the user's toggles are stored: a group collapsed by default ("Not planned") collapses whenever it shows.
+  const [toggledGroups, setToggledGroups] = useState<Record<string, boolean>>({});
+  const collapsed = useMemo(() => collapsedGroups(groups, toggledGroups), [groups, toggledGroups]);
+  const onToggleGroup = useCallback((g: Group) => setToggledGroups((t) => toggleGroup(t, g, collapsed)), [collapsed]);
   // j/k walk rows as shown: down each board column in turn, or down the (grouped) list.
+  // A row is a place (group + issue): grouped by Label or Assignee an issue shows more than once.
   const order = useMemo(
     // The board renders CARD_PAGE cards per column: j/k must not land on one that is not there (v5 3.10).
-    () => (layout === "board" ? boardColumns(rows, state.boardColumnsField ?? "status", data.meta).flatMap((g) => g.rows.slice(0, CARD_PAGE)) : groups.flatMap((g) => g.rows)),
-    [layout, state.boardColumnsField, rows, groups, data.meta],
+    () => (layout === "board" ? boardNavRows(boardColumns(rows, state.boardColumnsField ?? "status", data.meta), CARD_PAGE) : listNavRows(groups, collapsed)),
+    [layout, state.boardColumnsField, rows, groups, collapsed, data.meta],
   );
   const props = (state.columns ?? DEFAULT_PROPS) as DisplayProp[];
 
-  const [focusedId, setFocusedId] = useState<string | null>(null);
+  const [focusedKey, setFocusedKey] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   // Multi-select for bulk edit (W4): list and table, writes on.
   const selectable = data.meta.writeMode && layout !== "board";
   const [selected, setSelected] = useState<Set<string>>(() => new Set());
+  // The Shift+click anchor: a row key, so a range starts where the user clicked.
   const anchor = useRef<string | null>(null);
-  const orderIds = useMemo(() => order.map((r) => r.nodeId), [order]);
-  const toggleOne = useCallback((nodeId: string) => {
-    anchor.current = nodeId;
+  const orderIds = useMemo(() => shownNodeIds(order), [order]);
+  const toggleOne = useCallback((nodeId: string, key: string) => {
+    anchor.current = key;
     setSelected((prev) => {
       const next = new Set(prev);
       if (next.has(nodeId)) next.delete(nodeId);
@@ -177,37 +194,40 @@ export function Explorer({
       selectable
         ? {
             isSelected: (id) => selected.has(id),
-            toggle: (i) => toggleOne(i.nodeId),
-            click: (i, e) => {
+            toggle: (i, key) => toggleOne(i.nodeId, key),
+            click: (i, e, key) => {
               if (e.shiftKey) {
                 e.preventDefault();
-                const range = rangeIds(orderIds, anchor.current, i.nodeId);
+                const range = rangeNodeIds(order, anchor.current, key);
                 setSelected((prev) => new Set([...prev, ...range]));
-                anchor.current = i.nodeId;
+                anchor.current = key;
                 return true;
               }
               if (e.metaKey || e.ctrlKey) {
-                toggleOne(i.nodeId);
+                toggleOne(i.nodeId, key);
                 return true;
               }
               return false;
             },
           }
         : undefined,
-    [selectable, selected, toggleOne, orderIds],
+    [selectable, selected, toggleOne, order],
   );
-  const selectedIssues = useMemo(() => data.issues.filter((i) => selected.has(i.nodeId)), [data.issues, selected]);
+  // A bulk edit acts on the selected rows still shown: a filter, search or
+  // collapsed group hides rows without unticking them (they come back ticked),
+  // but never lets an edit reach them.
+  const selectedIssues = useMemo(() => visibleSelection(order, selected), [order, selected]);
   const searchRef = useRef<HTMLInputElement>(null);
   const open = useCallback((i: ClientIssue) => openIssue(i.number), [openIssue]);
 
   useListKeyboard({
     order,
-    focusedId,
-    setFocusedId,
+    focusedKey,
+    setFocusedKey,
     searchRef,
     // With the side panel open, j/k walk through issues in it.
     onMoved: (next) => {
-      if (peekedIssue() != null) openIssue(next.number);
+      if (peekedIssue() != null) openIssue(next.issue.number);
     },
     // ⌘A / Ctrl+A selects the visible rows (W4), outside text fields.
     onChord: (e) => {
@@ -226,20 +246,20 @@ export function Explorer({
       if (action === "select") {
         if (!selectable) return;
         e.preventDefault();
-        toggleOne(order[idx]!.nodeId);
+        toggleOne(order[idx]!.issue.nodeId, order[idx]!.key);
       } else if (action === "task") {
         // Add the focused issue to tasks: quick add with it attached (§12.4).
         e.preventDefault();
-        openCompose({ links: [order[idx]!.number] });
+        openCompose({ links: [order[idx]!.issue.number] });
       } else if (action === "open" || action === "github") {
         e.preventDefault();
-        const i = order[idx]!;
+        const i = order[idx]!.issue;
         if (action === "github") {
           if (!data.meta.demo) window.open(i.url, "_blank", "noopener");
         } else open(i);
       } else if (action === "assign" || action === "priority" || action === "release") {
         e.preventDefault();
-        const i = order[idx]!;
+        const i = order[idx]!.issue;
         if (!data.meta.writeMode) {
           toast({ message: data.meta.editOffReason ?? EDITING_OFF });
           return;
@@ -257,8 +277,8 @@ export function Explorer({
   useEffect(() => {
     const n = Number(peek);
     if (!n) return;
-    const hit = order.find((r) => r.number === n);
-    if (hit) setFocusedId(hit.nodeId);
+    // Functional update: the focused row is read, not a dependency, so moving it doesn't re-run this.
+    setFocusedKey((cur) => focusForIssue(order, cur, n) ?? cur);
   }, [peek, order]);
 
   // Saving
@@ -319,7 +339,7 @@ export function Explorer({
             if (e.key === "ArrowDown" || e.key === "Enter") {
               e.preventDefault();
               e.currentTarget.blur();
-              if (order[0]) setFocusedId(order[0].nodeId);
+              if (order[0]) setFocusedKey(order[0].key);
             }
           }}
           placeholder="Search title or #number"
@@ -414,15 +434,15 @@ export function Explorer({
             />
           </div>
         ) : layout === "board" ? (
-          <BoardLayout rows={rows} field={state.boardColumnsField ?? "status"} props={props} focusedId={focusedId} onFocus={setFocusedId} onOpen={open} dropRelease={dropRelease} />
+          <BoardLayout rows={rows} field={state.boardColumnsField ?? "status"} props={props} focusedKey={focusedKey} onFocus={setFocusedKey} onOpen={open} dropRelease={dropRelease} />
         ) : layout === "table" ? (
           <TableLayout
             rows={order}
             props={props}
             sort={state.sort}
             onSort={toggleSort}
-            focusedId={focusedId}
-            onFocus={setFocusedId}
+            focusedKey={focusedKey}
+            onFocus={setFocusedKey}
             onOpen={open}
             scrollRef={scrollRef}
             selection={
@@ -434,7 +454,7 @@ export function Explorer({
             }
           />
         ) : (
-          <ListLayout groups={groups} props={props} focusedId={focusedId} onFocus={setFocusedId} onOpen={open} scrollRef={scrollRef} selection={selection} />
+          <ListLayout groups={groups} collapsed={collapsed} onToggleGroup={onToggleGroup} props={props} focusedKey={focusedKey} onFocus={setFocusedKey} onOpen={open} scrollRef={scrollRef} selection={selection} />
         )}
       </div>
       {selectable && selectedIssues.length > 0 && (

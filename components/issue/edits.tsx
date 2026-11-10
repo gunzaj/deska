@@ -9,6 +9,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { EDITING_OFF, editRequest, wirePatch, type EditField } from "@/lib/client/edit";
 import { isUnauthorized } from "@/lib/client/session";
 import { dimFieldId, isDimKey } from "@/lib/sync/field-map";
+import { composed, dropEdit, overlayKeys, pushEdit, settleEdit, type IssueOverlay } from "@/lib/client/overlay";
 import { usePoll } from "@/lib/client/poll";
 import type { ClientIssue, ClientMeta } from "@/lib/client/types";
 import { useAppData } from "../app/provider";
@@ -77,11 +78,38 @@ export function EditsProvider({ children }: { children: ReactNode }) {
   // Edits the outbox still holds (202, or seen in GET /api/outbox after a reload).
   const [queued, setQueued] = useState<Set<string>>(() => new Set());
   const [conflict, setConflict] = useState<Conflict | null>(null);
-  // A queued edit keeps its overlay until the outbox has written it and the
+  // Each issue's edits in flight, one layer per edit (lib/client/overlay.ts):
+  // a failure rolls back only its own edit and a success commits only its
+  // own, so overlapping edits to one issue never undo or claim each other.
+  const overlays = useRef(new Map<string, IssueOverlay>());
+  const setLayers = useCallback(
+    (nodeId: string, next: IssueOverlay | undefined) => {
+      const before = overlays.current.get(nodeId);
+      if (next) {
+        overlays.current.set(nodeId, next);
+        overlayIssue(nodeId, composed(next));
+      } else {
+        overlays.current.delete(nodeId);
+        clearOverlay(nodeId, overlayKeys(before));
+      }
+    },
+    [overlayIssue, clearOverlay],
+  );
+  const rollback = useCallback((nodeId: string, id: string) => setLayers(nodeId, dropEdit(overlays.current.get(nodeId), id)), [setLayers]);
+  /** The edit is written: into the base under the edits still in flight; `commit` also writes it into the loaded row. */
+  const settle = useCallback(
+    (nodeId: string, id: string, commit: boolean) => {
+      const { overlay, committed } = settleEdit(overlays.current.get(nodeId), id);
+      if (commit && committed) commitIssue(nodeId, committed);
+      setLayers(nodeId, overlay);
+    },
+    [commitIssue, setLayers],
+  );
+  // A queued edit keeps its layer until the outbox has written it and the
   // refreshed row agrees; dropping it at the 202 made the field flip back to
   // the old value (the cache has not moved yet) while its spinner still showed
-  // (v5 3.11).
-  const queuedOverlays = useRef(new Map<string, { nodeId: string; keys: string[] }>());
+  // (v5 3.11). Several edits can be queued for one field.
+  const queuedOverlays = useRef(new Map<string, { nodeId: string; ids: string[] }>());
   const queuedRef = useRef(queued);
   queuedRef.current = queued;
 
@@ -112,10 +140,11 @@ export function EditsProvider({ children }: { children: ReactNode }) {
     for (const k of gone) {
       const o = queuedOverlays.current.get(k);
       if (!o) continue;
-      clearOverlay(o.nodeId, o.keys);
+      // The refreshed row has it; edits still in flight stay on top.
+      for (const id of o.ids) settle(o.nodeId, id, false);
       queuedOverlays.current.delete(k);
     }
-  }, [meta.writeMode, refresh, clearOverlay]);
+  }, [meta.writeMode, refresh, settle]);
   useEffect(() => {
     void loadQueued();
   }, [loadQueued]);
@@ -134,35 +163,34 @@ export function EditsProvider({ children }: { children: ReactNode }) {
       }
       const w = wireIssue(issue.nodeId);
       if (!w) return "refused";
-      const patch = wirePatch(w, field, next);
-      const keys = Object.keys(patch);
+      const id = crypto.randomUUID();
       const key = fieldKey(issue.nodeId, field);
-      overlayIssue(issue.nodeId, patch);
+      setLayers(issue.nodeId, pushEdit(overlays.current.get(issue.nodeId), w, { id, field, next }));
       bump(key, 1);
-      const body = editRequest(issue, field, next, crypto.randomUUID());
+      const body = editRequest(issue, field, next, id);
       if (opts.base !== undefined) body.base = opts.base;
       const res = await fetch(`/api/issues/${issue.number}/edit`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }).catch(() => null);
       const out = (await res?.json().catch(() => null)) as { entry?: Entry; error?: string } | null;
       bump(key, -1);
       if (isUnauthorized(res)) {
-        clearOverlay(issue.nodeId, keys);
+        rollback(issue.nodeId, id);
         return "failed";
       }
       if (res?.status === 200 || res?.status === 202) {
         if (res.status === 202) {
           // The outbox has it and will write it later: keep the overlay (see above).
-          queuedOverlays.current.set(key, { nodeId: issue.nodeId, keys });
+          const q = queuedOverlays.current.get(key);
+          queuedOverlays.current.set(key, { nodeId: issue.nodeId, ids: [...(q?.ids ?? []), id] });
           setQueued((prev) => new Set(prev).add(key));
           return "pending";
         }
         // Written: the value is final, so it goes into the loaded row itself.
-        commitIssue(issue.nodeId, patch);
-        clearOverlay(issue.nodeId, keys);
+        settle(issue.nodeId, id, true);
         return "done";
       }
       // Anything else puts the old value back: the loaded row was never
-      // changed, so dropping the overlay is the rollback.
-      clearOverlay(issue.nodeId, keys);
+      // changed, so dropping this edit's layer is the rollback.
+      rollback(issue.nodeId, id);
       if (res?.status === 409 && out?.entry?.status === "conflict") {
         if (!opts.quiet) setConflict({ issue, field, next, remote: out.entry.remote ?? null });
         return "conflict";
@@ -170,7 +198,7 @@ export function EditsProvider({ children }: { children: ReactNode }) {
       if (!opts.quiet) toast({ message: `Couldn't save: ${out?.error ?? out?.entry?.error ?? (res ? `HTTP ${res.status}` : "network error")}`, kind: "error" });
       return "failed";
     },
-    [meta.writeMode, meta.editOffReason, meta.closeBlocked, wireIssue, overlayIssue, clearOverlay, commitIssue, bump, toast],
+    [meta.writeMode, meta.editOffReason, meta.closeBlocked, wireIssue, setLayers, rollback, settle, bump, toast],
   );
 
   const value = useMemo<EditsCtx>(

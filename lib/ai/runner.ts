@@ -158,13 +158,28 @@ async function execute(job: Job, task: AiTask, settings: AiSettings, signal: Abo
 
 /**
  * Queues a job and returns at once; poll `getJob`. Fails (without queuing) when
- * AI is off or untested: nothing is spawned or sent then.
+ * AI is off or untested: nothing is spawned or sent then. When the readiness
+ * check itself throws (the settings cannot be read), it rejects and nothing is
+ * left behind in the job list.
  */
 export async function startJob(task: AiTask, opts: { batchId?: string } = {}): Promise<Job> {
+  return (await startJobs([task], opts))[0]!;
+}
+
+/**
+ * Queues one job per task, all or nothing: readiness is checked once, before
+ * any job exists, so a rejection leaves no job queued (and a batch whose start
+ * failed has no members running behind the caller's back).
+ */
+export async function startJobs(tasks: AiTask[], opts: { batchId?: string } = {}): Promise<Job[]> {
+  const ready = await aiNotReady();
+  return tasks.map((task) => enqueue(task, ready, opts));
+}
+
+function enqueue(task: AiTask, { settings, failure }: Awaited<ReturnType<typeof aiNotReady>>, opts: { batchId?: string }): Job {
   const s = store();
   const job: Job = { id: randomUUID(), feature: task.feature, subject: task.subject, state: "queued", createdAt: now(), finishedAt: null, error: null, resultId: null, result: null, batchId: opts.batchId ?? null, provider: null, model: null };
   s.jobs.set(job.id, job);
-  const { settings, failure } = await aiNotReady();
   if (failure) {
     job.state = "error";
     job.error = failure;

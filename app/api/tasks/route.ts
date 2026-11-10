@@ -12,5 +12,5 @@ export const GET = route({ auth: "viewer" }, ({ owner }) => listTasks(owner));
 
 export const POST = route({ auth: "viewer", body: createTaskSchema, invalid: "invalid task" }, async ({ owner, body: input }) => {
   const r = await createTask(owner, input, input.links.length ? await resolver() : undefined);
-  return r.ok ? NextResponse.json(withHtml(r.value), { status: 201 }) : fail(r);
+  return r.ok ? NextResponse.json(await withHtml(r.value), { status: 201 }) : await fail(r);
 });

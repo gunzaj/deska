@@ -11,7 +11,7 @@ import { compareTasks, type Task } from "../tasks/model";
 import { listTasks } from "../tasks/service";
 import { inputHash } from "./prompt";
 import { latestResultRow, type StoredResult } from "./results";
-import { startJob, type Job } from "./runner";
+import { startJob, startJobs, type Job } from "./runner";
 import { aiStatus, type AiStatus } from "./status";
 import {
   issuesSharingWords,
@@ -158,7 +158,7 @@ export async function startTidyInbox(clock: TaskClock, taskIds?: string[]): Prom
   if (taskIds && selected.length !== taskIds.length) return { batchId: null, jobs: [], total: tasks.length };
   const capped = selected.slice(0, MAX_TIDY_TASKS);
   const batchId = randomUUID();
-  const jobs = await Promise.all(capped.map((t) => startJob(taskAssistTask(inboxInput(t, c, clock)), { batchId })));
+  const jobs = await startJobs(capped.map((t) => taskAssistTask(inboxInput(t, c, clock))), { batchId });
   return { batchId, jobs, total: tasks.length };
 }
 

@@ -165,7 +165,9 @@ type Rec = { rule: string; label: string; fromCompletion: boolean; firstDate: st
 
 function recurrenceMatches(input: string, today: string): Match[] {
   const RE = new RegExp(
-    `${START}every(!)? (?:(other) )?(?:(\\d{1,3}) )?(day|days|weekday|weekdays|week|weeks|month|months|year|years|${WD})(?: on the (\\d{1,2})(?:st|nd|rd|th)?)?${END}|${START}(daily|weekly|monthly|yearly)${END}`,
+    // "on the Nth" only belongs to months; after any other unit it stays title
+    // text rather than being swallowed into a rule that ignores it.
+    `${START}every(!)? (?:(other) )?(?:(\\d{1,3}) )?(?:(month|months)(?: on the (\\d{1,2})(?:st|nd|rd|th)?)?|(day|days|weekday|weekdays|week|weeks|year|years|${WD}))${END}|${START}(daily|weekly|monthly|yearly)${END}`,
     "i",
   );
   return scan(input, RE, (m): Rec | null => {
@@ -173,7 +175,7 @@ function recurrenceMatches(input: string, today: string): Match[] {
     const other = Boolean(m(2));
     const count = m(3) ? Number(m(3)) : other ? 2 : 1;
     if (count < 1) return null;
-    const unitRaw = (m(4) || m(6)).toLowerCase();
+    const unitRaw = (m(4) || m(6) || m(7)).toLowerCase();
     const interval = count > 1 ? `;INTERVAL=${count}` : "";
     const label = m(0).trim().toLowerCase();
     const mk = (rule: string, firstDate: string): Rec => ({ rule, label, fromCompletion, firstDate });

@@ -23,6 +23,8 @@ export type OutboxEntry = {
   status: OutboxStatus;
   attempts: number;
   error: string | null;
+  /** When the job was queued (ISO). A retried create looks for issues made since then (W3). */
+  createdAt?: string;
 };
 
 /** Bulk edits over 50 issues need a confirmation dialog (SPEC §4.8). */

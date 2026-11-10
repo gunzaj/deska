@@ -35,3 +35,13 @@ export function boardMove(issue: ClientIssue, field: BoardField, fromKey: string
 export function draggable(field: BoardField): boolean {
   return isDimKey(field) || ["status", "priority", "release", "type", "assignee"].includes(field);
 }
+
+/**
+ * The drag id of one card. An issue with several assignees has a card in each
+ * assignee's column; dnd-kit keys draggables by id, so a shared id let the last
+ * card registered stand in for all of them and the drag left the wrong column.
+ * Backlog cards (no column) keep their prefix.
+ */
+export function cardDragId(nodeId: string, colKey: string | null, prefix = ""): string {
+  return colKey == null ? `${prefix}${nodeId}` : `${prefix}${colKey}\u001f${nodeId}`;
+}

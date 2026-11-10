@@ -179,7 +179,8 @@ export async function importItemPage(tx: Tx, page: SnapshotProjectItem[], ctx: C
   const moved: ChangeRow[] = [];
   const back: ChangeRow[] = [];
   for (const p of chosen) {
-    if (ctx.fresh.has(p.issueNodeId)) continue;
+    // A stale payload (older than the stored item) changed nothing, so it records nothing.
+    if (ctx.fresh.has(p.issueNodeId) || staleItem.has(p.itemId)) continue;
     const issueId = ids.get(p.issueNodeId)!;
     const old = oldBy.get(issueId);
     for (const [field, prop] of ITEM_FIELD_PROPS) {
@@ -187,7 +188,7 @@ export async function importItemPage(tx: Tx, page: SnapshotProjectItem[], ctx: C
       const now = p[prop] ?? null;
       if (was !== now) (restored.has(issueId) ? back : moved).push({ issueId, field, oldValue: was, newValue: now });
     }
-    if (!staleItem.has(p.itemId)) for (const c of dimChanges(old ? oldDims.get(old.id) : undefined, normDims(p.dims))) (restored.has(issueId) ? back : moved).push({ issueId, ...c });
+    for (const c of dimChanges(old ? oldDims.get(old.id) : undefined, normDims(p.dims))) (restored.has(issueId) ? back : moved).push({ issueId, ...c });
   }
   await recordChanges(tx, moved, ctx.source);
   await recordChanges(tx, back, "restore");
