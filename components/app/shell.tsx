@@ -3,6 +3,7 @@
 import { usePathname } from "next/navigation";
 import { Suspense, useEffect, useRef, useState, type ReactNode } from "react";
 import { Icon, Logo } from "../icons";
+import { CreateIssue } from "../issue/create-issue";
 import { EditsProvider } from "../issue/edits";
 import { IssuePeek } from "../issue/peek";
 import { ComposeTask } from "../tasks/compose";
@@ -71,6 +72,7 @@ export function AppShell({ children }: { children: ReactNode }) {
                 <PanelDismiss />
               </Suspense>
               <ComposeTask />
+              <CreateIssue />
               <CommandPalette />
               <GlobalShortcuts />
             </div>

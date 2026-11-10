@@ -1,7 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 import { as } from "./helpers";
 
-// U5: ⌘K finds tasks; the New issue link uses the configured repo.
+// U5: ⌘K finds tasks; the New issue button opens the create form (W3).
 
 async function openPalette(page: Page) {
   const input = page.getByLabel("Search commands and issues");
@@ -26,12 +26,13 @@ test("⌘K finds a task by title", async ({ browser }) => {
   await context.close();
 });
 
-test("the New issue link points at the configured repo", async ({ browser }) => {
+test("the New issue button opens the create form", async ({ browser }) => {
   const { context, page } = await as(browser);
   await page.goto("/my");
-  const repo = (await (await page.request.get("/api/data")).json()).meta.repo;
-  await expect(page.locator("[data-new-issue]")).toHaveAttribute("href", `https://github.com/${repo}/issues/new`);
-  await expect(page.locator("[data-new-issue]")).toHaveAttribute("target", "_blank");
+  await page.locator("[data-new-issue]").click();
+  const dialog = page.getByRole("dialog", { name: "Create issue" });
+  await expect(dialog).toBeVisible();
+  await expect(dialog.getByLabel("Title")).toBeVisible();
   await context.close();
 });
 

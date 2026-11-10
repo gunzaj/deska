@@ -364,6 +364,17 @@ export function Explorer({
       summary={typeof summary === "function" ? summary({ rows, filtered: rows.length < pool.length, filters: state.filters }) : summary}
     >
       <div ref={scrollRef} className="absolute inset-0 overflow-auto">
+        {(data.meta.pendingCreates?.length ?? 0) > 0 && (
+          <div data-pending-creates className="sticky top-0 z-10 space-y-1 border-b border-line bg-hover px-3 py-1.5">
+            {data.meta.pendingCreates!.map((p) => (
+              <div key={p.id} className="flex items-center gap-2 text-[12.5px]" data-pending-create>
+                <span className="rounded-full bg-active px-1.5 py-px text-[10.5px] font-semibold uppercase tracking-wide text-muted">{p.status === "sending" ? "creating" : "pending"}</span>
+                <span className="truncate">{p.title}</span>
+                <span className="text-faint">— GitHub has not confirmed it yet</span>
+              </div>
+            ))}
+          </div>
+        )}
         {rows.length === 0 && connectionProblem(connection) ? (
           // An error is never an empty list (SPEC §3.3).
           <div data-list-state="error">

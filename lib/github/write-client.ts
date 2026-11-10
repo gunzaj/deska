@@ -5,6 +5,7 @@ import { gqlClient, restClient } from "./client";
 import { githubTarget, pinnedProjectId, type GithubTarget } from "../config";
 import { NonRetryableError, type WriteClient } from "../outbox/worker";
 import { dimFieldId, isDimKey, type FieldRef, type ProjectFieldMap } from "../sync/field-map";
+import type { CreateIssuePayload } from "../outbox/create";
 import type { WriteGate } from "../writes/gate";
 
 /**
@@ -353,6 +354,35 @@ export class GitHubWriteClient implements WriteClient {
       }`,
       { project: meta.projectId, item: itemId, field: def.id, value: next },
     );
+  }
+
+  /**
+   * Create the issue (SPEC §4.8, W3). Type is set afterwards through GraphQL,
+   * because REST's create does not take an issue type; labels, assignees and the
+   * milestone go in the create payload so GitHub records one create, not four
+   * updates. Returns the new issue's node ID and number.
+   */
+  async createIssue(payload: CreateIssuePayload): Promise<{ nodeId: string; number: number }> {
+    const created = await this.restWrite("issues.create", {
+      owner: this.owner,
+      repo: this.repo,
+      title: payload.title,
+      body: payload.body,
+      ...(payload.labelNames.length ? { labels: payload.labelNames } : {}),
+      ...(payload.assigneeLogins.length ? { assignees: payload.assigneeLogins } : {}),
+      ...(payload.milestoneNumber != null ? { milestone: payload.milestoneNumber } : {}),
+    });
+    const data = created as { node_id?: unknown; number?: unknown };
+    if (typeof data.node_id !== "string" || !data.node_id || typeof data.number !== "number") {
+      throw new NonRetryableError("GitHub created the issue but returned no node ID; nothing else was written");
+    }
+    this.items.set(data.node_id, "");
+    return { nodeId: data.node_id, number: data.number };
+  }
+
+  /** Add an existing issue to the pinned project (W3); reuses the item lookup. */
+  async addProjectItem(issueNodeId: string): Promise<void> {
+    await this.itemFor(issueNodeId);
   }
 
   async closeIssue(issueNodeId: string): Promise<void> {

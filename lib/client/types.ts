@@ -54,8 +54,10 @@ export type ClientMeta = {
   writeMode: boolean;
   /** Why edit controls are off while `writeMode` is false: "Read-only token" with a connected token, else "Editing is off for this deployment". */
   editOffReason?: string;
-  /** With writes on: why Close is unavailable (STATUS_DONE_OPTION_ID missing or unknown), else null (W1). */
+  /** With writes on: why Close is unavailable (no Done Status chosen for close), else null (W2). */
   closeBlocked?: string | null;
+  /** Create jobs GitHub has not confirmed yet (W3): shown as pending rows until the real issue arrives. */
+  pendingCreates?: { id: string; title: string; status: "pending" | "sending" }[];
   demo: boolean;
   generatedAt: string;
   today: string; // YYYY-MM-DD, server clock
