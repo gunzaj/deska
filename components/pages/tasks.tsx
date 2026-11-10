@@ -14,6 +14,7 @@ import { DeleteSectionDialog, movedPosition, SectionDialog, SectionMenu } from "
 import { NEW_SOURCE } from "@/lib/client/project-source";
 import { ProjectSourceSection } from "../tasks/project-source";
 import { useToday } from "../tasks/notifications";
+import { PlanMyDay } from "../tasks/plan-my-day";
 import { useTasks, type ComposePrefill } from "../tasks/store";
 import { TidyInbox } from "../tasks/tidy-inbox";
 import { useToast } from "../ui/toast";
@@ -312,6 +313,7 @@ const TODAY_DEF: ViewDef = {
   },
   prefill: (c) => ({ dueDate: c.today }),
   empty: { title: "Nothing due today", hint: "Tasks due today and overdue ones show up here.", icon: "star" },
+  actions: <PlanMyDay />,
 };
 
 export function TaskTodayPage() {
