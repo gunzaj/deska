@@ -11,7 +11,7 @@ import { altFixtureSnapshot, ALT } from "@/lib/demo/fixtures-alt";
 import { submitEdit } from "@/lib/outbox/edit";
 import type { ProcessDeps } from "@/lib/outbox/store";
 import { doneStatusOption } from "@/lib/outbox/runtime";
-import { resetSettingsCache, saveMapping } from "@/lib/settings";
+import { resetSettingsCache, saveCloseDoneStatus, saveMapping } from "@/lib/settings";
 import {
   dimKey,
   effectiveMapping,
@@ -267,7 +267,13 @@ describe("a renamed field stays mapped", () => {
     const store = await storeOf(fixtureSnapshot(NOW), suggestMapping(fixtureSnapshot(NOW).fields, {}));
     await importFull(renamed(), store);
 
-    expect(doneStatusOption(store, "a0000006")).toEqual({ ok: true, id: "a0000006" });
+    // W2: the Done Status for close is chosen in Settings; until then closing
+    // is refused with the reason (and the setting validates against the mapping).
+    expect(await doneStatusOption(store)).toMatchObject({ ok: false, reason: expect.stringContaining("Choose a Done Status") });
+    await saveCloseDoneStatus("not-an-option");
+    expect(await doneStatusOption(store)).toMatchObject({ ok: false, reason: expect.stringContaining("no longer a Status option") });
+    await saveCloseDoneStatus("a0000006");
+    expect(await doneStatusOption(store)).toEqual({ ok: true, id: "a0000006" });
     const edit = (field: "status" | "release", next: string) =>
       submitEdit({ viewer: "alice", token: "t", store, issueNodeId: "I_epic", body: { field, next }, deps: () => ({}) as ProcessDeps });
     expect((await edit("release", "e0000022")).status).not.toBe(400);

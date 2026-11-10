@@ -83,9 +83,8 @@ export async function submitEdit(args: {
     op = next === "closed" ? "close" : "reopen";
     if (op === "close") {
       // SPEC §4.8: nothing is written unless closing can also move Status to
-      // the Done Status chosen in Settings. W2 makes that a setting; until then
-      // it comes from STATUS_DONE_OPTION_ID.
-      const d = doneStatusOption(store);
+      // the Done Status chosen in Settings.
+      const d = await doneStatusOption(store);
       if (!d.ok) return { status: 422, body: { error: d.reason } };
       done = d.id;
     }
