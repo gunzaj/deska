@@ -60,6 +60,8 @@ function setToken(token: string | null, source: "launch" | "user", auth: TokenAu
   g[TOKEN] = token ?? undefined;
   g[TOKEN_AUTH] = auth.source === "gh" ? { source: "gh", cli: auth.cli } : { source: "token" };
   g[TOKEN_STATE] = { generation: (prev.generation ?? 0) + 1, changedByUser: !!prev.changedByUser || source === "user", afterReread: reread };
+  // SPEC §3.4: a user token change turns "GitHub writes" off; the gate applies it lazily.
+  if (source === "user") g[Symbol.for("deska.writesTokenChanged")] = true;
   // Whoever waits for main's answer to a `gh-reread` (lib/github/local-token.ts).
   const waiters = g[TOKEN_WAITERS] as Set<() => void> | undefined;
   g[TOKEN_WAITERS] = undefined;

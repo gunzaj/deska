@@ -9,11 +9,12 @@
 import { inArray } from "drizzle-orm";
 import { dbDir, getDb } from "@/db";
 import { syncState } from "@/db/schema";
-import { githubApiBase, writeMode } from "./config";
+import { githubApiBase } from "./config";
 import { desktopGuard } from "./desktop/guard";
 import { checkToken, ghCliStatus, previewStatus, missingStatus, MESSAGES, type CheckTarget, type ConnectionStatus } from "./github/connection";
 import { localToken, requestGhReread, tokenAuth, tokenState } from "./github/local-token";
 import { currentTarget, settingsVersion } from "./settings";
+import { recordWriteAccess, writeGate } from "./writes/gate";
 
 const OK_TTL_MS = 10 * 60_000;
 const ERROR_TTL_MS = 60_000;
@@ -82,9 +83,16 @@ export async function connectionStatus({ refresh = false }: { refresh?: boolean 
   if (!refresh && c.status && Date.now() - c.at < ttl(c.status)) return c.status;
   if (c.inflight) return c.inflight;
   const run = (async () => {
-    const status = await checkToken(token, await checkTarget(), { apiBase: githubApiBase(), source: auth.source, writes: writeMode() });
+    // The write switch decides whether a GitHub CLI login needs the `project`
+    // scope, and the gate applies a pending token-change reset first.
+    const gate = await writeGate();
+    const status = await checkToken(token, await checkTarget(), { apiBase: githubApiBase(), source: auth.source, writes: gate.settingOn });
     // A token change while the check ran: this answer belongs to the old one.
     if (cache().generation !== generation) return status;
+    // Store what the token can write (§3.4 part 1). A transient failure is not
+    // stored (`unknown`); an invalid token's answer is not either.
+    if (status.state === "ok") await recordWriteAccess(status.writeAccess, status.writeAccessMessage).catch(() => undefined);
+    else if (status.state === "invalid" || status.state === "gh-not-found" || status.state === "gh-logged-out") await recordWriteAccess("unknown", null).catch(() => undefined);
     // A 401 on the GitHub CLI's token: the CLI may hold a newer one. Main reads
     // it again, once; a 401 on that answer is the invalid state (SPEC §2.3).
     if (status.state === "invalid" && (await requestGhReread())) return connectionStatus({ refresh: true });

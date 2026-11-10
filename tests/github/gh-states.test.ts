@@ -56,7 +56,9 @@ describe("GitHub CLI login states (SPEC §3.3)", () => {
     // `repo` can write: the write gate is what keeps Deska read-only (§3.1).
     expect(s.scopeWarning).toBe(MESSAGES.ghCanWrite(["gist", "repo"]));
     expect(s.scopeWarning).toContain("GitHub writes");
+    // No project scope: issues can be written, project fields cannot (§3.4 part 1).
     expect(s.readOnly).toBe(true);
+    expect(s.writeAccessMessage).toContain("gh auth refresh -h github.com -s project");
   });
 
   it("missing read:project: names the scope and the exact gh auth refresh command, before any project read", async () => {
@@ -83,7 +85,9 @@ describe("GitHub CLI login states (SPEC §3.3)", () => {
     expect(s.message).toBe("Your GitHub CLI login is missing the project scope");
     expect(s.command).toBe("gh auth refresh -h github.com -s project");
     server.use(...github("project, read:org, repo"));
-    expect((await check({ writes: true })).state).toBe("ok");
+    const canWrite = await check({ writes: true });
+    expect(canWrite.state).toBe("ok");
+    expect(canWrite).toMatchObject({ writeAccess: "yes", readOnly: false });
     // `project` covers reading.
     expect((await check()).state).toBe("ok");
   });

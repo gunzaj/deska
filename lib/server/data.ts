@@ -1,10 +1,7 @@
 import { buildClientData } from "@/lib/client/build";
-import { EDITING_OFF } from "@/lib/client/edit";
-import { MESSAGES } from "@/lib/github/token-states";
-import { localToken } from "@/lib/github/local-token";
 import type { WireData } from "@/lib/client/types";
-import { writeEnabled } from "@/lib/outbox/queue";
 import { doneStatusOption } from "@/lib/outbox/runtime";
+import { writeGate } from "@/lib/writes/gate";
 import { demoSeed } from "@/lib/db-bootstrap";
 import { demoEnabled, getStoreWithGeneration } from "@/lib/store";
 import { currentTarget, settingsVersion } from "@/lib/settings";
@@ -28,7 +25,9 @@ export type ClientDataResult = { etag: string; data: () => WireData; json: () =>
  */
 export async function loadClientData(now = new Date()): Promise<ClientDataResult> {
   const { store, generation } = await getStoreWithGeneration();
-  const writeMode = writeEnabled();
+  // SPEC §3.4: the gate is the only place writes are turned on or off.
+  const gate = await writeGate();
+  const writeMode = gate.allowed;
   // Sample data: the in-memory preview, or a database seeded with it (D2).
   const demo = (!dbDir() && demoEnabled()) || demoSeed() !== null;
   const today = now.toISOString().slice(0, 10);
@@ -38,19 +37,16 @@ export async function loadClientData(now = new Date()): Promise<ClientDataResult
     const d = doneStatusOption(store);
     return d.ok ? null : d.reason;
   })() : null;
-  // With a connected token, edit controls say why they are off: the token is
-  // read-only (SPEC §3.3; every token counts as read-only until Phase C).
-  const tokenReadOnly = localToken() !== null;
   // The stored repository (links) and field mapping (§4.1) change without a
   // cache-generation bump: a remap must still reach the browser.
   const repo = (await currentTarget())?.repoFull;
-  const variant = `${demo ? "d" : "n"}${closeBlocked ? "c" : "o"}${tokenReadOnly ? "t" : "x"}s${settingsVersion()}`;
+  const variant = `${demo ? "d" : "n"}${closeBlocked ? "c" : "o"}${writeMode ? "w" : "r"}s${settingsVersion()}`;
   const key = `${generation}|${today}|${writeMode ? 1 : 0}|${variant}`;
   const build = () => {
     if (memo?.key !== key) {
       const data = buildClientData(store, { viewer: "", writeMode, demo, now, repo });
       data.meta.closeBlocked = closeBlocked;
-      data.meta.editOffReason = tokenReadOnly ? MESSAGES.readOnly : EDITING_OFF;
+      if (!writeMode) data.meta.editOffReason = gate.reason ?? undefined;
       memo = { key, data, json: JSON.stringify(data) };
     }
     return memo;

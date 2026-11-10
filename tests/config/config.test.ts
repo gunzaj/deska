@@ -1,9 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { ConfigError, githubOrg, githubRepo, githubTarget, writeMode } from "@/lib/config";
+import { buildAllowsWrites, ConfigError, githubOrg, githubRepo, githubTarget } from "@/lib/config";
 import { GitHubWriteClient } from "@/lib/github/write-client";
 import { EMPTY_FIELD_MAP } from "@/lib/sync/field-map";
 
-const KEYS = ["GITHUB_REPO", "GITHUB_ORG", "GITHUB_PROJECT_NUMBER", "GITHUB_PROJECT_ID", "WRITE_MODE", "DESKA_WRITES"] as const;
+const KEYS = ["GITHUB_REPO", "GITHUB_ORG", "GITHUB_PROJECT_NUMBER", "GITHUB_PROJECT_ID", "DESKA_WRITES"] as const;
 let saved: Record<string, string | undefined>;
 
 beforeEach(() => {
@@ -71,12 +71,14 @@ describe("GitHub API base (D3)", () => {
 });
 
 describe("build write switch (SPEC §3.4)", () => {
-  it("DESKA_WRITES=off refuses writes even with WRITE_MODE=on", () => {
-    process.env.WRITE_MODE = "on";
+  it("only a build stamped DESKA_WRITES=on allows writes (SPEC §3.4 part 3)", () => {
     delete process.env.DESKA_WRITES;
-    expect(writeMode()).toBe(true);
+    expect(buildAllowsWrites()).toBe(false);
     process.env.DESKA_WRITES = "off";
-    expect(writeMode()).toBe(false);
-    expect(() => new GitHubWriteClient("github_pat_test", EMPTY_FIELD_MAP, { repoFull: "acme/widgets", owner: "acme", repo: "widgets", org: "acme", projectNumber: 7 })).toThrow(/disabled/);
+    expect(buildAllowsWrites()).toBe(false);
+    process.env.DESKA_WRITES = "on";
+    expect(buildAllowsWrites()).toBe(true);
+    // The write client refuses to exist without the full gate, whatever the env says.
+    expect(() => new GitHubWriteClient("github_pat_test", EMPTY_FIELD_MAP, { repoFull: "acme/widgets", owner: "acme", repo: "widgets", org: "acme", projectNumber: 7 })).toThrow(/write gate/);
   });
 });

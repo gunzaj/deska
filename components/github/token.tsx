@@ -274,6 +274,7 @@ export function TokenSummary({ status }: { status: ConnectionStatus }) {
             {status.readOnly ? (
               <>
                 <Icon name="lock" size={12} /> {status.readOnlyMessage}
+                {status.writeAccessMessage && <span className="text-faint">· {status.writeAccessMessage}</span>}
               </>
             ) : (
               "Read and write"

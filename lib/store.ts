@@ -1,4 +1,5 @@
 import { dbDir } from "@/db";
+import { buildAllowsWrites } from "./config";
 import { ReadModel } from "./sync/read-model";
 import { readGeneration } from "./sync/generation";
 import { readMapping } from "./settings";
@@ -69,11 +70,11 @@ async function readModel(): Promise<{ store: ReadModel; generation: string }> {
     return inflight;
   }
   if (demoEnabled()) {
-    if (process.env.WRITE_MODE === "on") {
+    if (buildAllowsWrites()) {
       // Fixture node IDs are not real issues. Writing them through the outbox
       // would push mutations against arbitrary GitHub IDs, so refuse outright.
       throw new Error(
-        "Refusing to serve fixtures with WRITE_MODE=on: demo data is not writable. " +
+        "Refusing to serve fixtures with DESKA_WRITES=on: demo data is not writable. " +
           "Configure DESKA_DB_DIR for a writable deployment.",
       );
     }

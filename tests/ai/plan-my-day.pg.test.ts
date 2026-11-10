@@ -25,7 +25,7 @@ const { MAX_PLAN_TASKS, PLAN_FEATURE, PLAN_SUBJECT_KIND } = await import("@/lib/
 const { getJob, idle, resetJobs } = await import("@/lib/ai/runner");
 const { saveResult } = await import("@/lib/ai/results");
 const { DEFAULT_AI_SETTINGS, verifyId } = await import("@/lib/ai/types");
-const { writeEnabled } = await import("@/lib/outbox/queue");
+const { writeGate } = await import("@/lib/writes/gate");
 const { LOCAL_OWNER } = await import("@/lib/local-owner");
 const { addDays, localToday } = await import("@/lib/tasks/dates");
 const { createProject, createTask, updateTask } = await import("@/lib/tasks/service");
@@ -327,7 +327,7 @@ describe("accept and dismiss (§4.9 Accept / Edit / Dismiss, local outcomes)", (
   it("accepts a plan while writes are off: a day is a local subject, not a GitHub change", async () => {
     await candidates();
     await configure();
-    expect(writeEnabled()).toBe(false);
+    expect((await writeGate()).allowed).toBe(false);
     fake.reply(claudeOk(await answer()));
     const started = (await (await planPost(json("/api/ai/plan-my-day", CLOCK))).json()).job;
     await finish(started.id);

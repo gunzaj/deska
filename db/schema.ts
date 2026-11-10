@@ -251,11 +251,13 @@ export const outbox = pgTable(
     /** Retry backoff (W1): a pending row is not picked up before this. */
     nextAttemptAt: timestamp("next_attempt_at", { withTimezone: true }),
     /**
-     * Fencing token (v5 1.5): set by whoever claims the row, matched when the
-     * result is recorded. A run that outlived its lease finds the token
-     * replaced and its result is dropped instead of overwriting the new run's.
+     * The last finished step of a multi-step job (W0): a close records
+     * "close-issue" before setting Status, so a crash between the two resumes
+     * at the Status step. The single process needs no lease or fencing token.
      */
-    leaseToken: uuid("lease_token"),
+    step: text("step"),
+    /** A create job's confirmed issue (node ID and number), so a resumed job does not create it twice (W3). */
+    resultJson: jsonb("result_json"),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
   },

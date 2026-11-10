@@ -21,6 +21,9 @@ export default defineConfig({
   // `next dev` compiles a route on its first request: a cold page can take a
   // while, so a generous per-test timeout instead of the 30 s default.
   timeout: 120_000,
+  // The dev servers compile a route on its first request: under a loaded CI
+  // runner a page can take longer than the default 5 s to show its data.
+  expect: { timeout: 15_000 },
   retries: process.env.CI ? 1 : 0,
   forbidOnly: !!process.env.CI,
   reporter: process.env.CI ? [["github"], ["html", { open: "never" }]] : "list",

@@ -78,7 +78,9 @@ When a token is entered, and again every few minutes while the app runs, the ser
 
 After the token, onboarding asks for the repository and the organization project. Deska lists the organization's projects the token can read and reads the chosen project's fields (names, options, iterations), with the same read-only client. It stores the repository, organization, project number and the project's node ID (pinned), and the user's field mapping (which field is Status, Priority, Sprint and which are dimensions), by field ID, in the local database. Before a project is chosen, the token check reads only `GET /user`. "Reload fields" in Settings reads the fields again; if the project number now names a different project than the pinned node ID, Deska refuses and asks for the project again. Choosing or remapping a project never writes to GitHub.
 
-A fine-grained token's write permissions can't be read without attempting a write, and Deska never attempts one to find out. Until writes exist (Phase C), every token counts as read-only and edit controls say "Read-only token".
+Deska detects a token's write permissions with **read-only queries**, never by attempting a write. A classic token or GitHub CLI login says so in its scopes: `repo` (or `public_repo`) for issues and `project` for project fields. A fine-grained token has no scopes, so the check reads GitHub's `viewerCanUpdate`, `viewerCanLabel`, `viewerCanAssign` and `viewerCanClose` fields on one open issue and `ProjectV2.viewerCanUpdate` on the chosen project. The result is stored so the app knows it after a relaunch and offline; a transient failure leaves it "not checked yet" rather than forgetting a permission. A read-only token makes edit controls say "Read-only token"; GitHub itself refuses every write from it in any case.
+
+Until the write milestones ship, the build's write switch is off (the v1.0 release is built with `DESKA_WRITES=off`), so no build of this app writes.
 
 Automated tests of the desktop app point it at a mock GitHub API with `DESKA_GITHUB_API_URL`. Only `http://127.0.0.1:<port>` is accepted; any other value is ignored, so the token can't be sent anywhere but GitHub or the same Mac.
 
@@ -136,13 +138,13 @@ Optional and **off by default**; nothing is spawned or sent until the user picks
 
 ## Write gate
 
-Deska v1.0 is **read-only**. Writes (planning edits, close/reopen, create issue) come later, and a GitHub write happens only when **all three** hold:
+Deska v1.0 is **read-only** (built with `DESKA_WRITES=off`). In a build that allows writes, a GitHub write happens only when **all three** hold:
 
-1. **The token has write permissions** (Issues: Read and write, Projects: Read and write). With a read-only token GitHub refuses every write. A GitHub CLI login always has them (its `repo` scope), so with that source only 2 and 3 stand between Deska and a write.
-2. **Settings → "GitHub writes" is on.** It's off by default, and turns off again after every token change, which includes switching between a pasted token and the GitHub CLI login.
+1. **The token has write permissions** (Issues: Read and write, Projects: Read and write), detected with read-only queries as described above and stored. With a read-only token GitHub refuses every write. A GitHub CLI login normally has them (its `repo` scope, plus `project` for project fields), so with that source only 2 and 3 stand between Deska and a write.
+2. **Settings → "GitHub writes" is on.** It's off by default, and turns off again after every token change, which includes switching between a pasted token and the GitHub CLI login. Turning it on checks the token's write permissions first, so it can never be on for a token GitHub would refuse.
 3. **The build allows writes.** A binary built with `DESKA_WRITES=off` refuses writes whatever 1 and 2 say. v1.0 is built this way.
 
-When writes are on, each one follows an intentional user action, checks that the value hasn't changed on GitHub since it was read, shows success or failure, and re-reads the issue afterwards. Bulk edits over 50 issues ask for confirmation first. Allowed operations:
+When writes are on, each one follows an intentional user action, checks that the value hasn't changed on GitHub since it was read, shows success or failure, and re-reads the issue afterwards. The outbox is one queue in the server process: a write is claimed by a short transaction, the GitHub call runs outside it, a transient failure is retried with backoff, and a multi-step job records the step it finished so a crash between the steps resumes at the next one. Bulk edits over 50 issues ask for confirmation first. Allowed operations:
 
 | Write | GitHub API |
 |---|---|

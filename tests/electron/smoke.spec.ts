@@ -161,6 +161,16 @@ async function mockGitHub(): Promise<MockGitHub> {
       if (req.method === "POST" && url.pathname === "/graphql") {
         const query = String(gql.query ?? "");
         const forbidden = { data: { organization: null }, errors: [{ type: "FORBIDDEN", message: "Resource not accessible by personal access token" }] };
+        if (query.includes("DeskaWriteCheck")) {
+          // W0: the read-only token's write permissions, detected with read-only
+          // viewerCan fields. Nothing here is writable.
+          return json(200, {
+            data: {
+              repository: { issues: { nodes: [{ viewerCanUpdate: false, viewerCanLabel: false, viewerCanAssign: false, viewerCanClose: false }] } },
+              organization: { projectV2: { viewerCanUpdate: false } },
+            },
+          });
+        }
         if (query.includes("DeskaOrgProjects")) {
           if (mock.projects === "forbidden") return json(200, forbidden);
           return json(200, { data: { organization: { projectsV2: { pageInfo: { hasNextPage: false, endCursor: null }, nodes: mock.orgProjects.map(({ fields: _f, ...p }) => p) } } } });
@@ -376,7 +386,9 @@ test.describe("desktop shell", () => {
       // Edit controls say why they are off.
       await win.goto(`${origin}/issues?issue=101`);
       const panel = win.getByRole("complementary", { name: "Issue #101" });
-      await expect(panel.getByRole("button", { name: /Close issue/ })).toHaveAttribute("title", "Read-only token", { timeout: 60_000 });
+      // The token reads "Read-only token" in Settings (line above); this build is
+      // read-only, so the edit controls name the build's write switch (W0).
+      await expect(panel.getByRole("button", { name: /Close issue/ })).toHaveAttribute("title", "Editing is off for this deployment", { timeout: 60_000 });
 
       // The server checked the token and discovered the project against the (mock) API with reads only.
       expect(github.requests.length).toBeGreaterThan(0);

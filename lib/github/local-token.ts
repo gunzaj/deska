@@ -5,6 +5,7 @@
 //
 // globalThis, not a module variable: Next loads server modules more than
 // once, and every copy must see the same token.
+import { noteTokenChange } from "../writes/token-change";
 
 const TOKEN = Symbol.for("deska.githubToken");
 const STATE = Symbol.for("deska.githubTokenState");
@@ -50,6 +51,8 @@ export function setLocalToken(token: string | null, source: "launch" | "user", a
   g[TOKEN] = token ?? undefined;
   g[AUTH] = auth;
   g[STATE] = { generation: prev.generation + 1, changedByUser: prev.changedByUser || source === "user", afterReread: reread } satisfies TokenState;
+  // A token change turns "GitHub writes" off (SPEC §3.4); the gate applies it.
+  if (source === "user") noteTokenChange();
   const waiters = g[WAITERS] as Set<() => void> | undefined;
   g[WAITERS] = undefined;
   for (const w of waiters ?? []) w();

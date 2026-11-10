@@ -1,17 +1,9 @@
 import { z } from "zod";
 import { markResult, resultById } from "@/lib/ai/results";
-import { writeEnabled } from "@/lib/outbox/queue";
-import { EDITING_OFF } from "@/lib/client/edit";
-import { localToken } from "@/lib/github/local-token";
-import { MESSAGES } from "@/lib/github/token-states";
 import { HttpError, route } from "@/lib/server/route";
+import { writeGate, WRITE_MESSAGES } from "@/lib/writes/gate";
 
 export const dynamic = "force-dynamic";
-
-/** Why a GitHub change can't be accepted now (SPEC §3.4, §4.9). */
-function writeOffReason(): string {
-  return localToken() !== null ? MESSAGES.readOnly : EDITING_OFF;
-}
 
 /**
  * Accept or dismiss a stored suggestion (SPEC §4.9). Dismiss is local.
@@ -41,7 +33,8 @@ export const POST = route(
       await markResult(params.id, "accepted");
       return { outcome: "accepted" };
     }
-    if (!writeEnabled()) throw new HttpError(409, writeOffReason());
+    const gate = await writeGate();
+    if (!gate.allowed) throw new HttpError(409, gate.reason ?? WRITE_MESSAGES.settingOff);
     // Applying a suggestion is W1's outbox, not built yet: never claim it applied.
     throw new HttpError(501, "Accepting a GitHub change arrives with the write milestones (W1).");
   },

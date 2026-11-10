@@ -263,7 +263,7 @@ Implement from GitHub's documented behavior and test with mocked responses.
 | Expiring soon | `github-authentication-token-expiration` header < 14 days | Warning with the date |
 | Awaiting org approval | org resources refused while `GET /user` works | "Your org may still need to approve this token" |
 | Missing a permission | 403 "Resource not accessible by personal access token" | Names the permission, e.g. "Organization → Projects: Read" |
-| Read-only | write permissions absent (**[D3]** they can't be read off a fine-grained token without trying a write, so every token counts as read-only until W0 adds detection) | App works; edit controls disabled with "Read-only token" |
+| Read-only | write permissions absent (**[W0]** detected with read-only queries: a classic or GitHub CLI token from its scopes, a fine-grained token from GitHub's `viewerCan*` fields — never by trying a write) | App works; edit controls disabled with "Read-only token" |
 | Offline / GitHub down | network error / 5xx | "Can't reach GitHub"; cached data stays, marked stale |
 | Rate limited | 403/429 with remaining = 0 | "Rate limited until HH:MM" |
 | **[after D14]** GitHub CLI not found / logged out | source = gh; `gh` not on the PATH, or `gh auth token` fails | "GitHub CLI isn't installed" / "GitHub CLI isn't logged in", the command to run (`gh auth login`), "Check again", and "Paste a token instead" |
@@ -275,8 +275,8 @@ An error is NEVER shown as an empty list.
 ## 3.4 Write gate
 
 A GitHub write happens only when all three hold:
-1. The token has the write permissions (§3.3).
-2. Settings → "GitHub writes" is on. Off by default, and off again after every token change.
+1. The token has the write permissions (§3.3). Detected with read-only queries when the token is checked and stored, so a relaunch and an offline session know it. Turning the switch below on re-checks it first.
+2. Settings → "GitHub writes" is on. Off by default, and off again after every token change (replace token, disconnect, switch source).
 3. The build allows writes. `DESKA_WRITES=off` at build time produces a binary that refuses writes regardless of 1 and 2. v1.0 is built with it off.
 
 ---
@@ -391,6 +391,8 @@ Rules: tasks never write to GitHub; a closed linked issue shows a badge but neve
 | Create issue | REST `POST /issues`, add to project, set fields — one outbox job | W3 |
 
 Every write: only after an intentional user action; optimistic UI; a stale-value check before writing ("Changed on GitHub by X → Keep theirs / Overwrite"); a success or failure toast; then the issue is re-read and GitHub's resulting state shown. Bulk edits over 50 issues confirm first. No delete anywhere.
+
+**[W0]** The outbox is one durable queue in the server process (one process, one local user): a write is claimed by moving its row to `sending`, the GitHub call runs outside any transaction, a transient failure schedules a retry (2 s, 8 s, 30 s), a finished row writes an audit row, and edits to one issue and field run in order. A multi-step job records the step it finished (close = close the issue, then set Status), so a crash between the steps resumes at the second instead of closing again or reporting the user's own close as a conflict. The write client has an **operation allowlist** (the table above): a test fails when any other mutation or REST write is added, and nothing in it can delete.
 
 ## 4.9 AI assist (Phase E)
 

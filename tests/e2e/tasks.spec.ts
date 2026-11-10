@@ -134,7 +134,14 @@ test("add an issue to tasks from its panel; an empty title takes the issue title
   await expect(panel.getByRole("region", { name: "Linked issues" }).getByText("#102")).toBeVisible();
 
   await page.goto("/issues/102");
-  await expect(page.getByRole("region", { name: "Tasks" }).getByRole("button", { name: "Bug: crash on start" })).toBeVisible();
+  // The panel fetches the task list after navigation; give the dev server room under load.
+  await expect(page.getByRole("region", { name: "Tasks" }).getByRole("button", { name: "Bug: crash on start" })).toBeVisible({ timeout: 30_000 });
+  // Leave no task behind: a retried run must find one, not two (the database
+  // is shared by the specs of one e2e run).
+  const tasks = (await (await page.request.get("/api/tasks")).json()) as { tasks: { id: string; title: string }[] };
+  for (const t of tasks.tasks.filter((t) => t.title === "Bug: crash on start")) {
+    await page.request.patch(`/api/tasks/${t.id}`, { data: { completed: true } });
+  }
   await context.close();
 });
 

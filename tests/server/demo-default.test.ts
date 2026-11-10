@@ -9,7 +9,7 @@ describe("demo fixtures must never be the production default", () => {
   afterEach(() => {
     delete process.env.DESKA_DB_DIR;
     delete process.env.DEMO;
-    delete process.env.WRITE_MODE;
+    delete process.env.DESKA_WRITES;
     setNodeEnv("test");
   });
 
@@ -34,7 +34,7 @@ describe("demo fixtures must never be the production default", () => {
     // would push mutations against arbitrary GitHub IDs.
     setNodeEnv("production");
     process.env.DEMO = "1";
-    process.env.WRITE_MODE = "on";
+    process.env.DESKA_WRITES = "on";
     await expect(getStore()).rejects.toThrow(/not writable/);
   });
 

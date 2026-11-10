@@ -60,13 +60,12 @@ export function pinnedProjectId(): string | null {
 }
 
 /**
- * `WRITE_MODE=on`. Anything else means no GitHub writes. A build made with
- * `DESKA_WRITES=off` (SPEC §3.4, the v1.0 release) refuses writes whatever
- * `WRITE_MODE` says: the desktop shell stamps the build and passes it on.
+ * The build's write switch (SPEC §3.4, part 3): only a build stamped with
+ * `DESKA_WRITES=on` may write. An unstamped build (dev, tests) and the
+ * `DESKA_WRITES=off` release count as off, whatever the other gate parts say.
  */
-export function writeMode(): boolean {
-  if (process.env.DESKA_WRITES === "off") return false;
-  return process.env.WRITE_MODE === "on";
+export function buildAllowsWrites(): boolean {
+  return process.env.DESKA_WRITES === "on";
 }
 
 /**
