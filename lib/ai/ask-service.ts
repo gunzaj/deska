@@ -2,7 +2,7 @@
 // or the rows of an issue list from the cache, plus the user's question. The
 // model is asked only here, when the user asks; an answer is text until the user
 // acts on it (it never is a GitHub write).
-import { readAiSettings } from "../settings";
+import { linkRepo, readAiSettings } from "../settings";
 import { getStore } from "../store";
 import type { FieldMapping } from "../sync/field-map";
 import type { IssueRow, ReadModel } from "../sync/read-model";
@@ -114,12 +114,12 @@ function storedAnswer(row: StoredResult): StoredAsk | null {
   return parsed.success ? parsed.data : null;
 }
 
-function answerView(row: StoredResult, stored: StoredAsk, fresh: boolean): AskAnswerView {
+function answerView(row: StoredResult, stored: StoredAsk, fresh: boolean, repo: string): AskAnswerView {
   return {
     id: row.id,
     question: stored.question,
     answer: stored.answer,
-    answerHtml: answerHtml(stored.answer),
+    answerHtml: answerHtml(stored.answer, repo),
     references: stored.references.map(Number).filter((n) => Number.isInteger(n) && n > 0),
     provider: row.provider,
     model: row.model,
@@ -146,7 +146,7 @@ export async function latestIssueAnswer(number: number): Promise<AskView | null>
   if (!input) return null;
   const settings = await readAiSettings();
   const fresh = row.inputHash === inputHash(askIssueTask(input), settings.extraInstructions);
-  return { answer: answerView(row, stored, fresh), ai };
+  return { answer: answerView(row, stored, fresh, await linkRepo()), ai };
 }
 
 /** Asks the model for an answer about this issue; null when it isn't cached. */
@@ -171,7 +171,7 @@ export async function latestListAnswer(numbers: number[], total: number): Promis
   const input: AskListInput = { question: stored.question, rows, total: Math.max(total, numbers.length) };
   const settings = await readAiSettings();
   const fresh = row.inputHash === inputHash(askListTask(input), settings.extraInstructions);
-  return { answer: answerView(row, stored, fresh), ai };
+  return { answer: answerView(row, stored, fresh, await linkRepo()), ai };
 }
 
 /** Asks the model for an answer about this list; null when none of its rows is cached. */

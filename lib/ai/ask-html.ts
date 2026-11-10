@@ -9,8 +9,8 @@ const ANCHOR = /<a\b[^>]*\bhref="([^"]*)"[^>]*>([\s\S]*?)<\/a>/gi;
 const NO_HREF = /<a\b(?![^>]*\bhref=)[^>]*>([\s\S]*?)<\/a>/gi;
 
 /** Markdown → HTML with only `https://github.com/…` links clickable (SPEC §4.9). */
-export function answerHtml(markdown: string): string {
-  return sanitizeHtml(renderMarkdownLite(markdown))
+export function answerHtml(markdown: string, repo?: string): string {
+  return sanitizeHtml(renderMarkdownLite(markdown, repo))
     .replace(ANCHOR, (whole: string, href: string, text: string) => (/^https:\/\/github\.com\//i.test(href) ? whole : text))
     .replace(NO_HREF, "$1");
 }

@@ -2,7 +2,8 @@
 // only, with the viewer's own token. GitHub renders the markdown for us
 // (`body_html`), so the panel matches github.com exactly.
 import { restClient } from "@/lib/github/client";
-import { displayRepo, githubRepo } from "@/lib/config";
+import { displayRepo } from "@/lib/config";
+import { linkRepo } from "@/lib/settings";
 import { parseGitHubItemUrl } from "@/lib/github/url";
 import type { IssueComment, IssueDetail } from "@/lib/client/types";
 import type { ReadModel } from "@/lib/sync/read-model";
@@ -142,7 +143,7 @@ type RestComment = {
   html_url: string;
 };
 
-export async function fetchIssueDetail(number: number, token: string, repoFull = githubRepo().repoFull): Promise<IssueDetail> {
+export async function fetchIssueDetail(number: number, token: string, repoFull: string): Promise<IssueDetail> {
   const key = `${repoFull}#${number}`;
   const hit = cache.get(key);
   if (hit && Date.now() - hit.at < TTL_MS) return hit.detail;
@@ -200,7 +201,7 @@ async function removedDetail(number: number, reason: string | null): Promise<Iss
   return {
     number,
     body: row.body ?? "",
-    bodyHtml: row.body ? sanitizeHtml(renderMarkdownLite(row.body)) : null,
+    bodyHtml: row.body ? sanitizeHtml(renderMarkdownLite(row.body, await linkRepo())) : null,
     comments: [],
     commentsError: removedNote(row.reason) ?? reason,
     source: "cache",
@@ -248,7 +249,7 @@ export async function demoDetail(store: ReadModel, number: number): Promise<Issu
       avatarUrl: null,
       createdAt: new Date(start + (span * (k + 1)) / (count + 1)).toISOString(),
       body: text,
-      bodyHtml: renderMarkdownLite(text),
+      bodyHtml: renderMarkdownLite(text, repoOf(issue.url)),
       url: `${issue.url}#issuecomment-${k}`,
     };
   });

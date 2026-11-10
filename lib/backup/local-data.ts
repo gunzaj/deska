@@ -224,6 +224,16 @@ const KEPT_STATE = `key NOT LIKE 'github.%' AND key NOT IN ('views.seeded', '${G
  * and the settings (project and field mapping) stay.
  */
 export async function resetGithubCache(): Promise<void> {
+  await clearGithubCache();
+  void syncService().request("project");
+}
+
+/**
+ * Drop the GitHub cache and the sync cursors with the sync paused, without
+ * starting a new sync (the caller does). Also used when the user switches to
+ * another repository or project: the old cursors and rows must not carry over.
+ */
+export async function clearGithubCache(): Promise<void> {
   const db = requireDb();
   await withSyncPaused(async () => {
     await db.transaction(async (tx) => {
@@ -234,7 +244,6 @@ export async function resetGithubCache(): Promise<void> {
     });
   });
   afterLocalDataChange();
-  void syncService().request("project");
 }
 
 /**

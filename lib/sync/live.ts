@@ -46,6 +46,9 @@ type RestIssue = {
   pull_request?: unknown;
 };
 
+/** A guard against a cursor that never ends; far above any real project. */
+const MAX_META_PAGES = 40;
+
 /** Metadata (fields, options, iterations, issue types) is discovered, never hardcoded. */
 async function fetchMetadata(
   token: string,
@@ -53,18 +56,30 @@ async function fetchMetadata(
   num: number,
 ): Promise<{ projectId: string; fields: SnapshotField[]; issueTypes: SnapshotIssueType[] }> {
   const gql = gqlClient(token);
-  const fieldsRes = await gql(
-    `query DeskaSyncFields($org:String!, $num:Int!) { organization: repositoryOwner(login:$org) { ... on ProjectV2Owner { projectV2(number:$num) {
-      id fields(first:40) { nodes {
+  // Every page of fields: the result is imported as complete, so a field left
+  // off a short first page would be marked missing (§4.1) and lose its values.
+  let projectId = "";
+  const fieldNodes: any[] = [];
+  let after: string | null = null;
+  for (let page = 0; page < MAX_META_PAGES; page++) {
+    const fieldsRes: any = await gql(
+      `query DeskaSyncFields($org:String!, $num:Int!, $after:String) { organization: repositoryOwner(login:$org) { ... on ProjectV2Owner { projectV2(number:$num) {
+      id fields(first:50, after:$after) { pageInfo { hasNextPage endCursor } nodes {
         ... on ProjectV2Field { id name dataType }
         ... on ProjectV2SingleSelectField { id name dataType options { id name color } }
         ... on ProjectV2IterationField { id name dataType configuration { duration iterations { id title startDate duration } completedIterations { id title startDate duration } } }
       } } } } } }`,
-    { org, num },
-  );
-  const fieldNodes = fieldsRes.organization.projectV2.fields.nodes;
+      { org, num, after },
+    );
+    const project = fieldsRes.organization.projectV2;
+    projectId = project.id;
+    fieldNodes.push(...project.fields.nodes);
+    const info = project.fields.pageInfo;
+    if (!info?.hasNextPage || !info.endCursor) break;
+    after = info.endCursor;
+  }
   return {
-    projectId: fieldsRes.organization.projectV2.id,
+    projectId,
     fields: fieldNodes.map((f: any) => ({
       id: f.id,
       name: f.name,
@@ -81,11 +96,20 @@ async function fetchMetadata(
 /** The org's issue types. */
 async function fetchIssueTypes(token: string, org: string): Promise<SnapshotIssueType[]> {
   try {
-    const res = await gqlClient(token)(
-      `query DeskaSyncIssueTypes($org:String!) { organization: repositoryOwner(login:$org) { ... on Organization { issueTypes(first:20) { nodes { id name color description } } } } }`,
-      { org },
-    );
-    return res?.organization?.issueTypes?.nodes ?? [];
+    // Every page: an org can have more types than one page holds.
+    const types: SnapshotIssueType[] = [];
+    let after: string | null = null;
+    for (let page = 0; page < MAX_META_PAGES; page++) {
+      const res: any = await gqlClient(token)(
+        `query DeskaSyncIssueTypes($org:String!, $after:String) { organization: repositoryOwner(login:$org) { ... on Organization { issueTypes(first:50, after:$after) { pageInfo { hasNextPage endCursor } nodes { id name color description } } } } }`,
+        { org, after },
+      );
+      const conn = res?.organization?.issueTypes;
+      types.push(...(conn?.nodes ?? []));
+      if (!conn?.pageInfo?.hasNextPage || !conn.pageInfo.endCursor) break;
+      after = conn.pageInfo.endCursor;
+    }
+    return types;
   } catch (e) {
     // Optional permission (§3.2): refused, Type shows as unavailable.
     const errors = (e as { errors?: { type?: string }[] } | null)?.errors;

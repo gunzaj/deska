@@ -30,7 +30,10 @@ app.setName("Deska");
 if (process.env.DESKA_USER_DATA_DIR) app.setPath("userData", path.resolve(process.env.DESKA_USER_DATA_DIR));
 
 // One app per profile: two servers on one database directory would corrupt it.
-if (!app.requestSingleInstanceLock()) app.quit();
+// `quit()` is not immediate, so the second instance must also skip the startup
+// below; otherwise it could still fork a server on the same database.
+const primaryInstance = app.requestSingleInstanceLock();
+if (!primaryInstance) app.quit();
 
 type Server = {
   origin: string;
@@ -811,6 +814,7 @@ app.on("deska:reminder-action" as never, ((item: ReminderItem, action: ReminderA
 app.on("will-quit", () => globalShortcut.unregisterAll());
 
 void app.whenReady().then(async () => {
+  if (!primaryInstance) return;
   prefs = loadPrefs();
   installMenu();
   registerIpc();

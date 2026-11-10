@@ -6,10 +6,11 @@
 import { randomUUID } from "node:crypto";
 import { dbDir } from "@/db";
 import { localToken } from "../github/local-token";
+import { githubTarget } from "../github/url";
 import { cachedBody } from "../server/bodies";
 import { duplicatesOf } from "../server/duplicates";
 import { demoDetail, fetchIssueDetail } from "../server/issue-detail";
-import { readAiSettings } from "../settings";
+import { linkRepo, readAiSettings } from "../settings";
 import { getStore } from "../store";
 import { inputHash } from "./prompt";
 import { startJob, type Job } from "./runner";
@@ -39,11 +40,15 @@ export type TriageSuggestionView = {
  * cached description without a token. Newest first (SPEC §4.9). A failure keeps
  * the suggestion possible: the cached description still goes.
  */
-async function commentsFor(store: ReadModel, issue: { number: number; nodeId: string }): Promise<{ author: string; body: string; createdAt: string }[]> {
+async function commentsFor(store: ReadModel, issue: { number: number; nodeId: string; url: string }): Promise<{ author: string; body: string; createdAt: string }[]> {
   try {
     if (!dbDir()) return (await demoDetail(store, issue.number))?.comments ?? [];
     const token = localToken();
-    if (token) return (await fetchIssueDetail(issue.number, token)).comments;
+    if (token) {
+      // The item the cache stored, in the stored repository (not GITHUB_REPO, which the desktop app never sets).
+      const target = githubTarget(issue.url, issue.number, await linkRepo());
+      return (await fetchIssueDetail(target.number, token, target.repo)).comments;
+    }
   } catch {
     // GitHub unreachable: the cached description is still useful.
   }

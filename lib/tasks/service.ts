@@ -313,7 +313,11 @@ async function applyUpdate(repo: TaskRepo, me: string, id: string, patch: PatchT
   if (patch.completed && !prev.completedAt && recurrence && dueDate && !patch.endRecurrence) {
     // Completing a recurring task logs the occurrence and moves the due date (§12.5).
     const today = localToday(new Date(), (next.dueTz ?? prev.dueTz) || "UTC");
-    const following = nextOccurrence(recurrence.rule, recurrence.fromCompletion ? today : dueDate);
+    let following = nextOccurrence(recurrence.rule, recurrence.fromCompletion ? today : dueDate);
+    // "every!" completed early: the next date counted from today can land on (or
+    // before) the current due date. The date must move past it, or the occurrence
+    // is logged without moving and every later completion is refused as a repeat.
+    if (following && following <= dueDate) following = nextOccurrence(recurrence.rule, dueDate);
     if (following) {
       completedOccurrence = true;
       // Already logged (a concurrent request won): don't move the date again.

@@ -84,6 +84,14 @@ describe("due times and recurrence (§12.5)", () => {
     expect(forever.body.task.recurrence).toBeNull();
   });
 
+  it("every! completed the day before it is due moves past the due date and can be completed again", async () => {
+    vi.useFakeTimers({ now: new Date("2026-11-09T10:00:00Z"), toFake: ["Date"] });
+    const { body } = await create({ title: "Stretch", dueDate: "2026-11-10", recurrence: { rule: "FREQ=DAILY", text: "every! day", fromCompletion: true } });
+    expect((await patch(body.task.id, { completed: true })).body.task.dueDate).toBe("2026-11-11");
+    vi.setSystemTime(new Date("2026-11-11T10:00:00Z"));
+    expect((await patch(body.task.id, { completed: true })).body.task.dueDate).toBe("2026-11-12");
+  });
+
   it("every month from the 31st keeps returning to the month's end", async () => {
     const { body } = await create({ title: "Invoice", dueDate: "2026-01-31", recurrence: { rule: "FREQ=MONTHLY", text: "every month" } });
     expect((body.task.recurrence as { rule: string }).rule).toBe("FREQ=MONTHLY;BYMONTHDAY=31");

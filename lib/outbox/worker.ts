@@ -21,6 +21,12 @@ export interface WriteClient {
   createIssue?(payload: CreateIssuePayload): Promise<{ nodeId: string; number: number }>;
   /** Add an existing issue to the pinned project (W3). */
   addProjectItem?(issueNodeId: string): Promise<void>;
+  /**
+   * The issue an earlier, unconfirmed try of this create already made, or null
+   * (W3). Called before a create is sent again, so a lost answer never becomes a
+   * second issue.
+   */
+  findCreatedIssue?(payload: CreateIssuePayload, since: Date): Promise<{ nodeId: string; number: number } | null>;
 }
 
 /**
@@ -179,7 +185,10 @@ async function applyCreate(entry: OutboxEntry, client: WriteClient, onStep?: (st
     let position = at;
     if (!nodeId) {
       if (!client.createIssue) throw new NonRetryableError("this build cannot create issues");
-      const created = await client.createIssue(payload);
+      // An earlier try sent the create but never got an answer back: GitHub may
+      // have made the issue anyway. Look for it before sending the create again.
+      let created = entry.attempts > 0 ? await findEarlierCreate(entry, client, payload) : null;
+      if (!created) created = await client.createIssue(payload);
       nodeId = created.nodeId;
       await onStep?.("create-issue", created);
       position = 0;
@@ -203,6 +212,17 @@ async function applyCreate(entry: OutboxEntry, client: WriteClient, onStep?: (st
     if (isRetryable(e) && tries < MAX_ATTEMPTS) return { status: "retry", error: String(e), tried: true };
     return { status: "failed", error: e instanceof NonRetryableError ? e.message : String(e), tried: true };
   }
+}
+
+/**
+ * The issue an unconfirmed earlier try made, if any. Without a way to look it up,
+ * sending the create again could make a second issue, so the job fails instead.
+ */
+async function findEarlierCreate(entry: OutboxEntry, client: WriteClient, payload: CreateIssuePayload): Promise<{ nodeId: string; number: number } | null> {
+  if (!client.findCreatedIssue || !entry.createdAt) {
+    throw new NonRetryableError("an earlier try may already have created this issue; check GitHub before creating it again");
+  }
+  return client.findCreatedIssue(payload, new Date(entry.createdAt));
 }
 
 /** Run the remaining steps of a multi-step job, recording each after it succeeds. */

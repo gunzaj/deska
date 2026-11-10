@@ -3,7 +3,7 @@ import { dbDir } from "@/db";
 import { localToken } from "@/lib/github/local-token";
 import { getStore } from "@/lib/store";
 import type { IssueDetail } from "@/lib/client/types";
-import { githubRepo } from "@/lib/config";
+import { linkRepo } from "@/lib/settings";
 import { githubTarget } from "@/lib/github/url";
 import { cachedDetail, demoDetail, fetchIssueDetail } from "./issue-detail";
 
@@ -28,7 +28,7 @@ export async function detailResponse(rawNumber: string): Promise<NextResponse> {
     // from GITHUB_REPO + the route number opens a different repository's item
     // whenever the synced link points somewhere else.
     const stored = [...store.issues.values()].find((i) => i.number === number)?.url;
-    const target = githubTarget(stored, number, githubRepo().repoFull);
+    const target = githubTarget(stored, number, await linkRepo());
     return NextResponse.json(await fetchIssueDetail(target.number, token, target.repo), { headers: { "cache-control": "private, max-age=30" } });
   } catch (e) {
     const status = (e as { status?: number })?.status;

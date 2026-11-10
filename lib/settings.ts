@@ -8,7 +8,7 @@
 import { inArray } from "drizzle-orm";
 import { dbDir, getDb } from "@/db";
 import { appSettings } from "@/db/schema";
-import { ConfigError, githubTarget, type GithubTarget } from "./config";
+import { ConfigError, displayRepo, githubTarget, type GithubTarget } from "./config";
 import { parseAiSettings, type AiSettings } from "./ai/types";
 import { parseMapping, type FieldMapping } from "./sync/field-map";
 
@@ -237,4 +237,13 @@ export async function currentTarget(): Promise<ResolvedTarget | null> {
   }
   const env = envTarget();
   return env ? { ...env, projectId: process.env.GITHUB_PROJECT_ID?.trim() || null, source: "env" } : null;
+}
+
+/**
+ * The repository `#123` links and GitHub reads default to: the stored target,
+ * else `GITHUB_REPO`, else the demo label. The desktop app sets no env vars, so
+ * reading `GITHUB_REPO` directly there threw or pointed at the demo repo.
+ */
+export async function linkRepo(): Promise<string> {
+  return (await currentTarget().catch(() => null))?.repoFull ?? displayRepo();
 }

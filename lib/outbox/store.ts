@@ -220,7 +220,7 @@ export async function recordAttempt(tx: Tx, raw: Raw, r: Attempt): Promise<Outbo
   if (status !== "pending") {
     await tx.insert(auditLog).values({
       userId: row.userId,
-      issueNodeId: row.issueNodeId,
+      issueNodeId: targetNodeId(toRow(saved)),
       field: row.field ?? row.op,
       old: (row.base ?? null) as never,
       new: (row.next ?? null) as never,
@@ -252,6 +252,7 @@ async function runAttempt(raw: Raw, deps: ProcessDeps): Promise<OutboxRow | null
       status: row.status,
       attempts: row.attempts,
       error: row.error,
+      createdAt: row.createdAt,
     },
     deps.client,
     deps.doneStatusOptionId,
@@ -267,8 +268,17 @@ async function runAttempt(raw: Raw, deps: ProcessDeps): Promise<OutboxRow | null
  */
 async function afterDone(row: OutboxRow, deps: ProcessDeps) {
   if ((row.status !== "done" && row.status !== "conflict") || !deps.refresh) return;
+  const id = targetNodeId(row);
+  if (!id) return;
   // A failed re-read only delays the cache until the next sync cycle.
-  await deps.refresh(row.issueNodeId).catch((e) => console.error(`outbox: cache refresh failed for ${row.issueNodeId}: ${String(e)}`));
+  await deps.refresh(id).catch((e) => console.error(`outbox: cache refresh failed for ${id}: ${String(e)}`));
+}
+
+/** The issue a row wrote to: a create job's is the one it made (its `result`), not its empty `issueNodeId`. */
+function targetNodeId(row: Pick<OutboxRow, "op" | "issueNodeId" | "result">): string {
+  if (row.op !== "create") return row.issueNodeId;
+  const made = (row.result as { nodeId?: unknown } | null)?.nodeId;
+  return typeof made === "string" ? made : "";
 }
 
 /**

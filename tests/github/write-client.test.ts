@@ -271,6 +271,39 @@ describe("GitHubWriteClient", () => {
     expect(await c.readField("I_1", "milestone")).toBe("12");
   });
 
+  it("creates an issue and returns the node ID from the response body (W3)", async () => {
+    server.use(
+      http.post("https://api.github.com/repos/:owner/:repo/issues", async ({ request }) => {
+        rest.push({ method: "POST", path: new URL(request.url).pathname, body: await request.json() });
+        return HttpResponse.json({ node_id: "I_made", number: 501 }, { status: 201 });
+      }),
+    );
+    const made = await client().createIssue({ title: "New", body: "", labelNames: [], assigneeLogins: [], milestoneNumber: null, typeId: null, fields: [] });
+    expect(made).toEqual({ nodeId: "I_made", number: 501 });
+    expect(rest).toEqual([{ method: "POST", path: "/repos/acme/widgets/issues", body: { title: "New", body: "" } }]);
+  });
+
+  it("finds an issue an unconfirmed create already made, matching title and body (W3)", async () => {
+    const since = new Date("2026-11-10T10:00:00Z");
+    const seen: URLSearchParams[] = [];
+    server.use(
+      http.get("https://api.github.com/user", () => HttpResponse.json({ login: "alice" })),
+      http.get("https://api.github.com/repos/:owner/:repo/issues", ({ request }) => {
+        seen.push(new URL(request.url).searchParams);
+        return HttpResponse.json([
+          { node_id: "PR_1", number: 7, title: "New", body: "x", created_at: "2026-11-10T10:00:01Z", pull_request: {} },
+          { node_id: "I_other", number: 8, title: "New", body: "different", created_at: "2026-11-10T10:00:01Z" },
+          { node_id: "I_old", number: 9, title: "New", body: "x", created_at: "2026-11-09T10:00:00Z" },
+          { node_id: "I_made", number: 10, title: "New", body: "x", created_at: "2026-11-10T10:00:02Z" },
+        ]);
+      }),
+    );
+    const payload = { title: "New", body: "x", labelNames: [], assigneeLogins: [], milestoneNumber: null, typeId: null, fields: [] };
+    expect(await client().findCreatedIssue(payload, since)).toEqual({ nodeId: "I_made", number: 10 });
+    expect(seen[0]?.get("creator")).toBe("alice");
+    expect(await client().findCreatedIssue({ ...payload, title: "Nothing like it" }, since)).toBeNull();
+  });
+
   it("rejects an unknown field", async () => {
     await expect(client().applyField("I_1", "nonsense", "x")).rejects.toThrow(/unsupported field/);
   });

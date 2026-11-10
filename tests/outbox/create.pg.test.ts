@@ -157,6 +157,81 @@ describe("creating an issue (W3)", async () => {
     expect((await getEdit(first.body.entry!.id))?.status).toBe("done");
   });
 
+  it("re-reads the issue it made, not an empty node ID, and audits it by that ID", async () => {
+    const refreshed: string[] = [];
+    const client = fake();
+    const r = await submitCreate({
+      viewer: "alice",
+      token: TOKEN,
+      store: await getStore(),
+      body: { title: "New issue" },
+      deps: (done) => ({
+        client,
+        doneStatusOptionId: done,
+        recordStep: (id, step, result) => saveStep(id, step, result),
+        refresh: async (id) => void refreshed.push(id),
+      }),
+    });
+    expect(r.status).toBe(201);
+    expect(refreshed).toEqual(["I_created"]);
+    const audit = await getDb().execute(sql`SELECT issue_node_id FROM audit_log`);
+    expect(audit.rows).toEqual([{ issue_node_id: "I_created" }]);
+  });
+
+  it("a create whose answer was lost is looked up on retry, not sent again", async () => {
+    const lost = fake();
+    lost.createIssue = async () => {
+      lost.calls.push("create");
+      throw Object.assign(new Error("timeout"), { status: 500 });
+    };
+    const first = await submit({ title: "New issue" }, lost);
+    expect(first.status).toBe(202);
+    expect(first.body.entry).toMatchObject({ status: "pending", result: null });
+
+    const second = Object.assign(fake(), {
+      async findCreatedIssue(payload: { title: string }, since: Date) {
+        second.calls.push(`find:${payload.title}`);
+        expect(since.getTime()).toBeLessThanOrEqual(Date.now());
+        return { nodeId: "I_created", number: 999 };
+      },
+    });
+    second.createIssue = async () => {
+      throw new Error("must not create a second issue");
+    };
+    await getDb().execute(sql`UPDATE outbox SET next_attempt_at = now() - interval '1 second'`);
+    const { processed } = await drainOutbox(async () => ({ client: second, doneStatusOptionId: "a0000006", recordStep: (id, step, result) => saveStep(id, step, result) }));
+    expect(processed.map((p) => p.status)).toEqual(["done"]);
+    expect(second.calls).toEqual(["find:New issue", "add-project"]);
+    expect((await getEdit(first.body.entry!.id))?.result).toEqual({ nodeId: "I_created", number: 999 });
+  });
+
+  it("a retried create that GitHub never made is sent again", async () => {
+    const lost = fake();
+    lost.createIssue = async () => {
+      throw Object.assign(new Error("reset"), { status: 0 });
+    };
+    await submit({ title: "New issue" }, lost);
+    const second = Object.assign(fake(), { findCreatedIssue: async () => null });
+    await getDb().execute(sql`UPDATE outbox SET next_attempt_at = now() - interval '1 second'`);
+    const { processed } = await drainOutbox(async () => ({ client: second, doneStatusOptionId: "a0000006", recordStep: (id, step, result) => saveStep(id, step, result) }));
+    expect(processed.map((p) => p.status)).toEqual(["done"]);
+    expect(second.calls).toEqual(["create", "add-project"]);
+  });
+
+  it("without a way to look up an earlier create, a retry fails rather than risk a duplicate", async () => {
+    const lost = fake();
+    lost.createIssue = async () => {
+      throw Object.assign(new Error("502"), { status: 502 });
+    };
+    await submit({ title: "New issue" }, lost);
+    const second = fake();
+    await getDb().execute(sql`UPDATE outbox SET next_attempt_at = now() - interval '1 second'`);
+    const { processed } = await drainOutbox(async () => ({ client: second, doneStatusOptionId: "a0000006" }));
+    expect(processed.map((p) => p.status)).toEqual(["failed"]);
+    expect(processed[0]?.error).toMatch(/may already have created/);
+    expect(second.calls).toEqual([]);
+  });
+
   it("the re-read puts the created issue in the cache once", async () => {
     const client = fake();
     const r = await submit({ title: "New issue" }, client);

@@ -4,6 +4,7 @@
 // stored locally (lib/settings.ts) with the project's node ID pinned, and the
 // project's fields go into the cache so the read model knows them right away.
 import { dbDir, getDb } from "@/db";
+import { clearGithubCache, LocalDataError } from "../backup/local-data";
 import { githubApiBase } from "../config";
 import { createReadOnlyClient, type ReadOnlyClient } from "../github/probe";
 import { checkRepo, fetchProjectDetail, listOrgProjects, ProjectReadError, type OrgProject, type ProjectDetail } from "../github/projects";
@@ -162,6 +163,15 @@ export async function chooseProject(input: { repo: string; org: string; projectN
   const project = await fetchProjectDetail(client, input.org, input.projectNumber).catch(asHttp);
   const errors = validateMapping(input.mapping, project.fields);
   if (errors.length) throw new HttpError(400, errors[0]!, { errors });
+  // Another repository or project: the cached issues, items and sync cursors
+  // belong to the old one. Keeping them made the next poll skip the first
+  // import and fetch only what changed after the old repo's cursor.
+  const prev = await readTarget();
+  if (prev && dbDir() && (prev.repo.toLowerCase() !== input.repo.toLowerCase() || prev.projectId !== project.id)) {
+    await clearGithubCache().catch((e) => {
+      throw e instanceof LocalDataError ? new HttpError(e.status, e.message) : e;
+    });
+  }
   await importFields(project.id, project.fields);
   await saveTarget({ repo: input.repo, org: input.org, projectNumber: project.number, projectId: project.id, projectTitle: project.title });
   await storeMapping(input.mapping, project.fields);

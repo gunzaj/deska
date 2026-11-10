@@ -4,9 +4,8 @@ import { dbDir } from "@/db";
 import { localToken } from "@/lib/github/local-token";
 import { HttpError, route } from "@/lib/server/route";
 import { fetchSubIssuesPage, type SubIssueItem } from "@/lib/server/sub-issues";
-import { currentTarget } from "@/lib/settings";
+import { currentTarget, linkRepo } from "@/lib/settings";
 import { getStore } from "@/lib/store";
-import { githubRepo } from "@/lib/config";
 import { githubTarget } from "@/lib/github/url";
 
 export const dynamic = "force-dynamic";
@@ -28,6 +27,7 @@ export const GET = route(
     const store = await getStore();
     const parent = [...store.issues.values()].find((i) => i.number === number);
     if (!parent) throw new HttpError(404, "not found");
+    const repo = await linkRepo();
     const cached = (): { items: SubIssueItem[]; total: number; nextCursor: null; cached: true } => {
       const items = [...store.issues.values()]
         .filter((i) => i.parentNodeId === parent.nodeId)
@@ -39,14 +39,14 @@ export const GET = route(
           state: (i.state === "open" ? "open" : "closed") as "open" | "closed",
           stateReason: i.stateReason,
           url: i.url,
-          repo: githubRepo().repoFull,
+          repo,
           statusOptionId: store.itemForIssue(i.nodeId)?.statusOpt ?? null,
         }));
       return { items, total: parent.subTotal ?? items.length, nextCursor: null, cached: true };
     };
     const token = dbDir() ? localToken() : null;
     if (!token) return NextResponse.json(cached());
-    const target = githubTarget(parent.url, number, githubRepo().repoFull);
+    const target = githubTarget(parent.url, number, repo);
     const settings = await currentTarget();
     try {
       const page = await fetchSubIssuesPage(token, target.repo, target.number, query.after ?? null, {
