@@ -161,6 +161,16 @@ async function mockGitHub(): Promise<MockGitHub> {
       if (req.method === "POST" && url.pathname === "/graphql") {
         const query = String(gql.query ?? "");
         const forbidden = { data: { organization: null }, errors: [{ type: "FORBIDDEN", message: "Resource not accessible by personal access token" }] };
+        if (query.includes("DeskaWriteCheck")) {
+          // W0: the read-only token's write permissions, detected with read-only
+          // viewerCan fields. Nothing here is writable.
+          return json(200, {
+            data: {
+              repository: { issues: { nodes: [{ viewerCanUpdate: false, viewerCanLabel: false, viewerCanAssign: false, viewerCanClose: false }] } },
+              organization: { projectV2: { viewerCanUpdate: false } },
+            },
+          });
+        }
         if (query.includes("DeskaOrgProjects")) {
           if (mock.projects === "forbidden") return json(200, forbidden);
           return json(200, { data: { organization: { projectsV2: { pageInfo: { hasNextPage: false, endCursor: null }, nodes: mock.orgProjects.map(({ fields: _f, ...p }) => p) } } } });
