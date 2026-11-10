@@ -19,7 +19,7 @@
 | D14 | done | [#21](https://github.com/gunzaj/deska/pull/21) | Version 1.0.0, About dialog, build write switch (`DESKA_WRITES=off`), release workflow, handoff doc; draft release v1.0.0 with the .dmg; no migration |
 | W0–W3 | todo | | Waits for the maintainer's go (§0.4); skipped until then |
 | D15 | done | [#28](https://github.com/gunzaj/deska/pull/28) | GitHub CLI login as a token source (`gh auth token`), login-shell PATH, new §3.3 states, onboarding + Settings; no migration |
-| AI0 | todo | | AI providers and settings (§4.9) |
+| AI0 | in progress | | AI providers and settings (§4.9): Settings → AI, Test connection, job runner, `ai_results` (migration 0007), API key store |
 | AI1 | todo | | Issue triage suggestions |
 | AI2 | todo | | Task assist |
 | AI3 | todo | | Plan my day |
@@ -140,7 +140,16 @@
 - D15: Tests use a fake `gh` on `DESKA_TEST_PATH` (honoured only with `DESKA_USER_DATA_DIR`). The "no gh" cases use an empty directory as PATH, not `/usr/bin`: CI runners ship a real `gh` there (caught by CI, fixed in the same PR).
 - D15: Ran this milestone on Fable 5.2 and finished it on Sonnet 5.5, though §0.6 recommends Opus 5.5 for D15.
 
+- AI0: The pass of "Test connection" is stored in `app_settings` (`ai.verified` = provider|model|URL); jobs refuse to run unless it matches the current settings, and saving a different provider, model or URL clears it. It travels with backups (like all settings); a restored database on another Mac would still need a working provider, so this is harmless. `app_settings.value` is NOT NULL, so "no pass" is stored as `""`.
+- AI0: No `DESKA_AI_TEST_*` variables: the fake `claude` is found through `DESKA_LOGIN_PATH` (main takes it from `DESKA_TEST_PATH` only with a throwaway profile, D15), and the mock endpoint listens on loopback, where plain `http` is allowed anyway. Local tests that listen on a port need the sandbox off, like the e2e specs.
+- AI0: Task shapes are zod (v4, `zod/v4`) schemas; the JSON Schema sent to the provider is derived from them (`z.toJSONSchema`, draft-07), so the enum-of-real-IDs rule is one definition. A provider's `invalid-output` (not JSON, no structured output) and a schema mismatch share the single retry. The `json_schema` → `json_object` fallback is separate and not counted, and is remembered per base URL in settings (`ai.endpoint-modes`).
+- AI0: `claude`'s child environment is the server's minus `DESKA_*`, `GITHUB_*`, `GH_*`, `ELECTRON_*`, `NEXT_*`, `PORT`, `HOSTNAME`, `NODE_ENV`, `NODE_OPTIONS`; `ANTHROPIC_*` and `CLAUDE_*` stay so the user's own Claude setup works. Login detection reads the CLI's error text (`/login`, "not logged in", …), the only signal it gives.
+- AI0: Redaction also covers any `sk-…` shaped string, besides the held key. `ai_results` has `subject_kind` (`issue`, `list`, `task`, `day`, `test`) so "Reset GitHub cache" can clear the issue-based rows; there are no feature rows yet (AI1 onwards).
+- AI0: Jobs have routes to poll and cancel (`/api/ai/jobs/[id]`, `.../cancel`) but none to create one: the features (AI1–AI4) create jobs on the server. The runner is covered through its API.
+- AI0: Ran this milestone on Sonnet 5.5, though §0.6 recommends Opus 5.5 for AI0.
+
 ## Maintainer to-do
+- [ ] Try AI0 by hand on the built app (Settings → AI): with Claude Code installed and signed in, choose "Claude Code", Test connection should say it is installed and signed in; sign out (`claude` → /logout) and it should say not signed in. With a model server on your network (or any OpenAI-compatible endpoint), set the base URL, model and optional key, and check the test. Nothing uses AI yet (AI1 adds the first feature).
 - [ ] Review the SPEC additions for AI assist (§4.9, Phase E) before AI0 starts. Confirm Phase C stays skipped until you say go.
 - [ ] Try D15 by hand on the built app: with `gh` logged in, onboarding step 1 offers "Use my GitHub CLI login (signed in as …)"; check it connects without pasting, and that `gh auth refresh -h github.com -s read:project` is what it tells you when the scope is missing (needs your real login and org).
 - [ ] Review and publish the draft release `v1.0.0` (Releases page). Publishing creates the tag. Before that, try the .dmg on a clean Mac: install, open an unsigned app (steps in the notes), connect a real read-only PAT, map your project, use the core views, restart and check tasks and settings stayed. Check About shows 1.0.0 and the Releases link.

@@ -30,6 +30,8 @@ const root = process.cwd();
 
 // Obviously fake, and assembled so no token-shaped literal is committed.
 const TOKEN = ["github", "pat", "TEST", "FAKE", "SMOKE", "0".repeat(20)].join("_");
+// Obviously fake; not token-shaped, so no literal trips the leak guard.
+const AI_TEST_KEY = "test-ai-key-" + "9".repeat(20);
 // What the fake GitHub CLI prints (D15): an OAuth-shaped token, just as fake.
 const GH_TOKEN = ["gho", `TESTFAKESMOKE${"0".repeat(24)}`].join("_");
 
@@ -346,10 +348,16 @@ test.describe("desktop shell", () => {
       // The renderer has no Node, only the typed bridge.
       expect(await win.evaluate(() => typeof (globalThis as { require?: unknown }).require)).toBe("undefined");
       expect(await win.evaluate(() => typeof (globalThis as { process?: unknown }).process)).toBe("undefined");
-      expect(await win.evaluate(() => Object.keys(window.deska ?? {}).sort())).toEqual(["appInfo", "desktop", "github", "notify", "onOpenTask", "openExternal", "quickAdd", "token"]);
+      expect(await win.evaluate(() => Object.keys(window.deska ?? {}).sort())).toEqual(["aiKey", "appInfo", "desktop", "github", "notify", "onOpenTask", "openExternal", "quickAdd", "token"]);
       expect(await win.evaluate(() => window.deska!.appInfo())).toMatchObject({ name: "Deska", platform: "darwin" });
       // main refuses anything that is not a GitHub PAT, with its own words.
       expect(await win.evaluate(() => window.deska!.token.set("ghp_classic").then(() => "stored", (e: Error) => e.message))).toContain("GitHub personal access token");
+
+      // The AI API key (SPEC §2.3, §4.9): main refuses a malformed one, stores a good one encrypted and answers with a status only.
+      expect(await win.evaluate(() => window.deska!.aiKey!.set("has a space in it").then(() => "stored", (e: Error) => e.message))).toContain("does not look like an API key");
+      const aiStatus = await win.evaluate((key) => window.deska!.aiKey!.set(key), AI_TEST_KEY);
+      expect(aiStatus).toEqual({ stored: true, encryptionAvailable: true });
+      expect(await win.evaluate(() => window.deska!.aiKey!.status())).toEqual({ stored: true, encryptionAvailable: true });
 
       await win.getByLabel("Personal access token").fill(TOKEN);
       await win.getByRole("button", { name: "Connect" }).click();
@@ -400,6 +408,18 @@ test.describe("desktop shell", () => {
       expect(filesContaining(userData, TOKEN)).toEqual([]);
       // Not in any log line of main or the server.
       expect(logs()).not.toContain(TOKEN);
+      // The AI key: ciphertext on disk, nowhere in the page or any answer, no log line; "Remove key" deletes the file.
+      expect(existsSync(path.join(userData, "ai-key.bin"))).toBe(true);
+      expect(filesContaining(userData, AI_TEST_KEY)).toEqual([]);
+      expect(logs()).not.toContain(AI_TEST_KEY);
+      const aiLeaks = await win.evaluate(async (key) => {
+        const texts = [document.documentElement.outerHTML, JSON.stringify({ ...localStorage }) + document.cookie];
+        for (const api of ["/api/ai/settings", "/api/connection", "/api/data", "/api/local-data/export"]) texts.push(await fetch(api).then((r) => r.text()));
+        return texts.filter((t) => t.includes(key)).length;
+      }, AI_TEST_KEY);
+      expect(aiLeaks).toBe(0);
+      expect(await win.evaluate(() => window.deska!.aiKey!.clear())).toEqual({ stored: false, encryptionAvailable: true });
+      expect(existsSync(path.join(userData, "ai-key.bin"))).toBe(false);
     } finally {
       await app.close();
     }

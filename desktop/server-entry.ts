@@ -30,6 +30,8 @@ const TOKEN = Symbol.for("deska.githubToken");
 const TOKEN_STATE = Symbol.for("deska.githubTokenState");
 const TOKEN_AUTH = Symbol.for("deska.githubTokenAuth");
 const TOKEN_WAITERS = Symbol.for("deska.githubTokenWaiters");
+// lib/ai/key.ts: the AI API key (SPEC §2.3), memory only like the token.
+const AI_KEY = Symbol.for("deska.aiKey");
 const DB = Symbol.for("deska.db");
 // lib/backup/files.ts: the second backup folder, and the hook that copies to it.
 const MIRROR = Symbol.for("deska.backupMirror");
@@ -137,7 +139,10 @@ function setBackupMirror(dir: string | null) {
 
 onMessage((msg) => {
   if (msg.type === "start") start(msg);
-  else if (msg.type === "backup-mirror") setBackupMirror(typeof msg.dir === "string" ? msg.dir : null);
+  else if (msg.type === "ai-key") {
+    (globalThis as Record<symbol, unknown>)[AI_KEY] = typeof msg.key === "string" && msg.key ? msg.key : undefined;
+    reply({ type: "ai-key-ack", id: msg.id });
+  } else if (msg.type === "backup-mirror") setBackupMirror(typeof msg.dir === "string" ? msg.dir : null);
   else if (msg.type === "token") {
     setToken(msg.token, msg.source, msg.auth, msg.reread === true);
     reply({ type: "token-ack", id: msg.id });

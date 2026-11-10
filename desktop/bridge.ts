@@ -6,6 +6,9 @@ export type AppInfo = { name: string; version: string; platform: string };
 
 export type TokenStatus = { stored: boolean; encryptionAvailable: boolean };
 
+/** The AI API key (SPEC §2.3, §4.9): whether one is stored, never the key. */
+export type AiKeyStatus = { stored: boolean; encryptionAvailable: boolean };
+
 /** Where the GitHub token comes from (SPEC §2.3): a pasted token main stores encrypted, or the GitHub CLI's login. */
 export type GithubAuthSource = "token" | "gh";
 
@@ -93,6 +96,18 @@ export interface DeskaBridge {
     clear(): Promise<TokenStatus>;
     status(): Promise<TokenStatus>;
   };
+  /**
+   * The API key of an OpenAI-compatible AI endpoint (SPEC §2.3, §4.9). Same rules
+   * as the GitHub token: encrypted by main, held in memory by the server, never
+   * returned to the page. Absent in builds before AI0.
+   */
+  aiKey?: {
+    /** Encrypts the key with the OS keychain and hands it to the local server. Resolves once the server holds it. */
+    set(key: string): Promise<AiKeyStatus>;
+    /** "Remove key". */
+    clear(): Promise<AiKeyStatus>;
+    status(): Promise<AiKeyStatus>;
+  };
   /** The GitHub CLI login as a token source (SPEC §3.1). Absent in builds before D15. */
   github?: {
     /** The current source, and whether `gh` is installed and logged in (and as whom). */
@@ -116,6 +131,9 @@ export const CHANNELS = {
   tokenSet: "deska:token-set",
   tokenClear: "deska:token-clear",
   tokenStatus: "deska:token-status",
+  aiKeySet: "deska:ai-key-set",
+  aiKeyClear: "deska:ai-key-clear",
+  aiKeyStatus: "deska:ai-key-status",
   githubStatus: "deska:github-status",
   githubUseCli: "deska:github-use-cli",
   githubRecheck: "deska:github-recheck",
@@ -152,6 +170,8 @@ export type ServerMessage =
    * `gh-reread`.
    */
   | { type: "token"; token: string | null; source: "launch" | "user"; id: number; auth?: TokenAuth; reread?: boolean }
+  /** The AI API key (null = none). `id` is echoed in an `ai-key-ack` once the server holds it. */
+  | { type: "ai-key"; key: string | null; id: number }
   /** The second backup folder (null = none), set by main from its prefs at start and on every change. */
   | { type: "backup-mirror"; dir: string | null }
   /** Run a sync now: the Mac woke from sleep (powerMonitor "resume"). */
@@ -161,12 +181,16 @@ export type ServerMessage =
 /** Messages from the server process to main. */
 export type ServerReply =
   | { type: "token-ack"; id: number }
+  | { type: "ai-key-ack"; id: number }
   /** GitHub answered 401 to the GitHub CLI's token: read it again, once (SPEC §2.3). */
   | { type: "gh-reread" }
   /** Reminders that just fired, to show as native notifications (D12). */
   | { type: "reminders"; items: ReminderItem[] }
   /** The Dock badge: open tasks overdue or due today (D12). */
   | { type: "badge"; count: number };
+
+/** An API key for an AI endpoint: one printable token, no spaces, no quotes. */
+export const AI_KEY = /^[\x21\x23-\x7e]{8,512}$/;
 
 /** A fine-grained PAT (SPEC §3.1). */
 export const FINE_GRAINED_TOKEN = /^github_pat_[A-Za-z0-9_]{20,250}$/;

@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Page } from "@/components/app/shell";
+import { AiSettingsSection } from "@/components/github/ai-settings";
 import { DesktopSettings } from "@/components/github/desktop-settings";
 import { GithubSettings } from "@/components/github/settings";
 import { LocalDataSettings } from "@/components/github/local-data-settings";
@@ -14,6 +15,7 @@ export default function SettingsPage() {
         <GithubSettings />
         <ProjectSettings />
         <DesktopSettings />
+        <AiSettingsSection />
         <LocalDataSettings />
       </div>
     </Page>
