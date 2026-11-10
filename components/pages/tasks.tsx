@@ -15,6 +15,7 @@ import { NEW_SOURCE } from "@/lib/client/project-source";
 import { ProjectSourceSection } from "../tasks/project-source";
 import { useToday } from "../tasks/notifications";
 import { useTasks, type ComposePrefill } from "../tasks/store";
+import { TidyInbox } from "../tasks/tidy-inbox";
 import { useToast } from "../ui/toast";
 import { GroupSection, subCounts, TaskRow } from "../tasks/task-row";
 
@@ -289,6 +290,7 @@ export function TaskInboxPage() {
             ))}
           </select>
         )}
+        <TidyInbox />
       </>
     ),
   }), [project, label, projects, labels, setParam]);

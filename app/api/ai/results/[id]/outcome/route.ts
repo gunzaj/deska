@@ -14,10 +14,12 @@ function writeOffReason(): string {
 }
 
 /**
- * Accept or dismiss a stored suggestion (SPEC §4.9, AI1). Dismiss is local.
+ * Accept or dismiss a stored suggestion (SPEC §4.9). Dismiss is local.
  * Accepting a GitHub change goes through the write gate and the write
  * milestones like a manual edit: while writes are off it is refused with the
- * reason, and this build has no write path yet (W1).
+ * reason, and this build has no write path yet (W1). Accepting a task change is
+ * a normal local edit with Undo: the page applied it, and marking the result
+ * accepted records that (AI2).
  */
 export const POST = route(
   {
@@ -32,6 +34,12 @@ export const POST = route(
     if (body.outcome === "dismissed") {
       await markResult(params.id, "dismissed");
       return { outcome: "dismissed" };
+    }
+    // A task suggestion is a local edit: the page applies it and marks the
+    // result accepted; only a GitHub change goes through the write gate.
+    if (row.subjectKind !== "issue") {
+      await markResult(params.id, "accepted");
+      return { outcome: "accepted" };
     }
     if (!writeEnabled()) throw new HttpError(409, writeOffReason());
     // Applying a suggestion is W1's outbox, not built yet: never claim it applied.
