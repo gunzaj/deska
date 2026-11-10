@@ -29,6 +29,7 @@ const KEYS = {
   tasksOnly: "app.tasks-only",
   writes: "github.writes",
   writeAccess: "github.write-access",
+  closeDoneStatus: "project.close-done-status",
   ai: "ai.settings",
   aiVerified: "ai.verified",
   aiEndpointModes: "ai.endpoint-modes",
@@ -156,6 +157,21 @@ export async function readWriteAccess(): Promise<StoredWriteAccess> {
 
 export async function saveWriteAccess(a: StoredWriteAccess): Promise<void> {
   await setIfChanged(KEYS.writeAccess, a);
+}
+
+/**
+ * The Status option closing an issue also sets (SPEC §4.8, W2), chosen in
+ * Settings. A project need not have an option called "Done", so this is an
+ * option ID from the mapped Status field, not a name. Null = not chosen yet,
+ * and closing is refused with the reason.
+ */
+export async function readCloseDoneStatus(): Promise<string | null> {
+  const v = await get(KEYS.closeDoneStatus);
+  return typeof v === "string" && v ? v : null;
+}
+
+export async function saveCloseDoneStatus(optionId: string | null): Promise<void> {
+  await setIfChanged(KEYS.closeDoneStatus, optionId ?? "");
 }
 
 /** AI assist settings (SPEC §4.9). Never the API key. */

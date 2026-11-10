@@ -56,6 +56,7 @@ describe("the outbox (W0: one process, no lease)", async () => {
   const { submitEdit } = await import("@/lib/outbox/edit");
   const { drainOutbox, enqueueEdit, getEdit, listOpenEdits, recoverSending, saveStep } = await import("@/lib/outbox/store");
   const { refreshIssue } = await import("@/lib/outbox/runtime");
+  const { saveCloseDoneStatus } = await import("@/lib/settings");
   const { fixtureSnapshot } = await import("../fixtures/github");
 
   const HIGH = "b0000003";
@@ -70,7 +71,7 @@ describe("the outbox (W0: one process, no lease)", async () => {
     invalidateReadCache();
     github.issueTitle = "Bug: crash on start";
     github.priority = null;
-    delete process.env.STATUS_DONE_OPTION_ID;
+    await saveCloseDoneStatus(null);
   });
 
   const edit = async (body: Parameters<typeof submitEdit>[0]["body"], client: Client, refresh?: (id: string) => Promise<void>) =>
@@ -204,7 +205,7 @@ describe("the outbox (W0: one process, no lease)", async () => {
       },
       async reopenIssue() {},
     };
-    process.env.STATUS_DONE_OPTION_ID = "a0000006";
+    await saveCloseDoneStatus("a0000006");
     const r = await edit({ field: "state", next: "closed" }, failing);
     expect(r.status).toBe(202);
     expect(r.body.entry).toMatchObject({ status: "pending", step: "close-issue", attempts: 1 });
@@ -301,19 +302,19 @@ describe("the outbox (W0: one process, no lease)", async () => {
     expect((await getEdit(row.id))?.status).toBe("failed");
   });
 
-  it("close without a Done Status returns 422 and writes nothing", async () => {
+  it("close without a Done Status chosen in Settings returns 422 and writes nothing (W2)", async () => {
     const client = fakeClient({ state: "open" });
     const r = await edit({ field: "state", next: "closed" }, client);
     expect(r.status).toBe(422);
-    expect(r.body.error).toBe("STATUS_DONE_OPTION_ID not set or unknown");
+    expect(r.body.error).toBe("Choose a Done Status for closing in Settings → Project and fields");
     expect(await count("outbox")).toBe(0);
     expect(client.applied).toEqual([]);
-    process.env.STATUS_DONE_OPTION_ID = "not-an-option";
+    await saveCloseDoneStatus("not-an-option");
     expect((await edit({ field: "state", next: "closed" }, client)).status).toBe(422);
   });
 
-  it("close with the Done Status closes, then sets Status", async () => {
-    process.env.STATUS_DONE_OPTION_ID = "a0000006";
+  it("close with the Done Status chosen in Settings closes, then sets Status", async () => {
+    await saveCloseDoneStatus("a0000006");
     const client = fakeClient({ state: "open" });
     const r = await edit({ field: "state", next: "closed" }, client);
     expect(r.status).toBe(200);
