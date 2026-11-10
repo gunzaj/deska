@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { acceptTriageSuggestion, SUGGESTION_PARTS } from "@/lib/ai/accept";
+import { acceptTriageSuggestion, SUGGESTION_PARTS, type SuggestionPart } from "@/lib/ai/accept";
 import { markResult, resultById } from "@/lib/ai/results";
 import { HttpError, route } from "@/lib/server/route";
 import { writeGate, WRITE_MESSAGES } from "@/lib/writes/gate";
@@ -42,7 +42,7 @@ export const POST = route(
     }
     const gate = await writeGate();
     if (!gate.allowed) throw new HttpError(409, gate.reason ?? WRITE_MESSAGES.settingOff);
-    const applied = await acceptTriageSuggestion(row, { parts: body.parts as never });
+    const applied = await acceptTriageSuggestion(row, { parts: body.parts as SuggestionPart[] | undefined });
     await markResult(params.id, "accepted");
     return { outcome: "accepted", ...applied };
   },
