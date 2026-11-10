@@ -11,7 +11,7 @@
 
 Repeat until you reach a stop point (§0.4):
 
-1. Open `docs/PROGRESS.md` (create it in D0, template in §0.5). Pick the first milestone in Part 5 that isn't `done`.
+1. Open `docs/PROGRESS.md` (create it in D0, template in §0.5). Pick the first milestone in Part 5 that isn't `done`. Skip Phase C until the maintainer says go (§0.4).
 2. Update `main`: `git checkout main && git pull`. Create a branch `d<N>-<short-name>` (e.g. `d2-desktop-shell`).
 3. Read the milestone, and the sections of this file it points to. Inspect the existing code before changing anything.
 4. Build it. Add or update the tests its acceptance criteria need.
@@ -63,7 +63,7 @@ From D2 on, also `pnpm desktop:build` must succeed. CI runs the same checks; D0 
 | Your context was summarized/compacted during this milestone, or the milestone clearly won't fit in this session | Quality drops in very long sessions | Finish the current step, push the branch, open or update the PR as a **draft**, write exactly where you stopped in `docs/PROGRESS.md` on that branch, handoff message (§0.6), end |
 | A milestone needs a real GitHub token, an Apple account, or any other credential | You don't have them | Build and test everything with mocks, add the step to "Maintainer to-do" in `PROGRESS.md`, **keep going** with the next milestone. Not a real stop. |
 | D14 is merged | The read-only v1.0 is done | Create the GitHub Release as a **draft**, write the summary in `PROGRESS.md`, stop. The maintainer publishes it. |
-| Phase C (W0–W3) | Writes need the maintainer's explicit go | Start only when the maintainer says so in chat. |
+| Phase C (W0–W3) | Writes need the maintainer's explicit go | Start only when the maintainer says so in chat. Until then, skip it and continue with Phase D. |
 | Something would break a §0.2 rule | — | Don't do it. Find another way, or record the blocker in `PROGRESS.md` and move on to the next independent milestone. |
 
 Anything else (an unclear detail, a design choice, a missing default): pick the simplest option consistent with this file, record it under "Decisions to review" in `PROGRESS.md`, and keep going. Do NOT stop to ask.
@@ -110,8 +110,8 @@ Recommended model per milestone:
 
 | Model | Milestones | Why |
 |---|---|---|
-| Claude Opus 5.5 | D0, D2, D3, D4, D5, D9, D10, D12, W0, W1, W2, W3 | Risky or cross-cutting: scrubbing private data, the desktop shell, token security, the field model, sync, writes |
-| Claude Sonnet 5.5 | D1, D6, D7, D8, D11, D13, D14 | Well-bounded: removals, local data features, filters, packaging |
+| Claude Opus 5.5 | D0, D2, D3, D4, D5, D9, D10, D12, W0, W1, W2, W3, D15, AI0, AI1 | Risky or cross-cutting: scrubbing private data, the desktop shell, token security, the field model, sync, writes, untrusted text sent to a model |
+| Claude Sonnet 5.5 | D1, D6, D7, D8, D11, D13, D14, AI2, AI3, AI4 | Well-bounded: removals, local data features, filters, packaging, features on the AI0 foundation |
 
 When resuming a paused milestone, use that milestone's model.
 
@@ -134,6 +134,9 @@ When resuming a paused milestone, use that milestone's model.
 2. Gives better filtering, fast triage, **parent issue progress** and a **sprint view**.
 3. Has Todoist-like **personal tasks**, stored locally, linkable to GitHub issues.
 4. Is **read-only first**. Writes (planning edits, close/reopen, create issue) come in Phase C and work only with a token that has write permissions.
+5. **[Added after D14, at the maintainer's request]** Offers **optional AI assist** for triage and tasks (§4.9): through the user's own Claude Code CLI or any OpenAI-compatible endpoint, including a model server on the user's own network. It only suggests; the user decides.
+
+**[Changed after D14, at the maintainer's request]** Instead of a PAT, the user can connect with the login of the **GitHub CLI** they already use (§3.1).
 
 GitHub stays the shared source of truth. Anyone without Deska can open every issue on GitHub.
 
@@ -141,7 +144,8 @@ GitHub stays the shared source of truth. Anyone without Deska can open every iss
 
 - Pull requests in any form.
 - Sharing or assigning tasks to other people, shared saved views, any multi-user feature.
-- A hosted server, OAuth app or backend.
+- A hosted server, a backend, or an OAuth app or OAuth flow of Deska's own. (Reading the GitHub CLI's existing login, §3.1, is neither.)
+- AI that acts on its own: agents with tools, auto-applied suggestions, scheduled or background AI runs, AI over source code or pull requests, bundling or hosting a model.
 - Windows and Linux builds.
 - Multiple repositories or projects at once; user-owned (non-org) projects.
 - Deleting issues, ever. Creating, renaming or deleting project fields, options or iterations. Removing project items.
@@ -174,12 +178,14 @@ The code comes from a **private predecessor**, `gunzaj/deska-old`, commit `3c2cd
 ```
 Electron main process
   ├─ window, menus, dock badge, global shortcut, native notifications
-  ├─ token store (safeStorage → Keychain-backed key)
+  ├─ token store (safeStorage → Keychain-backed key), AI API key store (same)
+  ├─ login-shell PATH, resolved once per launch (finds `gh` and `claude`) [after D14]
   └─ spawns ─► utilityProcess: Next.js standalone server
                  ├─ binds 127.0.0.1:<random free port>
                  ├─ API routes, view engine, task service
                  ├─ sync loop (in-process)
                  ├─ outbox (writes)
+                 ├─ AI jobs (§4.9): spawns `claude -p` or calls the configured endpoint [after D14]
                  └─ PGlite DB in ~/Library/Application Support/Deska/db
 Renderer (BrowserWindow) loads http://127.0.0.1:<port>/ — the React UI
 ```
@@ -194,7 +200,7 @@ This reuses the Next.js app, API routes and Postgres SQL almost as-is. **[Defaul
 - Origin check on mutating requests and a strict CSP (both exist in the predecessor).
 - Renderer: `contextIsolation: true`, `sandbox: true`, `nodeIntegration: false`, a minimal typed preload bridge (token entry, notifications, open-external, app info; **[D12]** the desktop settings, closing the quick-add window and a "open this task" event) and nothing else.
 - Navigation locked to the app origin. `https://github.com/*` opens in the default browser via `shell.openExternal`. Every other external URL is blocked.
-- Nothing is loaded from the network at runtime except the GitHub API. (Automated tests may point the API at a mock on `http://127.0.0.1:<port>` with `DESKA_GITHUB_API_URL`; any other value is ignored.)
+- Nothing is loaded from the network at runtime except the GitHub API and, **[after D14]** once the user sets one up, the AI endpoint of §4.9 (called from the server process only; the CSP doesn't change). (Automated tests may point the API at a mock on `http://127.0.0.1:<port>` with `DESKA_GITHUB_API_URL`; any other value is ignored.)
 
 ## 2.3 Token
 
@@ -202,10 +208,12 @@ This reuses the Next.js app, API routes and Postgres SQL almost as-is. **[Defaul
 - Main encrypts it with `safeStorage`, stores the ciphertext in the app data dir, and hands the plaintext to the server over IPC. The server keeps it in memory only.
 - Never in the renderer, env vars, logs, error messages, exports or backups. Redaction covers `github_pat_…` and any value equal to the token.
 - "Disconnect GitHub" deletes it. GitHub cache and tasks stay.
+- **[Changed after D14, at the maintainer's request]** **GitHub CLI source.** With "Use my GitHub CLI login" (§3.1), main stores no token, only `githubAuthSource: "gh"` in `desktop-prefs.json`. It runs `gh auth token --hostname github.com` (from the login-shell PATH, §2.1) at launch, on wake, once after a 401, and on "Check again", and hands the result to the server in the same IPC message as a stored token. Deska never writes this token to disk and never passes it to another process in arguments or environment. "Disconnect GitHub" turns the source off; it doesn't log the GitHub CLI out. Switching source counts as a token change (writes off, §3.4).
+- **[Added after D14]** The AI API key (§4.9) follows the same rules as the token: entered through the preload bridge, encrypted by main, held in memory by the server, redacted everywhere, never in backups or exports. "Remove key" deletes it.
 
 ## 2.4 Settings (non-secret)
 
-Stored locally: repo, org, project number + node ID (pinned after discovery), field mapping (§4.1), done Status options (§4.5), done Status for close (W2), writes toggle, global shortcut, notifications, launch at login, dock badge, time zone. **No defaults point at any real org or repo.** Tests and dev set them through env vars.
+Stored locally: repo, org, project number + node ID (pinned after discovery), field mapping (§4.1), done Status options (§4.5), done Status for close (W2), writes toggle, global shortcut, notifications, launch at login, dock badge, time zone, **[after D14]** GitHub sign-in source (`desktop-prefs.json`, §2.3), AI provider, model, base URL, timeout and extra instructions (§4.9; the API key is a secret, §2.3). **No defaults point at any real org or repo.** Tests and dev set them through env vars.
 
 **[D4]** Settings live in the `app_settings` table (`github.target`, `project.mapping`), apart from the GitHub cache. The `GITHUB_REPO` / `GITHUB_ORG` / `GITHUB_PROJECT_NUMBER` env vars are only a fallback for tests, dev and the maintainer's CLI tools; the desktop app opens onboarding step 2 until a project and a mapping are stored.
 
@@ -221,7 +229,12 @@ OAuth/Auth.js, allowlist and org-access mode, DB token encryption and its key, a
 
 ## 3.1 Token type
 
-A **fine-grained PAT**, resource owner = the org, repository access = **only the one repository** Deska reads. **[Changed after D14, at the maintainer's request]** A **classic PAT** (`ghp_…`) is also accepted so the app works while an org has not approved a fine-grained token; use it with read-only scopes only (`read:project`, plus `read:org` if needed, for a public repository). Settings warns when its scopes can write (`x-oauth-scopes`). OAuth is NOT supported.
+A **fine-grained PAT**, resource owner = the org, repository access = **only the one repository** Deska reads. **[Changed after D14, at the maintainer's request]** A **classic PAT** (`ghp_…`) is also accepted so the app works while an org has not approved a fine-grained token; use it with read-only scopes only (`read:project`, plus `read:org` if needed, for a public repository). Settings warns when its scopes can write (`x-oauth-scopes`).
+
+**[Changed after D14, at the maintainer's request]** **GitHub CLI login.** When the GitHub CLI (`gh`) is installed and logged in, onboarding offers to use that login instead of a pasted token. Deska reads the token with `gh auth token --hostname github.com`. It is an OAuth token (`gho_…`) issued to the GitHub CLI's own OAuth app. An org that restricts OAuth apps approves the GitHub CLI once for all its members, so this often works while a fine-grained PAT is still waiting for approval.
+- Scopes are classic: `gh`'s defaults include `repo` and `read:org`; Deska also needs `read:project` (`project` for writes), which the user adds with `gh auth refresh -h github.com -s read:project`. Settings reads them from `x-oauth-scopes` and names any that are missing.
+- `repo` can write to every repository the user can, so a GitHub CLI token always counts as able to write. The §3.4 gate is what keeps Deska read-only with it, and Settings says so.
+- Deska never runs `gh auth login` or `gh auth refresh` itself (it shows the command), never uses the GitHub CLI's client ID, and has no OAuth app or flow of its own. Those stay NOT supported.
 
 ## 3.2 Permissions
 
@@ -253,6 +266,9 @@ Implement from GitHub's documented behavior and test with mocked responses.
 | Read-only | write permissions absent (**[D3]** they can't be read off a fine-grained token without trying a write, so every token counts as read-only until W0 adds detection) | App works; edit controls disabled with "Read-only token" |
 | Offline / GitHub down | network error / 5xx | "Can't reach GitHub"; cached data stays, marked stale |
 | Rate limited | 403/429 with remaining = 0 | "Rate limited until HH:MM" |
+| **[after D14]** GitHub CLI not found / logged out | source = gh; `gh` not on the PATH, or `gh auth token` fails | "GitHub CLI isn't installed" / "GitHub CLI isn't logged in", the command to run (`gh auth login`), "Check again", and "Paste a token instead" |
+| **[after D14]** GitHub CLI token missing a scope | source = gh; `x-oauth-scopes` lacks `read:project` (or `project` with writes on) | Names the scope and the exact `gh auth refresh -h github.com -s <scope>` command |
+| **[after D14]** GitHub CLI not approved by the org | source = gh; org resources refused while `GET /user` works | "Your org may need to approve the GitHub CLI app" |
 
 An error is NEVER shown as an empty list.
 
@@ -376,6 +392,42 @@ Rules: tasks never write to GitHub; a closed linked issue shows a badge but neve
 
 Every write: only after an intentional user action; optimistic UI; a stale-value check before writing ("Changed on GitHub by X → Keep theirs / Overwrite"); a success or failure toast; then the issue is re-read and GitHub's resulting state shown. Bulk edits over 50 issues confirm first. No delete anywhere.
 
+## 4.9 AI assist (Phase E)
+
+**[Added after D14, at the maintainer's request]** Optional help from a language model with triage and tasks. **Off by default.** Nothing leaves the Mac for AI until the user picks a provider and it passes "Test connection".
+
+**Providers** (Settings → AI, one active at a time):
+
+| Provider | How Deska calls it | Credentials |
+|---|---|---|
+| Claude Code | The `claude` CLI from the login-shell PATH (§2.1), in print mode: prompt on stdin, `-p --output-format json --json-schema <schema> --system-prompt <prompt> --tools "" --strict-mcp-config --setting-sources "" --no-session-persistence --model <model>`, working folder = an empty temp folder; the result is the output's `structured_output` | The user's own Claude login. Deska stores no Anthropic key |
+| OpenAI-compatible | `POST <base URL>/chat/completions` with `response_format: {type: "json_schema", json_schema: {name, strict: true, schema}}`; models listed from `GET <base URL>/models`, or typed | Optional API key (§2.3) |
+
+- **Claude Code.** The Claude desktop app has no API Deska can call, so the CLI is required; Settings says so when it isn't found. "Test connection" checks the installed CLI's flags (`claude --help`) and refuses with a clear message if one Deska needs is missing. Model: `sonnet` (**[Default]**), `opus`, `haiku`, or typed. The child process gets a clean environment: no `GITHUB_TOKEN`, `GH_TOKEN` or `DESKA_*` variables.
+- **OpenAI-compatible.** Covers hosted gateways and model servers on the user's own machine or network. `https` for any host; plain `http` only for loopback and private addresses (`10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`, `*.local`). **[Default]** If the endpoint rejects `json_schema`, retry once with `{type: "json_object"}` and the schema in the prompt, and remember that for this endpoint.
+- **Both.** 120 s timeout (setting). **[Default]** One AI job at a time, since a local model server often serves one request at a time. No streaming in this version.
+
+**Rules for every AI feature**
+- **Suggest, never act.** Output is a suggestion with Accept / Edit / Dismiss. Accepting a GitHub change goes through §3.4 and §4.8 like a manual edit, so while writes are off Accept is disabled with the reason (summaries and reasons still help). Accepting a task change is a normal local edit with Undo. AI runs only when the user asks; nothing runs on a schedule.
+- **Untrusted input.** Issue and task text is data. The model gets no tools, no files and no network from Deska. Prompts put content in delimited blocks marked as data. Output is only parsed as JSON against a schema and shown as text through the existing markdown sanitizer: never executed, and no link other than `https://github.com/…` is clickable.
+- **Closed choices.** When a suggestion names a value, the schema is built per request with enums of real IDs: Status, Priority and dimension options and iterations from the mapping (§4.1), repo labels, cached issue numbers, local task projects, sections and labels. A value that doesn't exist can't come back.
+- **Validated.** Every result is checked with a zod schema. On failure, one retry with the error added to the prompt, then "The model returned invalid output" + Retry. Nothing partial becomes a suggestion.
+- **Minimal, visible input.** Settings → AI lists, per feature, which fields are sent. Bodies and comments are trimmed (**[Default]** 12 000 characters per issue, newest comments first). Never sent: the token, the API key, backups, settings, tasks the feature doesn't need. Settings states where it goes: the Claude Code provider sends it to Anthropic under the user's Claude account; a local endpoint keeps it on that machine.
+- **A cache, not data.** Results are stored in `ai_results` (feature, subject, input hash, provider, model, result JSON, duration, cost when the provider reports it, created, accepted/dismissed). The input hash covers the prompt version, the schema and the subject's `updated_at`; a changed hash shows "Outdated · Run again". Not in backups or exports (§4.7). "Reset GitHub cache" clears the issue-based rows, "Reset everything" all of them.
+- **Jobs.** Background jobs in the server process that the UI polls, with Cancel. A batch shows its count and confirms above 20 items.
+- **Prompts** live in `lib/ai/prompts/`, versioned by content hash. Settings → AI has an optional "Extra instructions" text added to every prompt (team conventions, what labels mean).
+
+**Features**
+
+| Feature | Where | Input | Suggestion | Milestone |
+|---|---|---|---|---|
+| Issue triage | Issue panel, triage mode, "Suggest for this queue" | Issue, comments, labels, mapped fields, parent, up to 10 candidates from the existing Possible duplicates search | Summary (≤ 3 sentences); Status, Priority, first dimension, Sprint and labels, each with a one-line reason and a confidence; duplicate of (a candidate only); flags: needs info, probably fixed, stale | AI1 |
+| Task assist | Quick add (in-app and global) and Inbox | The typed text, or the Inbox tasks; local projects, sections and labels; cached issues whose titles share words with the text | Title, due date/time, recurrence, priority, project, section, labels and linked issue, as chips to check before saving. "Tidy Inbox" proposes the same per task | AI2 |
+| Plan my day | Today | Overdue tasks, tasks due within 7 days, Inbox; open issues assigned to `me` in the current sprint; snoozes | An ordered list for today with reasons, new dates for overdue tasks, issues worth turning into tasks | AI3 |
+| Ask | Issue panel; any issue list ("Ask about this list") | The issue as in triage, or the list's rows (≤ 200: number, title, state, mapped fields, labels) | A text answer with issue references, kept per subject | AI4 |
+
+The quick-add parser stays the default: AI task assist is an explicit action (✨ button, **[Default]** `⌘↵` unless taken), and Enter alone saves exactly as before.
+
 ---
 
 # Part 5 — Build plan
@@ -486,6 +538,43 @@ All write tests use mocks. Real-GitHub verification goes in "Maintainer to-do" (
 ### W3 — Create issue
 - Form: title, body (markdown), Type, labels, assignees, milestone, mapped fields. **[Default]** No issue templates and no parent at create in this version. One outbox job; the local row shows "pending" until GitHub confirms.
 - **Acceptance (mocks):** the issue is created with all fields and appears once in Deska; a failure part-way resumes without creating a second issue.
+
+## Phase D — After v1.0
+
+**[Added after D14, at the maintainer's request]**
+
+### D15 — GitHub CLI login
+- §3.1, §2.3 and the §3.3 rows for the GitHub CLI. Onboarding step 1 offers, in this order: "Use my GitHub CLI login (signed in as <login>)" when `gh` is found and logged in, "Paste a token", "Skip, use tasks only". Settings → GitHub shows the source, the login, the scopes, and "Use GitHub CLI login" / "Paste a token instead".
+- Main resolves the login-shell PATH once per launch (`$SHELL -l -c` printing `PATH`, 5 s timeout; fallback: `/opt/homebrew/bin:/usr/local/bin` plus the default PATH) and passes it to the server for §4.9.
+- `docs/security.md`: the GitHub CLI source, its scopes, and why the write gate matters more with it.
+- Tests use a fake `gh` script on a test PATH, never the real one.
+- **Acceptance (mocks):** a logged-in fake `gh` connects without pasting anything; no token file is written for the gh source (test); `gh` missing, logged out, missing `read:project` and org not approving each show their own message; a 401 re-reads the token once, then shows the invalid state; switching source turns writes off; the token never appears in logs, the renderer, exports, backups, or any child process's arguments or environment.
+
+## Phase E — AI assist
+
+**[Added after D14, at the maintainer's request]** §4.9. Every milestone tests against AI0's fake `claude` script and mock endpoint. Checks against a real Claude login or a real endpoint go in "Maintainer to-do".
+
+### AI0 — Providers and settings
+- §4.9 providers, rules and jobs: Settings → AI (provider, model, base URL, API key, timeout, extra instructions, what is sent, Test connection), job runner with Cancel, schema validation and retry, `ai_results` (migration), the API key through the preload bridge (§2.3) and its redaction.
+- Test doubles: a fake `claude` script on a test PATH and a mock OpenAI-compatible server on `127.0.0.1`, selected with `DESKA_AI_TEST_*` env vars that are ignored outside tests (like `DESKA_GITHUB_API_URL`).
+- `docs/security.md`: an AI section (what is sent where, what is stored, no tools for the model).
+- **Acceptance (mocks):** with AI off nothing is spawned or sent (request-log test); Test connection tells apart CLI missing, a required flag missing, not logged in, OK, and endpoint unreachable, 401, unknown model, OK; invalid output is retried once, then shown as an error; an endpoint without `json_schema` falls back to `json_object`; the API key never appears in logs, the renderer, exports or backups; the `claude` child gets no GitHub token in its arguments or environment; plain `http` to a public address is refused.
+
+### AI1 — Issue triage suggestions
+- §4.9 Issue triage, in the issue panel, in triage mode (one free key, recorded in `PROGRESS.md`) and as "Suggest for this queue". Accept writes through W1 when writes are on.
+- **Acceptance (mocks):** suggestions only offer options in the mapping and labels in the repo (schema test); "duplicate of" is always one of the candidates; an issue changed on GitHub shows its suggestion as outdated; with writes off, suggestions show and Accept is disabled with the reason; a queue batch confirms above 20 and can be cancelled; an issue whose body tells the model to close it gets an ordinary suggestion and nothing else happens (fixture).
+
+### AI2 — Task assist
+- §4.9 Task assist in both quick-add windows and "Tidy Inbox" on the Inbox.
+- **Acceptance (mocks):** ✨ on a typed line gives chips that only name existing projects, sections and labels; Enter without ✨ behaves exactly as before (the existing parser tests are unchanged); Tidy Inbox accepts per task or all, with Undo; when the provider fails, quick add says "AI unavailable" and still saves the plain parse.
+
+### AI3 — Plan my day
+- §4.9 Plan my day on Today.
+- **Acceptance (mocks):** the plan names only existing tasks and issues; accepting a new date changes it with Undo; "Add to tasks" on a suggested issue creates a linked task; nothing changes without Accept.
+
+### AI4 — Ask
+- §4.9 Ask, in the issue panel and on issue lists.
+- **Acceptance (mocks):** answers are kept per subject with time and model; a list over 200 rows says only the first 200 were sent; issue references open inside Deska.
 
 ---
 
