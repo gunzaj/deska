@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { normalizeTaskSuggestion, type TaskAssistSuggestion } from "@/lib/ai/task-assist";
 import { dueLabel } from "@/lib/tasks/dates";
 import type { Priority, Recurrence } from "@/lib/tasks/model";
 import { parseQuickAdd, tokenKey, type Token, type TokenKind } from "@/lib/tasks/quick-add";
@@ -9,6 +10,7 @@ import { Icon, type IconName } from "../icons";
 import { Dialog } from "../ui/dialog";
 import { btn } from "../ui/popover";
 import { searchIssues } from "@/lib/client/search";
+import { aiCall, TaskAssistChips, useTaskAssist, type TaskAssistChoices, type TaskAssistField } from "./ai-task-assist";
 import { DueInput, priorityLabel, PriorityPicker } from "./bits";
 import { AddLinkButton, LinkChip } from "./links";
 import { ColorDot, LabelPicker, ProjectPicker } from "./organize";
@@ -31,8 +33,8 @@ const TOKEN_ICON: Record<TokenKind, IconName> = {
   link: "link",
 };
 
-/** Undefined means "not set by hand": the parsed value (or default) applies. */
-type Overrides = { dueDate?: string | null; dueTime?: string | null; recurrence?: Recurrence | null; priority?: Priority; projectId?: string | null; labels?: string[] };
+/** Undefined means "not set by hand": the parsed value, the AI suggestion (or default) applies. */
+type Overrides = { title?: string | null; dueDate?: string | null; dueTime?: string | null; recurrence?: Recurrence | null; priority?: Priority; projectId?: string | null; sectionId?: string | null; labels?: string[] };
 
 /**
  * Quick add (SPEC §12.4): type the task in one line and properties are picked
@@ -41,7 +43,7 @@ type Overrides = { dueDate?: string | null; dueTime?: string | null; recurrence?
  */
 export function ComposeTask() {
   const { composeOpen, composePrefill } = useComposeState();
-  const { closeCompose, create, projects, labels, tasks } = useTasks();
+  const { closeCompose, create, projects, labels, sections, tasks } = useTasks();
   const { data, byNumber } = useAppData();
   // Links attached outside the text: the item quick add was opened from, or picked by hand.
   const [attached, setAttached] = useState<number[]>([]);
@@ -54,8 +56,10 @@ export function ComposeTask() {
   // Guards double submits within one event (⌘↵ in the title reaches both the
   // input's and the form's key handlers before `busy` re-renders).
   const submitting = useRef(false);
+  const assist = useTaskAssist();
   const { today, now, tz } = useToday();
 
+  const resetAssist = assist.reset;
   useEffect(() => {
     if (!composeOpen) return;
     setText("");
@@ -64,7 +68,8 @@ export function ComposeTask() {
     setShowDesc(false);
     setOver({});
     setAttached(composePrefill.links ?? []);
-  }, [composeOpen, composePrefill]);
+    resetAssist();
+  }, [composeOpen, composePrefill, resetAssist]);
 
   const activeProjects = useMemo(() => projects.filter((p) => !p.archived), [projects]);
   const projectNames = useMemo(() => activeProjects.map((p) => p.name), [activeProjects]);
@@ -73,19 +78,93 @@ export function ComposeTask() {
     [text, today, now, ignored, projectNames, byNumber],
   );
 
-  const dueDate = over.dueDate !== undefined ? over.dueDate : (parsed.dueDate ?? composePrefill.dueDate ?? null);
-  const dueTime = dueDate ? (over.dueTime !== undefined ? over.dueTime : parsed.dueTime) : null;
+  // The same suggestion shape Tidy Inbox shows; fix impossible combinations (a
+  // section of another project, a time or recurrence without a date) first.
+  const ai = useMemo(
+    () =>
+      assist.suggestion
+        ? normalizeTaskSuggestion(
+            {
+              projects: activeProjects.map((p) => ({ id: p.id, name: p.name, sections: sections.filter((s) => s.projectId === p.id).map((s) => ({ id: s.id, name: s.name })) })),
+              labels: labels.map((l) => ({ id: l.id, name: l.name })),
+              current: null,
+            },
+            assist.suggestion,
+          )
+        : null,
+    [assist.suggestion, activeProjects, sections, labels],
+  );
+  const aiChoices = useMemo<TaskAssistChoices>(
+    () => ({ projects: activeProjects, sections, labels, today, issueTitle: (n) => byNumber.get(n)?.title }),
+    [activeProjects, sections, labels, today, byNumber],
+  );
+
+  // A new suggestion replaces what was picked by hand for the fields it names
+  // (SPEC §4.9: it is chips to check before saving); a field it leaves out keeps
+  // the hand pick. Keyed on the suggestion, so a list reload does not re-apply it.
+  const applied = useRef<TaskAssistSuggestion | null>(null);
+  useEffect(() => {
+    const raw = assist.suggestion;
+    if (!raw) {
+      applied.current = null;
+      return;
+    }
+    if (applied.current === raw) return;
+    applied.current = raw;
+    if (!ai) return;
+    setOver((o) => {
+      const next = { ...o };
+      if (ai.title) delete next.title;
+      if (ai.dueDate) {
+        delete next.dueDate;
+        delete next.dueTime;
+        delete next.recurrence;
+      }
+      if (ai.recurrence) delete next.recurrence;
+      if (ai.priority != null) delete next.priority;
+      if (ai.projectId) {
+        delete next.projectId;
+        delete next.sectionId;
+      }
+      if ((ai.labelIds ?? []).length) delete next.labels;
+      return next;
+    });
+  }, [assist.suggestion, ai]);
+
+  // A hand pick wins over the AI value, so its chip goes away (the picker shows it).
+  const aiHidden = useMemo(() => {
+    const hidden = new Set<TaskAssistField>();
+    if (over.dueDate !== undefined || over.dueTime !== undefined) hidden.add("due");
+    if (over.recurrence !== undefined) hidden.add("recurrence");
+    if (over.priority !== undefined) hidden.add("priority");
+    if (over.projectId !== undefined) hidden.add("project");
+    if (over.sectionId !== undefined) hidden.add("section");
+    if (over.labels !== undefined) hidden.add("label");
+    return hidden;
+  }, [over]);
+
+  // Overrides win, then the suggestion for the fields it names, then the parse.
+  const dueSource: "manual" | "ai" | "parsed" = over.dueDate !== undefined ? "manual" : ai?.dueDate ? "ai" : "parsed";
+  const dueDate = dueSource === "manual" ? (over.dueDate ?? null) : dueSource === "ai" ? (ai?.dueDate ?? null) : (parsed.dueDate ?? composePrefill.dueDate ?? null);
+  const dueTime = dueDate ? (over.dueTime !== undefined ? over.dueTime : dueSource === "ai" ? (ai?.dueTime ?? null) : parsed.dueTime) : null;
   const parsedRecurrence = parsed.recurrence ? { rule: parsed.recurrence.rule, text: parsed.recurrence.label, fromCompletion: parsed.recurrence.fromCompletion } : null;
-  const recurrence = dueDate ? (over.recurrence !== undefined ? over.recurrence : parsedRecurrence) : null;
+  const recurrence = dueDate ? (over.recurrence !== undefined ? over.recurrence : dueSource === "ai" ? (ai?.recurrence ?? null) : parsedRecurrence) : null;
   const parsedProject = parsed.project ? (activeProjects.find((p) => p.name === parsed.project)?.id ?? null) : null;
-  const projectId = over.projectId !== undefined ? over.projectId : (parsedProject ?? composePrefill.projectId ?? null);
-  const labelNames = [...new Set([...parsed.labels, ...(over.labels ?? [])])];
+  const projectSource: "manual" | "ai" | "parsed" = over.projectId !== undefined ? "manual" : ai?.projectId ? "ai" : "parsed";
+  const projectId = projectSource === "manual" ? (over.projectId ?? null) : projectSource === "ai" ? (ai?.projectId ?? null) : (parsedProject ?? composePrefill.projectId ?? null);
+  // A section belongs to its project (D13); the AI names one only for its project.
+  const aiSectionId = projectSource === "ai" ? (ai?.sectionId ?? null) : null;
+  const prefillSection = projectId && projectId === composePrefill.projectId ? (composePrefill.sectionId ?? null) : null;
+  const sectionId = over.sectionId !== undefined ? over.sectionId : (aiSectionId ?? prefillSection);
+  const aiLabels = (ai?.labelIds ?? []).flatMap((id) => labels.find((l) => l.id === id)?.name ?? []);
+  const labelNames = [...new Set([...parsed.labels, ...(over.labels ?? aiLabels)])];
   const parent = composePrefill.parentId ? tasks.find((t) => t.id === composePrefill.parentId) : null;
-  const priority = over.priority ?? parsed.priority ?? 4;
-  const links = [...new Set([...attached, ...parsed.links])];
+  const priority = over.priority ?? ((ai?.priority as Priority | undefined) ?? parsed.priority ?? 4);
+  const aiIssue = ai?.issueNumber != null ? Number(ai.issueNumber) : null;
+  const links = [...new Set([...attached, ...parsed.links, ...(aiIssue != null ? [aiIssue] : [])])];
   // An empty title takes the first linked item's title (§12.1).
   const fallbackTitle = links[0] != null ? (byNumber.get(links[0])?.title ?? "") : "";
-  const title = parsed.title;
+  const title = ai?.title ?? parsed.title;
   const canSubmit = Boolean(title || fallbackTitle);
 
   const suggest: SuggestFn = (trigger, q) => {
@@ -119,14 +198,25 @@ export function ComposeTask() {
 
   const revert = (key: string) => setIgnored((prev) => new Set(prev).add(key));
 
+  // Typing changes the line the suggestion was for: drop it (SPEC §4.9).
+  const changeText = (v: string) => {
+    if (assist.suggestion || assist.phase !== "idle" || assist.error) assist.reset();
+    setText(v);
+  };
+
   const submit = async (keepOpen: boolean) => {
     if (!canSubmit || submitting.current) return;
     submitting.current = true;
     setBusy(true);
-    const t = await create({ title, description, dueDate, dueTime, tz, recurrence, priority, links, projectId, labels: labelNames, parentId: composePrefill.parentId ?? null, sectionId: projectId && projectId === composePrefill.projectId ? (composePrefill.sectionId ?? null) : null });
+    const resultId = assist.resultId;
+    const t = await create({ title, description, dueDate, dueTime, tz, recurrence, priority, links, projectId, labels: labelNames, parentId: composePrefill.parentId ?? null, sectionId });
     submitting.current = false;
     setBusy(false);
     if (!t) return;
+    // The suggestion became the task: record it accepted (SPEC §4.9). Accepting a
+    // task change is a normal local edit, so this is bookkeeping, not a write gate.
+    assist.reset();
+    if (resultId) void aiCall(`/api/ai/results/${resultId}/outcome`, "POST", { outcome: "accepted" }).catch(() => null);
     if (keepOpen) {
       setText("");
       setIgnored(new Set());
@@ -159,7 +249,7 @@ export function ComposeTask() {
             autoFocus
             label="Task"
             value={text}
-            onChange={setText}
+            onChange={changeText}
             tokens={parsed.tokens}
             onRevert={revert}
             onSubmit={() => void submit(false)}
@@ -172,6 +262,25 @@ export function ComposeTask() {
                 <TokenChip key={`${t.kind}:${t.start}`} token={t} today={today} onRevert={() => revert(tokenKey(t.kind, t.text))} />
               ))}
             </div>
+          )}
+          {(assist.phase === "checking" || assist.phase === "running") && (
+            <p role="status" className="mt-2 flex items-center gap-2 text-[12.5px] text-muted" data-ai-assist-progress>
+              <span className="size-3 animate-spin rounded-full border-2 border-line border-t-brand" aria-label="Asking the model" />
+              {assist.phase === "checking" ? "Checking AI assist…" : "Asking the model…"}
+              <button type="button" onClick={() => void assist.cancel()} className={btn.ghost}>
+                Cancel
+              </button>
+            </p>
+          )}
+          {ai && (
+            <div className="mt-2">
+              <TaskAssistChips suggestion={ai} choices={aiChoices} hidden={aiHidden} onRemove={assist.removeField} onDismiss={assist.dismiss} />
+            </div>
+          )}
+          {assist.error && (
+            <p role="alert" className="mt-2 text-[12.5px] text-critical" data-ai-assist-error>
+              {assist.error.kind === "failed" ? `AI unavailable — ${assist.error.message}` : assist.error.message}
+            </p>
           )}
           {attached.length > 0 && (
             <div className="mt-2 flex flex-wrap gap-1.5" aria-label="Attached">
@@ -225,6 +334,17 @@ export function ComposeTask() {
           <span className="min-w-0 flex-1 truncate text-[11.5px] text-faint">
             <b className="font-medium">tomorrow 3pm</b> · <b className="font-medium">every fri</b> · <b className="font-medium">high</b> · <b className="font-medium">#1234</b> · <b className="font-medium">+label</b> · <b className="font-medium">=Project</b> — Backspace on a highlight keeps it as text
           </span>
+          <button
+            type="button"
+            onClick={() => void assist.run(text, { today, now, tz })}
+            className={btn.ghost}
+            disabled={!text.trim() || busy || assist.phase === "checking" || assist.phase === "running"}
+            title="Ask the model to fill in the task's properties"
+            data-ai-assist
+          >
+            <Icon name="zap" size={13} />
+            AI assist
+          </button>
           <button type="button" onClick={closeCompose} className={btn.ghost}>
             Cancel
           </button>

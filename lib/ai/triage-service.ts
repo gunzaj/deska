@@ -12,10 +12,13 @@ import { demoDetail, fetchIssueDetail } from "../server/issue-detail";
 import { readAiSettings } from "../settings";
 import { getStore } from "../store";
 import { inputHash } from "./prompt";
-import { aiNotReady, startJob, type Job } from "./runner";
+import { startJob, type Job } from "./runner";
+import { aiStatus, type AiStatus } from "./status";
 import { latestResultRow, type StoredResult } from "./results";
 import { MAX_TRIAGE_CANDIDATES, TRIAGE_FEATURE, triageFieldChoices, triageTask, type TriageIssueInput, type TriageSuggestion } from "./triage";
 import type { ReadModel } from "../sync/read-model";
+
+export type { AiStatus } from "./status";
 
 /** A stored suggestion as the page shows it. */
 export type TriageSuggestionView = {
@@ -30,14 +33,6 @@ export type TriageSuggestionView = {
   /** False once the issue changed on GitHub: "Outdated · Run again" (SPEC §4.9). */
   fresh: boolean;
 };
-
-/** Whether AI may run, and why not (SPEC §4.9: off or not tested). */
-export type AiStatus = { ready: boolean; reason: string | null };
-
-export async function aiStatus(): Promise<AiStatus> {
-  const { failure } = await aiNotReady();
-  return { ready: !failure, reason: failure?.message ?? null };
-}
 
 /**
  * Comments for the suggestion's input: the live thread when GitHub answers, the

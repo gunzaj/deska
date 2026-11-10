@@ -1,4 +1,4 @@
-import { aiStatus } from "@/lib/ai/triage-service";
+import { aiStatus } from "@/lib/ai/status";
 import { route } from "@/lib/server/route";
 
 export const dynamic = "force-dynamic";
