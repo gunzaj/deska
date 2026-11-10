@@ -110,8 +110,11 @@ describe("Test connection", () => {
 
     fake.reply(claudeOk({ ok: true }));
     expect(await testConnection(s)).toMatchObject({ ok: true });
-    // The test sends no user data: the prompt holds no data block.
-    expect(fake.runs().at(-1)!.stdin).toBe("");
+    // The test sends no user data: no data block, and the fixed line `claude -p`
+    // needs instead of an empty prompt (it refuses one).
+    const stdin = fake.runs().at(-1)!.stdin;
+    expect(stdin).toContain("There is no data for this request.");
+    expect(stdin).not.toContain("<data");
   });
 
   it("endpoint: unreachable, 401, unknown model, OK (with the model list)", async () => {
