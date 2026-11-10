@@ -1,0 +1,85 @@
+// AI assist settings and error codes (SPEC §4.9). Pure: no I/O, so the page,
+// the server and the tests share one definition. Nothing secret lives here:
+// the API key is held apart (lib/ai/key.ts, SPEC §2.3).
+import { z } from "zod";
+import { checkBaseUrl } from "./url";
+
+export const AI_PROVIDERS = ["off", "claude-code", "openai"] as const;
+export type AiProvider = (typeof AI_PROVIDERS)[number];
+
+export const CLAUDE_MODELS = ["sonnet", "opus", "haiku"] as const;
+export const DEFAULT_CLAUDE_MODEL = "sonnet";
+
+export const MIN_TIMEOUT_SEC = 10;
+export const MAX_TIMEOUT_SEC = 600;
+export const MAX_EXTRA_INSTRUCTIONS = 4000;
+
+export type AiSettings = {
+  provider: AiProvider;
+  /** Claude Code: `sonnet`, `opus`, `haiku` or a typed model. OpenAI-compatible: the model name. */
+  model: string;
+  /** OpenAI-compatible only, without a trailing slash. */
+  baseUrl: string;
+  timeoutSec: number;
+  /** Added to every prompt (team conventions, what labels mean). */
+  extraInstructions: string;
+};
+
+export const DEFAULT_AI_SETTINGS: AiSettings = { provider: "off", model: DEFAULT_CLAUDE_MODEL, baseUrl: "", timeoutSec: 120, extraInstructions: "" };
+
+/** A model name is one word: letters, digits and `. _ : / -` (covers `llama3.1:8b`, `org/model`, `claude-sonnet-5-5`). */
+const MODEL = /^[A-Za-z0-9][A-Za-z0-9._:/@+-]{0,199}$/;
+
+/** The stored settings: every field checked, anything wrong replaced by its default. */
+export function parseAiSettings(raw: unknown): AiSettings {
+  const o = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {};
+  const d = DEFAULT_AI_SETTINGS;
+  const provider = (AI_PROVIDERS as readonly unknown[]).includes(o.provider) ? (o.provider as AiProvider) : d.provider;
+  const model = typeof o.model === "string" && MODEL.test(o.model) ? o.model : d.model;
+  const base = typeof o.baseUrl === "string" ? checkBaseUrl(o.baseUrl) : null;
+  const timeout = typeof o.timeoutSec === "number" && Number.isFinite(o.timeoutSec) ? Math.round(o.timeoutSec) : d.timeoutSec;
+  return {
+    provider,
+    model,
+    baseUrl: base?.ok ? base.url : d.baseUrl,
+    timeoutSec: Math.min(MAX_TIMEOUT_SEC, Math.max(MIN_TIMEOUT_SEC, timeout)),
+    extraInstructions: typeof o.extraInstructions === "string" ? o.extraInstructions.slice(0, MAX_EXTRA_INSTRUCTIONS) : d.extraInstructions,
+  };
+}
+
+/** What Settings may send. Strict: an unknown field is a mistake, not something to keep. */
+export const aiSettingsBody = z
+  .object({
+    provider: z.enum(AI_PROVIDERS),
+    model: z.string().trim().regex(MODEL, "That is not a model name."),
+    baseUrl: z.string().trim().max(500),
+    timeoutSec: z.number().int().min(MIN_TIMEOUT_SEC).max(MAX_TIMEOUT_SEC),
+    extraInstructions: z.string().max(MAX_EXTRA_INSTRUCTIONS),
+  })
+  .strict();
+
+/** Why an AI call failed. Each has its own message in Settings. */
+export type AiErrorCode =
+  | "off" // no provider chosen
+  | "not-verified" // the provider has not passed "Test connection" yet
+  | "cli-missing" // no `claude` on the login-shell PATH
+  | "cli-flag-missing" // the installed CLI lacks a flag Deska needs
+  | "not-logged-in" // `claude` is not signed in
+  | "bad-url" // the base URL is refused
+  | "unreachable" // the endpoint did not answer
+  | "unauthorized" // 401 / 403
+  | "unknown-model" // the endpoint does not know the model
+  | "timeout"
+  | "cancelled"
+  | "invalid-output" // the model's answer failed the schema twice
+  | "failed"; // anything else
+
+export type AiFailure = { code: AiErrorCode; message: string };
+
+/** The result of "Test connection". */
+export type TestResult = { ok: true; message: string; models?: string[] } | ({ ok: false } & AiFailure);
+
+/** Identifies what "Test connection" passed for: a different provider, model or URL has to pass again. */
+export function verifyId(s: Pick<AiSettings, "provider" | "model" | "baseUrl">): string {
+  return `${s.provider}|${s.model}|${s.provider === "openai" ? s.baseUrl : ""}`;
+}

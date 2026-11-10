@@ -584,3 +584,31 @@ export const watches = pgTable(
   },
   (t) => [primaryKey({ columns: [t.login, t.kind, t.targetId] })],
 );
+
+/**
+ * A cache of AI results (SPEC §4.9), not data: not in backups or exports.
+ * `subject_kind` says what a row is about, so "Reset GitHub cache" can clear
+ * the issue-based ones and keep the rest. `input_hash` covers the prompt
+ * version, the schema and the subject's `updated_at` (a changed hash = outdated).
+ */
+export const aiResults = pgTable(
+  "ai_results",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    feature: text("feature").notNull(),
+    /** issue | list | task | day | test */
+    subjectKind: text("subject_kind").notNull(),
+    subject: text("subject").notNull(),
+    inputHash: text("input_hash").notNull(),
+    provider: text("provider").notNull(),
+    model: text("model").notNull(),
+    result: jsonb("result").notNull(),
+    durationMs: integer("duration_ms").notNull(),
+    /** US dollars, when the provider reports it (Claude Code does). */
+    costUsd: doublePrecision("cost_usd"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    acceptedAt: timestamp("accepted_at", { withTimezone: true }),
+    dismissedAt: timestamp("dismissed_at", { withTimezone: true }),
+  },
+  (t) => [index("ai_results_subject_idx").on(t.feature, t.subject, t.createdAt)],
+);

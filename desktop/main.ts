@@ -10,7 +10,7 @@ import http from "node:http";
 import net from "node:net";
 import path from "node:path";
 import { app, BrowserWindow, dialog, globalShortcut, ipcMain, Menu, Notification, powerMonitor, safeStorage, session, shell, utilityProcess, type IpcMainInvokeEvent, type UtilityProcess, type WebContents } from "electron";
-import { CHANNELS, DEFAULT_DESKTOP_PREFS, CLASSIC_TOKEN, FINE_GRAINED_TOKEN, type DesktopPrefs, type DesktopState, type GithubAuthStatus, type ReminderAction, type ReminderItem, type ServerMessage, type ServerReply, type TokenAuth, type TokenStatus } from "./bridge";
+import { AI_KEY, CHANNELS, DEFAULT_DESKTOP_PREFS, CLASSIC_TOKEN, type AiKeyStatus, FINE_GRAINED_TOKEN, type DesktopPrefs, type DesktopState, type GithubAuthStatus, type ReminderAction, type ReminderItem, type ServerMessage, type ServerReply, type TokenAuth, type TokenStatus } from "./bridge";
 import { fallbackPath, readGhLogin, readGhToken, resolveLoginPath, serverEnv, type GhRead } from "./gh";
 import { aboutDetails, parseBuildInfo, RELEASES_URL, type BuildInfo } from "./about";
 import { classifyUrl, requestAllowed } from "./navigation";
@@ -276,6 +276,43 @@ function readStoredToken(): string | null {
     return safeStorage.decryptString(readFileSync(tokenFile()));
   } catch {
     log("the stored GitHub token could not be decrypted");
+    return null;
+  }
+}
+
+// --- AI API key store (SPEC §2.3, §4.9): the same rules as the token ----------
+
+const aiKeyFile = () => path.join(app.getPath("userData"), "ai-key.bin");
+
+function aiKeyStatus(): AiKeyStatus {
+  return { stored: existsSync(aiKeyFile()), encryptionAvailable: safeStorage.isEncryptionAvailable() };
+}
+
+let aiKeyMessageId = 0;
+const aiKeyAcks = new Map<number, () => void>();
+
+/** Hands the AI key (or its removal) to the server and waits until it holds it. */
+function sendAiKey(s: Server, key: string | null): Promise<void> {
+  const id = ++aiKeyMessageId;
+  return new Promise<void>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      aiKeyAcks.delete(id);
+      reject(new Error("The local server did not take the key."));
+    }, 10_000);
+    aiKeyAcks.set(id, () => {
+      clearTimeout(timer);
+      resolve();
+    });
+    s.send({ type: "ai-key", key, id });
+  });
+}
+
+function readStoredAiKey(): string | null {
+  if (!existsSync(aiKeyFile()) || !safeStorage.isEncryptionAvailable()) return null;
+  try {
+    return safeStorage.decryptString(readFileSync(aiKeyFile()));
+  } catch {
+    log("the stored AI key could not be decrypted");
     return null;
   }
 }
@@ -578,6 +615,23 @@ function registerIpc() {
     await sendToken(server, null, "user", { auth: { source: "token" } });
     return tokenStatus();
   });
+  // Errors thrown here reach the page as the rejection message: never the key.
+  ipcMain.handle(CHANNELS.aiKeySet, async (e, key: unknown) => {
+    if (!fromApp(e) || !server) return aiKeyStatus();
+    const value = typeof key === "string" ? key.trim() : "";
+    if (!AI_KEY.test(value)) throw new Error("That does not look like an API key (8–512 characters, no spaces).");
+    if (!safeStorage.isEncryptionAvailable()) throw new Error("The system keychain is not available.");
+    writeFileSync(aiKeyFile(), safeStorage.encryptString(value), { mode: 0o600 });
+    await sendAiKey(server, value);
+    return aiKeyStatus();
+  });
+  ipcMain.handle(CHANNELS.aiKeyClear, async (e) => {
+    if (!fromApp(e) || !server) return aiKeyStatus();
+    rmSync(aiKeyFile(), { force: true });
+    await sendAiKey(server, null);
+    return aiKeyStatus();
+  });
+  ipcMain.handle(CHANNELS.aiKeyStatus, (e) => (fromApp(e) ? aiKeyStatus() : null));
   ipcMain.handle(CHANNELS.githubStatus, (e) => (fromApp(e) ? githubAuthStatus() : null));
   ipcMain.handle(CHANNELS.githubUseCli, async (e) => {
     if (!fromApp(e) || !server) return null;
@@ -661,6 +715,11 @@ async function boot() {
       if (prefs.githubAuthSource === "gh") void applyGh(s, "launch", { force: true, reread: true }).catch(logError);
       return;
     }
+    if (m?.type === "ai-key-ack") {
+      aiKeyAcks.get(m.id)?.();
+      aiKeyAcks.delete(m.id);
+      return;
+    }
     if (m?.type === "token-ack") tokenAcks.get(m.id)?.();
     tokenAcks.delete((m as { id?: number } | undefined)?.id as number);
   });
@@ -674,6 +733,11 @@ async function boot() {
       : Promise.resolve(readStoredToken()).then((stored) => (stored ? sendToken(s, stored, "launch", { auth: { source: "token" } }) : undefined))
   ).catch(logError);
 
+  // The AI key, if one is stored (SPEC §2.3): memory only in the server.
+  const aiKeyReady = Promise.resolve(readStoredAiKey())
+    .then((stored) => (stored ? sendAiKey(s, stored) : undefined))
+    .catch(logError);
+
   const ses = session.defaultSession;
   // Nothing reaches the network from the window but the app and GitHub images.
   ses.webRequest.onBeforeRequest((details, cb) => cb({ cancel: !requestAllowed(details.url, details.resourceType, s.origin) }));
@@ -686,6 +750,7 @@ async function boot() {
 
   await waitForServer(s.origin, secret, DEV ? 180_000 : 60_000);
   await tokenReady;
+  await aiKeyReady;
   await offerRecovery(s.origin, secret);
   // Opened by "launch at login": stay in the background; the Dock icon opens a window.
   if (!app.getLoginItemSettings().wasOpenedAtLogin) createWindow(s.origin);

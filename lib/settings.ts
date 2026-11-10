@@ -9,6 +9,7 @@ import { inArray } from "drizzle-orm";
 import { dbDir, getDb } from "@/db";
 import { appSettings } from "@/db/schema";
 import { ConfigError, githubTarget, type GithubTarget } from "./config";
+import { parseAiSettings, type AiSettings } from "./ai/types";
 import { parseMapping, type FieldMapping } from "./sync/field-map";
 
 /** The repository and project chosen in onboarding step 2. */
@@ -22,7 +23,7 @@ export type StoredTarget = {
   projectTitle: string;
 };
 
-const KEYS = { target: "github.target", mapping: "project.mapping", tasksOnly: "app.tasks-only" } as const;
+const KEYS = { target: "github.target", mapping: "project.mapping", tasksOnly: "app.tasks-only", ai: "ai.settings", aiVerified: "ai.verified", aiEndpointModes: "ai.endpoint-modes" } as const;
 
 type Cache = { loaded: Promise<void> | null; values: Map<string, unknown>; version: number };
 const CACHE = Symbol.for("deska.settings");
@@ -105,6 +106,37 @@ export async function readTasksOnly(): Promise<boolean> {
 
 export async function saveTasksOnly(on: boolean): Promise<void> {
   await set(KEYS.tasksOnly, on);
+}
+
+/** AI assist settings (SPEC §4.9). Never the API key. */
+export async function readAiSettings(): Promise<AiSettings> {
+  return parseAiSettings(await get(KEYS.ai));
+}
+
+export async function saveAiSettings(s: AiSettings): Promise<void> {
+  await set(KEYS.ai, s);
+}
+
+/** What "Test connection" last passed for (`verifyId`), or null. Nothing is sent to a model before it matches the settings. */
+export async function readAiVerified(): Promise<string | null> {
+  const v = await get(KEYS.aiVerified);
+  return typeof v === "string" && v ? v : null;
+}
+
+export async function saveAiVerified(id: string | null): Promise<void> {
+  // The column is NOT NULL: "" means no pass.
+  await set(KEYS.aiVerified, id ?? "");
+}
+
+/** Endpoints (base URLs) that refused `json_schema` and are asked for `json_object` instead. */
+export async function readEndpointModes(): Promise<Record<string, "json_object">> {
+  const v = await get(KEYS.aiEndpointModes);
+  if (!v || typeof v !== "object") return {};
+  return Object.fromEntries(Object.entries(v as Record<string, unknown>).filter(([, m]) => m === "json_object")) as Record<string, "json_object">;
+}
+
+export async function saveEndpointModes(modes: Record<string, "json_object">): Promise<void> {
+  await set(KEYS.aiEndpointModes, modes);
 }
 
 /** The env target (tests and dev, D3), or null when it isn't set. */

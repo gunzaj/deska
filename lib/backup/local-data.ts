@@ -229,6 +229,8 @@ export async function resetGithubCache(): Promise<void> {
     await db.transaction(async (tx) => {
       await tx.execute(sql.raw(`TRUNCATE ${CACHE_TABLES.join(", ")} CASCADE`));
       await tx.execute(sql.raw(`DELETE FROM sync_state WHERE ${KEPT_STATE}`));
+      // AI results about issues are a cache of the cache (SPEC §4.9); the ones about tasks and days stay.
+      await tx.execute(sql`DELETE FROM ai_results WHERE subject_kind IN ('issue', 'list')`);
     });
   });
   afterLocalDataChange();

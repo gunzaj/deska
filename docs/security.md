@@ -102,11 +102,13 @@ All under `~/Library/Application Support/Deska/`, readable only by the user's ma
 | What | Where | Contains |
 |---|---|---|
 | Encrypted token | app data folder (`github-token.bin`) | `safeStorage` ciphertext only. Absent with the GitHub CLI source, which stores no token |
+| Encrypted AI API key (optional) | app data folder (`ai-key.bin`) | `safeStorage` ciphertext only. Absent unless the user set an API key for an OpenAI-compatible AI endpoint (see "AI assist") |
 | Desktop settings | `desktop-prefs.json` | The quick-add shortcut, notification, Dock badge and launch-at-login toggles, the second backup folder's path, and the GitHub sign-in source (`token` or `gh`). **No token** |
 | Local database | `db/` | A cache of the repository's issues and project values, the token owner's login, name and avatar URL, plus personal tasks, saved views, snoozes, watches and settings. **No token** |
 | Backups | `backups/` | JSON of local-only data (tasks, projects, labels, sections, views, snoozes, watches, settings). Daily, before each migration and before "Reset everything"; every backup of the last 14 days is kept, then one a week for 8 weeks. Files are owner-only (0600). **No token**, and any token-shaped text in a task is replaced by `[redacted]` |
 | Second backup folder (optional) | a folder the user picks in Settings; its path is in `desktop-prefs.json` | The same backup files, copied there after each backup. Chosen only with the native folder dialog (the page cannot name a path), never inside Deska's own data, written owner-only (0600). Deska only deletes files there that match its own backup names. **No token.** If it is in a synced folder (iCloud Drive, a Nextcloud or Dropbox client), the sync service then holds the user's tasks: that is the user's choice |
-| Settings | in the database (`app_settings`) | Repo, org, project number and pinned node ID, project title, field mapping by field ID (with the Priority order and the Status options that count as done), toggles. **No token** |
+| Settings | in the database (`app_settings`) | Repo, org, project number and pinned node ID, project title, field mapping by field ID (with the Priority order and the Status options that count as done), toggles, and the AI settings (provider, model, endpoint URL, timeout, extra instructions, which provider and model last passed "Test connection"). **No token, no API key** |
+| AI results (cache) | in the database (`ai_results`) | What a model answered for an issue, list, task or day, with provider, model, duration and cost. A cache: **not in backups or exports**; "Reset GitHub cache" clears the issue-based rows and "Reset everything" all of them. No key |
 
 Exports from Settings contain the same data as a backup, and never the token.
 
@@ -118,9 +120,19 @@ Exports from Settings contain the same data as a backup, and never the token.
 - Never edits issue titles or bodies, posts GitHub comments or changes parent/sub-issue links.
 - Never writes to a project other than the pinned one.
 - Never touches pull requests.
-- Never sends data anywhere except the GitHub API.
+- Never sends data anywhere except the GitHub API and, only if the user turned AI assist on and it passed "Test connection", the AI provider the user chose (see "AI assist").
 - Never shares data between users: personal tasks stay on the Mac and never go to GitHub.
 - Never updates itself.
+
+## AI assist
+
+Optional and **off by default**; nothing is spawned or sent until the user picks a provider in Settings → AI and "Test connection" passes for that provider, model and URL (changing any of them clears the pass). AI runs only when the user asks: no schedule, no background runs.
+
+- **What is sent, where.** Only the fields Settings → AI lists per feature (issue text, the typed task line, task and issue titles for planning). Never the GitHub token, the API key, backups, settings, or tasks a feature does not need. Claude Code provider: the prompt goes on the `claude` CLI's stdin and on to Anthropic under the user's own Claude login (Deska stores no Anthropic key). OpenAI-compatible provider: the prompt goes to the base URL the user set, from the server process only. `https` for any host; plain `http` only for loopback, private ranges (`10/8`, `172.16/12`, `192.168/16`) and `*.local`, checked when the URL is saved and on every call. Redirects are never followed, so a key cannot be forwarded to another host.
+- **No tools for the model.** The `claude` child runs with `--tools ""`, `--strict-mcp-config`, `--setting-sources ""` and `--no-session-persistence`, in an empty temporary folder that is deleted afterwards, with an environment that has no `GITHUB_*`, `GH_*`, `DESKA_*` or Electron variable. An endpoint gets a chat request and nothing else. Deska parses the answer as JSON against a schema and shows it as text; it never executes it, and the only link it makes clickable is `https://github.com/…`.
+- **Untrusted text.** Issue and task text goes into delimited data blocks that cannot close themselves, under instructions that say it is data. The schema is built per request with enums of real IDs, so a value that does not exist cannot come back. A model that is told by an issue to close it still only returns a suggestion: suggestions change nothing until the user accepts, and accepting a GitHub change goes through the write gate like a manual edit.
+- **The API key** follows the token's rules: entered through the preload bridge to the main process, encrypted with `safeStorage` (`ai-key.bin`), handed to the server over IPC, held in memory only, sent only as the `Authorization` header to the configured endpoint, redacted from logs and errors (also any `sk-…` shape), and never in an API answer, backup, export or `ai_results`. "Remove key" deletes it.
+- **Local cache.** Results are stored in `ai_results` so a suggestion can be shown again and marked outdated when the issue changed. It is a cache, not part of backups or exports.
 
 ## Write gate
 
