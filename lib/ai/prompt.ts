@@ -71,6 +71,9 @@ export function buildPrompt(task: AiTask, extraInstructions: string, opts: { ret
   if (opts.schemaInPrompt) parts.push(`The JSON object must match this JSON Schema:\n${JSON.stringify(jsonSchemaOf(task))}`);
   const blocks = task.data.map((d) => `<data name="${label(d.label)}">\n${escapeData(d.text)}\n</data>`);
   let user = blocks.join("\n\n");
+  // `claude -p` (2.1.311) refuses an empty prompt, and the connection test has no
+  // data blocks: a request without data still carries this fixed line, not user data.
+  if (!user) user = "There is no data for this request. Answer with one JSON object that matches the schema.";
   if (opts.retryError) user += `\n\nYour previous answer was not valid: ${opts.retryError.slice(0, 800)}\nAnswer again with one JSON object that matches the schema.`;
   return { system: parts.join("\n\n"), user };
 }
