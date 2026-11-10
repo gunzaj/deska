@@ -48,9 +48,9 @@ async function mockSuggestion(page: Page) {
   });
   await page.route("**/api/ai/jobs/*", (route) => route.fulfill({ json: { job: job("done") } }));
   await page.route("**/api/ai/results/*/outcome", async (route) => {
-    const body = route.request().postDataJSON() as { outcome: string };
-    sent.push(`outcome:${body.outcome}`);
-    await route.fulfill({ json: { ok: true, outcome: body.outcome } });
+    const body = route.request().postDataJSON() as { outcome: string; parts?: string[] };
+    sent.push(`outcome:${body.outcome}${body.parts ? `:${body.parts.join(",")}` : ""}`);
+    await route.fulfill({ json: { outcome: body.outcome, applied: body.parts ?? ["status", "priority"], unchanged: [] } });
   });
   return sent;
 }
@@ -124,6 +124,43 @@ test("Suggest for this queue confirms a big batch and can be cancelled", async (
     await expect(dialog.locator("[data-ai-queue-done]")).toContainText("Cancelled after 0 of 26.");
     expect(numbers).toHaveLength(26);
     expect(cancelled).toHaveLength(26);
+  } finally {
+    await context.close();
+  }
+});
+
+test("with writes on, Accept applies the suggestion through the write gate", async ({ browser }) => {
+  const { context, page } = await as(browser);
+  await writesOn(page);
+  const sent = await mockSuggestion(page);
+  try {
+    await page.goto("/issues/102");
+    const section = page.getByRole("region", { name: "AI suggestion" });
+    await section.getByRole("button", { name: "Suggest with AI" }).click();
+    await expect(section.getByRole("button", { name: "Accept" })).toBeEnabled();
+    await section.getByRole("button", { name: "Accept" }).click();
+    await expect.poll(() => sent.find((s) => s.startsWith("outcome:accepted"))).toBe("outcome:accepted");
+    await expect(page.locator("[data-toast]").filter({ hasText: "Accepted: status, priority." })).toBeVisible();
+  } finally {
+    await context.close();
+  }
+});
+
+test("Edit applies only the parts the user keeps", async ({ browser }) => {
+  const { context, page } = await as(browser);
+  await writesOn(page);
+  const sent = await mockSuggestion(page);
+  try {
+    await page.goto("/issues/102");
+    const section = page.getByRole("region", { name: "AI suggestion" });
+    await section.getByRole("button", { name: "Suggest with AI" }).click();
+    await section.getByRole("button", { name: "Edit" }).click();
+    const dialog = page.getByRole("dialog", { name: "Accept suggestion" });
+    await expect(dialog).toContainText("Apply which parts?");
+    await dialog.getByRole("checkbox", { name: "status" }).uncheck();
+    await dialog.getByRole("button", { name: "Apply" }).click();
+    await expect.poll(() => sent.find((s) => s.startsWith("outcome:accepted"))).toBe("outcome:accepted:priority,dimension,sprint,labels");
+    await expect(section.getByRole("button", { name: "Suggest with AI" })).toBeVisible();
   } finally {
     await context.close();
   }
