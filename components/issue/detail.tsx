@@ -17,6 +17,7 @@ import { btn } from "../ui/popover";
 import { useIssueEdits } from "./edits";
 import { SeenOnOpen, WatchStar } from "../watch/star";
 import { PossibleDuplicates } from "./duplicates";
+import { IssueAiSuggestion } from "./ai-suggestion";
 import { FieldPicker } from "./field-picker";
 
 // Client cache so flipping between issues with j/k is instant on revisit.
@@ -319,6 +320,8 @@ export function IssueDetailView({ number, mode, onClose }: { number: number; mod
               </p>
             ) : null}
           </div>
+
+          <IssueAiSuggestion number={issue.number} />
 
           <LinkedTasks nodeId={issue.nodeId} number={issue.number} />
 

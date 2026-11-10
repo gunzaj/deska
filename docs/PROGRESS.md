@@ -20,7 +20,7 @@
 | W0–W3 | todo | | Waits for the maintainer's go (§0.4); skipped until then |
 | D15 | done | [#28](https://github.com/gunzaj/deska/pull/28) | GitHub CLI login as a token source (`gh auth token`), login-shell PATH, new §3.3 states, onboarding + Settings; no migration |
 | AI0 | done | [#29](https://github.com/gunzaj/deska/pull/29) | AI providers and settings (§4.9): Settings → AI, Test connection, job runner, `ai_results` (migration 0007), API key store |
-| AI1 | todo | | Issue triage suggestions |
+| AI1 | in progress | | Issue triage suggestions: issue panel, triage-mode key, "Suggest for this queue" |
 | AI2 | todo | | Task assist |
 | AI3 | todo | | Plan my day |
 | AI4 | todo | | Ask |
@@ -148,8 +148,19 @@
 - AI0: Jobs have routes to poll and cancel (`/api/ai/jobs/[id]`, `.../cancel`) but none to create one: the features (AI1–AI4) create jobs on the server. The runner is covered through its API.
 - AI0: Ran this milestone on Sonnet 5.5, though §0.6 recommends Opus 5.5 for AI0.
 
+- AI1: `latestResultRow` skips dismissed rows, so a dismissed suggestion is not shown again; `latestResult` is now built on it.
+- AI1: A suggestion is stored in `ai_results` (one row per run); `latestTriageSuggestion` checks the issue is in the cache before returning null (404) and only builds the task (comments, possible duplicates) when a stored suggestion exists, so an AI-off panel makes no extra GitHub read.
+- AI1: The input uses the live comment thread when GitHub answers, else only the cached description (a GitHub failure never blocks a suggestion). The description and the newest comments share the 12,000-character per-issue budget; one comment is capped at 4,000.
+- AI1: The data blocks list the mapped fields with their option IDs and the issue's current values, the issue's own labels, the repository's labels with IDs, the parent and up to 10 possible duplicates. The schema's enums are built from those lists, so a value that does not exist cannot come back; a mapped field with no options (or one the project no longer lists) is left out, and `labels` is left out when the repo has none.
+- AI1: The free key in triage mode is `I` (§4.9 asks for one; recorded here). It asks for a suggestion for the issue on screen, or says why AI can't run.
+- AI1: "Suggest for this queue" asks for the issues of the locked tab filters, not the user's extra filters, one job each sharing a batch id. The page keeps the states it has already seen (the runner prunes finished jobs), confirms above 20 with the count, and Cancel cancels every queued or running job of the batch.
+- AI1: Accepting a GitHub change is W1's outbox: the accept route refuses with 409 and the write-off reason while writes are off, and with 501 while writes are on (this build has no write path). Dismiss is local (`ai_results.dismissed_at`). Edit is disabled like Accept.
+- AI1: The new e2e spec mocks the AI API routes in its own browser context instead of changing the shared e2e server's AI settings; the real server path (job, storage, schema, mock endpoint, fake `claude`) is covered by Vitest. It also found and fixed an AI0 load race in Settings → AI: the first `/api/ai/settings` response could overwrite a provider picked before it arrived (the form now takes the first load only; later loads refresh the view and the tested mark).
+- AI1: Ran this milestone on DeepSeek V4.1 Flash Max, though §0.6 recommends Opus 5.5 for AI1. The full local e2e run had three timing flakes (connection, sprint `[`, triage snooze) that passed on rerun, as in earlier milestones.
+
 ## Maintainer to-do
-- [ ] Try AI0 by hand on the built app (Settings → AI): with Claude Code installed and signed in, choose "Claude Code", Test connection should say it is installed and signed in; sign out (`claude` → /logout) and it should say not signed in. With a model server on your network (or any OpenAI-compatible endpoint), set the base URL, model and optional key, and check the test. Nothing uses AI yet (AI1 adds the first feature).
+- [ ] Try AI1 by hand on the built app: with Claude Code installed and signed in (or an OpenAI-compatible endpoint set up and Test connection passed) in Settings → AI, open an issue and click "Suggest with AI" (or press `I` in triage mode); check the suggestion shows Status/Priority/Team/Release/Labels, that Accept and Edit are disabled with the read-only reason, and that Dismiss works. Try "Suggest for this queue" on Triage (the Needs triage queue of the sample data has one issue, so the >20 confirmation can't be seen without real data).
+- [ ] Try AI0 by hand on the built app (Settings → AI): with Claude Code installed and signed in, choose "Claude Code", Test connection should say it is installed and signed in; sign out (`claude` → /logout) and it should say not signed in. With a model server on your network (or any OpenAI-compatible endpoint), set the base URL, model and optional key, and check the test. AI1's issue triage is the first feature that uses it.
 - [ ] Review the SPEC additions for AI assist (§4.9, Phase E) before AI0 starts. Confirm Phase C stays skipped until you say go.
 - [ ] Try D15 by hand on the built app: with `gh` logged in, onboarding step 1 offers "Use my GitHub CLI login (signed in as …)"; check it connects without pasting, and that `gh auth refresh -h github.com -s read:project` is what it tells you when the scope is missing (needs your real login and org).
 - [ ] Review and publish the draft release `v1.0.0` (Releases page). Publishing creates the tag. Before that, try the .dmg on a clean Mac: install, open an unsigned app (steps in the notes), connect a real read-only PAT, map your project, use the core views, restart and check tasks and settings stayed. Check About shows 1.0.0 and the Releases link.

@@ -38,7 +38,7 @@ type Row = { number: number; title: string; state: string; url: string; closedAt
  * The best matches for `of` among `rows`: open issues and ones closed within the
  * window, never itself, best first. The in-memory twin of the Postgres query.
  */
-export function findDuplicates(rows: Row[], of: { number: number; title: string }, now = Date.now()): DuplicateCandidate[] {
+export function findDuplicates(rows: Row[], of: { number: number; title: string }, now = Date.now(), limit = MAX_DUPLICATES): DuplicateCandidate[] {
   const cutoff = now - CLOSED_WINDOW_DAYS * 86_400_000;
   const out: DuplicateCandidate[] = [];
   for (const r of rows) {
@@ -47,5 +47,5 @@ export function findDuplicates(rows: Row[], of: { number: number; title: string 
     const s = similarity(r.title, of.title);
     if (s >= SIMILARITY_THRESHOLD) out.push({ number: r.number, title: r.title, state: r.state === "open" ? "open" : "closed", url: r.url, similarity: Math.round(s * 100) / 100 });
   }
-  return out.sort((a, b) => b.similarity - a.similarity || a.number - b.number).slice(0, MAX_DUPLICATES);
+  return out.sort((a, b) => b.similarity - a.similarity || a.number - b.number).slice(0, limit);
 }
