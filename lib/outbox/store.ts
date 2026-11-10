@@ -17,7 +17,7 @@
 //   closing again or reporting the user's own close as a conflict;
 // - every finished row writes an audit_log row; a done write is re-read from
 //   GitHub into the cache by the caller-supplied `refresh`.
-import { and, asc, desc, eq, inArray, isNull, lte, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNull, lte, ne, or, sql } from "drizzle-orm";
 import { getDb } from "@/db";
 import { auditLog, outbox } from "@/db/schema";
 import { LOCAL_OWNER } from "@/lib/local-owner";
@@ -153,14 +153,18 @@ const due = or(sql`${outbox.nextAttemptAt} IS NULL`, lte(outbox.nextAttemptAt, s
  * and field (v5 1.6): "remove X" must not take the fast path while an older
  * "add X" waits on backoff, or the retry would bring X back. Label and assignee
  * deltas skip the stale check, so order is all that protects them.
+ * Create jobs are independent: they all share an empty issue node ID and no field,
+ * so they neither wait on nor block anything (one create on backoff must not hold
+ * every later create back).
  */
-const unblocked = sql`NOT EXISTS (
+const unblocked = sql`(${outbox.op} = 'create' OR NOT EXISTS (
   SELECT 1 FROM outbox o2
   WHERE o2.issue_node_id = ${outbox.issueNodeId}
     AND o2.field IS NOT DISTINCT FROM ${outbox.field}
+    AND o2.op <> 'create'
     AND o2.status IN ('pending', 'sending')
     AND (o2.created_at, o2.id) < (${outbox.createdAt}, ${outbox.id})
-)`;
+))`;
 
 /** The claim: pending -> sending, in one statement, so exactly one caller gets the row. */
 async function claim(id: string): Promise<Raw | null> {
@@ -298,10 +302,12 @@ export async function processEdit(id: string, deps: ProcessDeps): Promise<Outbox
 /**
  * Once a row is finished, run the rows queued behind it for the same issue and
  * field, oldest first (v5 1.6). Without this, a queued row would sit until the
- * drain loop finds it.
+ * drain loop finds it. A create job has no followers: other creates are not
+ * queued behind it (their retry windows belong to the drain loop).
  */
 async function processFollowers(finished: OutboxRow, deps: ProcessDeps, limit = 10): Promise<OutboxRow[]> {
   const out: OutboxRow[] = [];
+  if (finished.op === "create") return out;
   let previous = finished;
   for (let i = 0; i < limit && previous.status !== "pending"; i++) {
     const [next] = await getDb()
@@ -311,6 +317,7 @@ async function processFollowers(finished: OutboxRow, deps: ProcessDeps, limit = 
         and(
           eq(outbox.issueNodeId, finished.issueNodeId),
           finished.field === null ? isNull(outbox.field) : eq(outbox.field, finished.field),
+          ne(outbox.op, "create"),
           eq(outbox.status, "pending"),
           due,
           unblocked,

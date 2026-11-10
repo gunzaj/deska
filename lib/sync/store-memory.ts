@@ -48,8 +48,15 @@ export class MemoryStore extends ReadModel implements ImportStore, IdResolver {
     for (const u of snapshot.ghUsers) tally(this.upsertGhUser(u));
 
     const realIssues = snapshot.issues.filter((i) => !i.isPullRequest);
+    // An issue older than the stored row is skipped whole: row, parent, labels and assignees (v5 2.1).
+    const stale = new Set(realIssues.filter((i) => this.isStale(i)).map((i) => i.nodeId));
     for (const i of realIssues) tally(this.upsertIssue(i));
     for (const i of realIssues) {
+      if (stale.has(i.nodeId)) {
+        tally("unchanged");
+        tally("unchanged");
+        continue;
+      }
       // A partial (incremental) payload omits parentNodeId; only relink when the
       // source actually told us something, otherwise we would detach every
       // sub-issue on each poll.
@@ -235,8 +242,15 @@ export class MemoryStore extends ReadModel implements ImportStore, IdResolver {
     }
   }
 
+  /** The payload is older than the stored issue, like PostgresStore's `notOlder`. */
+  private isStale(i: SnapshotIssue): boolean {
+    const prev = this.issues.get(i.nodeId);
+    return !!prev?.updatedAt && Date.parse(i.updatedAt) < Date.parse(prev.updatedAt);
+  }
+
   upsertIssue(i: SnapshotIssue) {
     const prev = this.issues.get(i.nodeId);
+    if (this.isStale(i)) return "unchanged" as const;
     const next: IssueRow = {
       nodeId: i.nodeId,
       number: i.number,
@@ -339,6 +353,8 @@ export class MemoryStore extends ReadModel implements ImportStore, IdResolver {
     const other = this.itemForIssue(p.issueNodeId);
     const replaces = other && other.itemId !== p.itemId ? other : null;
     if (replaces && !newerItem(p, replaces)) return "unchanged" as const;
+    // Older than the stored item: neither the item nor its history changes (v5 2.1).
+    if (prev?.updatedAt && p.updatedAt && Date.parse(p.updatedAt) < Date.parse(prev.updatedAt)) return "unchanged" as const;
     // The issue's project fields before this write, whichever item held them.
     const was = prev ?? this.itemForIssue(p.issueNodeId);
     // An item that comes back a moment after a prune is a restore, not scope added.

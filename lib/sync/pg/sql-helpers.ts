@@ -12,8 +12,13 @@ export const PAGE_SIZE = 100;
  * Field change history (F0). `fresh` holds the node IDs of issues first seen
  * in this import: they are new, so what they carry now is not a change.
  */
-export type Ctx = { source: ChangeSource; fresh: Set<string> };
-export const newCtx = (opts?: ImportOptions): Ctx => ({ source: opts?.source ?? "sync", fresh: new Set() });
+/**
+ * `fresh`: issues this import inserted (no history for them). `stale`: issues
+ * whose payload was older than the stored row, so nothing of theirs is written
+ * (row, labels, assignees, parent) or recorded as history.
+ */
+export type Ctx = { source: ChangeSource; fresh: Set<string>; stale: Set<string> };
+export const newCtx = (opts?: ImportOptions): Ctx => ({ source: opts?.source ?? "sync", fresh: new Set(), stale: new Set() });
 export type ChangeRow = { issueId: string; field: TrackedField; oldValue: string | null; newValue: string | null };
 
 export async function recordChanges(tx: Tx, rows: ChangeRow[], source: ChangeSource) {

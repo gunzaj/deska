@@ -232,6 +232,22 @@ describe("creating an issue (W3)", async () => {
     expect(second.calls).toEqual([]);
   });
 
+  it("a create waiting on its retry window does not hold back a later create", async () => {
+    const failing = fake({ failAdd: true });
+    const first = await submit({ title: "First issue" }, failing);
+    expect(first.status).toBe(202);
+    expect(first.body.entry).toMatchObject({ status: "pending" });
+
+    // The second create is independent: it takes the fast path and finishes now.
+    const client = fake();
+    const second = await submit({ title: "Second issue" }, client);
+    expect(second.status).toBe(201);
+    expect(second.body.entry).toMatchObject({ status: "done" });
+    // ...and does not pull the first one out of its retry window as a "follower".
+    expect(client.calls).toEqual(["create", "add-project"]);
+    expect((await getEdit(first.body.entry!.id))?.status).toBe("pending");
+  });
+
   it("the re-read puts the created issue in the cache once", async () => {
     const client = fake();
     const r = await submit({ title: "New issue" }, client);
