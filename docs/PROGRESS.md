@@ -17,6 +17,13 @@
 | D12 | done | [#19](https://github.com/gunzaj/deska/pull/19) | Global quick-add shortcut + floating window, native reminder notifications (Complete / Snooze 1 h / Tomorrow), Dock badge, Settings → Desktop; no migration |
 | D13 | done | [#20](https://github.com/gunzaj/deska/pull/20) | Project sections (create/rename/reorder/collapse/delete, drag between), Completed view, ⌘K search of descriptions and comments; migration 0006 |
 | D14 | done | [#21](https://github.com/gunzaj/deska/pull/21) | Version 1.0.0, About dialog, build write switch (`DESKA_WRITES=off`), release workflow, handoff doc; draft release v1.0.0 with the .dmg; no migration |
+| W0–W3 | todo | | Waits for the maintainer's go (§0.4); skipped until then |
+| D15 | todo | | GitHub CLI login (§3.1) |
+| AI0 | todo | | AI providers and settings (§4.9) |
+| AI1 | todo | | Issue triage suggestions |
+| AI2 | todo | | Task assist |
+| AI3 | todo | | Plan my day |
+| AI4 | todo | | Ask |
 
 ## Decisions to review
 - D0: Fictional dataset values: Status `📋 To do` / `🚧 In progress` / `✅ Done` (+ review, QA, blocked in the demo), Priority `Low` / `Medium` / `High`, Team `Core 🧱`, `Checkout 🛒` and more, iterations `Sprint 20`–`Sprint 27` on the "Release" field, project number 7. Option IDs are made-up 8-hex values (`a0000001`…).
@@ -131,6 +138,7 @@
 - Backup follow-up (second folder, no D number; maintainer request): `desktop-prefs.json` gets `backupFolder`, set only by the folder dialog (`deska:backup-folder-choose` / `-clear`), never by `desktop.set`. Main sends it to the server as a `backup-mirror` message (also at launch); the server keeps it in a `globalThis` slot like the token. Retention is now 14 days of everything, then the newest per Monday-start week for 8 weeks, in both folders (replaces "newest 14"). The second folder is not created if missing, so an unplugged drive reports an error. Stale warning at 3 days is shown in Settings only, not as a global banner. Ran on Sonnet 5.5.
 
 ## Maintainer to-do
+- [ ] Review the SPEC additions before the next session starts D15: GitHub CLI login (§1.3, §2.3, §3.1, §3.3, D15) and AI assist (§4.9, Phase E). Confirm Phase C stays skipped until you say go.
 - [ ] Review and publish the draft release `v1.0.0` (Releases page). Publishing creates the tag. Before that, try the .dmg on a clean Mac: install, open an unsigned app (steps in the notes), connect a real read-only PAT, map your project, use the core views, restart and check tasks and settings stayed. Check About shows 1.0.0 and the Releases link.
 - [ ] Create a **read-only** fine-grained PAT: resource owner = the org, repository access = only the one repo; Repository → Metadata: Read, Repository → Issues: Read, Organization → Projects: Read, Organization → Issue types: Read (optional); nothing else. Then run the probe (report lands in `private/findings/`):
   ```bash
