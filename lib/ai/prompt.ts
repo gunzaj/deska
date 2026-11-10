@@ -20,6 +20,12 @@ export type AiTask<S extends z.ZodType = z.ZodType> = {
   /** Built per request, with enums of real IDs (SPEC §4.9 "Closed choices"). */
   schema: S;
   schemaName: string;
+  /**
+   * Extra fields stored next to the validated answer in `ai_results` (a feature
+   * keeps what the answer does not carry, e.g. the question it answers). Never
+   * sent to the model.
+   */
+  resultMeta?: Record<string, unknown>;
 };
 
 const PREAMBLE = [

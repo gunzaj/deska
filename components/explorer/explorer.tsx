@@ -32,6 +32,7 @@ import { Page } from "../app/shell";
 import { connectionProblem, problemHint, useConnection } from "../app/connection";
 import { useAppData, useAppSync, useAppViews } from "../app/provider";
 import { peekedIssue, useOpenIssue } from "../app/open-issue";
+import { AskList } from "../ai/ask";
 import { Icon } from "../icons";
 import { EmptyHint, Kbd } from "../props";
 import { useTasks } from "../tasks/store";
@@ -342,6 +343,7 @@ export function Explorer({
         </button>
       )}
       <span className="ml-auto flex items-center gap-2">
+        <AskList rows={rows} />
         <span className="text-[12px] tabular-nums text-faint">{pluralize(rows.length, "issue")}</span>
         <DisplayMenu state={state} onChange={setState} />
       </span>

@@ -114,7 +114,7 @@ function choicesText(choices: TriageFieldChoices): string {
 }
 
 /** The untrusted content, each block separate and labelled (SPEC §4.9 "Untrusted input"). */
-function data(input: TriageIssueInput): { label: string; text: string }[] {
+export function triageData(input: TriageIssueInput): { label: string; text: string }[] {
   const out: { label: string; text: string }[] = [];
   const head = [`#${input.number} ${input.title}`, `State: ${input.state}`, `Author: ${input.author}`, `Updated: ${input.updatedAt}`, `URL: ${input.url}`];
   if (input.parent) head.push(`Parent: #${input.parent.number} ${input.parent.title} (${input.parent.state})`);
@@ -153,7 +153,7 @@ export function triageTask(input: TriageIssueInput): AiTask {
     subject: String(input.number),
     subjectVersion: input.updatedAt,
     instructions: ISSUE_TRIAGE_INSTRUCTIONS,
-    data: data(input),
+    data: triageData(input),
     schema: triageSchema(input),
     schemaName: "issue_triage",
   };

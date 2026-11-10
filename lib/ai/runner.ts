@@ -132,6 +132,9 @@ async function execute(job: Job, task: AiTask, settings: AiSettings, signal: Abo
     const parsed = task.schema.safeParse(answer.output);
     if (parsed.success) {
       job.result = parsed.data;
+      // A feature may keep fields the model does not answer (e.g. the question
+      // it was asked) next to the validated answer in the stored result.
+      const stored = task.resultMeta ? { ...task.resultMeta, ...(parsed.data as Record<string, unknown>) } : parsed.data;
       job.resultId = await saveResult({
         feature: task.feature,
         subjectKind: task.subjectKind,
@@ -139,7 +142,7 @@ async function execute(job: Job, task: AiTask, settings: AiSettings, signal: Abo
         inputHash: inputHash(task, settings.extraInstructions),
         provider: settings.provider,
         model: settings.model,
-        result: parsed.data,
+        result: stored,
         durationMs: Date.now() - started,
         costUsd: cost,
       });
