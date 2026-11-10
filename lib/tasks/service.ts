@@ -21,7 +21,7 @@ import {
 } from "./model";
 import { fireWatchDigest } from "../watch/digest";
 import { DEFAULT_REMINDER_TIME, fireReminders } from "./notify";
-import { nextOccurrence, pinMonthDay } from "./recurrence";
+import { nextOccurrence, pinMonthDay, repinMonthDay } from "./recurrence";
 import { SEARCH_LIMIT, taskRepo, type Placement, type StoredSection, type StoredTask, type TaskRepo } from "./repo";
 
 /**
@@ -81,18 +81,28 @@ function withIds(list: ReminderInput[], existing: Reminder[] = []): Reminder[] {
     if (seen.has(k)) continue;
     seen.add(k);
     const i = unused.findIndex((e) => same(e, r));
-    const id = i >= 0 ? unused.splice(i, 1)[0]!.id : randomUUID();
-    out.push({ ...r, id } as Reminder);
+    const match = i >= 0 ? unused.splice(i, 1)[0]! : null;
+    // A snooze stays one: the client resends the set without the flag.
+    const snooze = r.kind === "absolute" && (r.snooze || (match?.kind === "absolute" && match.snooze));
+    const { snooze: _s, ...rest } = r as ReminderInput & { snooze?: true };
+    out.push({ ...rest, id: match?.id ?? randomUUID(), ...(snooze ? { snooze: true } : {}) } as Reminder);
   }
   return out;
 }
 
 /**
- * Absolute reminders move with recurrence (§12.6). Each moved one gets a new
- * ID, so its dedupe key is new and it fires again for the next occurrence.
+ * Absolute reminders move with recurrence (§12.6). A moved one keeps its ID:
+ * the dedupe key has the instant in it (notify.ts), so it fires again for the
+ * next occurrence, and an undo that moves it back finds the key it already
+ * fired under. A snooze belonged to the occurrence just completed: it is
+ * dropped, not moved (`dropSnoozes`); an undo leaves snoozes where they are.
  */
-function shiftAbsolute(list: Reminder[], days: number, tz: string): Reminder[] {
-  return list.map((r) => (r.kind === "absolute" ? { ...r, id: randomUUID(), at: shiftInstant(r.at, days, tz) } : r));
+function shiftAbsolute(list: Reminder[], days: number, tz: string, dropSnoozes: boolean): Reminder[] {
+  return list.flatMap((r): Reminder[] => {
+    if (r.kind !== "absolute") return [r];
+    if (r.snooze) return dropSnoozes ? [] : [r];
+    return [{ ...r, at: shiftInstant(r.at, days, tz) }];
+  });
 }
 
 /** The task with its filing and labels. */
@@ -230,9 +240,11 @@ export async function updateTask(me: string, id: string, patch: PatchTaskInput, 
 
 /**
  * Snooze a reminder (SPEC §4.6): remind again in an hour, or tomorrow morning
- * (09:00 in the task's time zone). It adds an absolute reminder, so the next
- * firing is an ordinary reminder with its own dedupe key. Reminders already in
- * the past have fired and are dropped, so repeated snoozes don't pile up.
+ * (09:00 in the task's time zone). It adds a one-shot absolute reminder marked
+ * `snooze`, so the next firing has its own dedupe key and completing the
+ * occurrence drops it. Snoozes already in the past have fired and are dropped,
+ * so repeated snoozes don't pile up; the task's own reminders are kept, past
+ * or not, since a recurring task's move on to the next occurrence.
  */
 export async function snoozeTask(me: string, id: string, when: "1h" | "tomorrow", now = new Date()): Promise<Result<Task>> {
   const repo = taskRepo();
@@ -241,8 +253,11 @@ export async function snoozeTask(me: string, id: string, when: "1h" | "tomorrow"
   if (t.completedAt) return bad("task is completed");
   const tz = t.dueTz ?? (await repo.prefs(me)).tz ?? "UTC";
   const at = when === "1h" ? new Date(now.getTime() + 60 * 60_000) : zonedToUtc(addDays(localToday(now, tz), 1), DEFAULT_REMINDER_TIME, tz);
-  const keep = t.reminders.filter((r) => r.kind === "relative" || Date.parse(r.at) > now.getTime());
-  const reminders = [...keep.map((r): ReminderInput => (r.kind === "relative" ? { kind: "relative", offsetMin: r.offsetMin } : { kind: "absolute", at: r.at })), { kind: "absolute" as const, at: at.toISOString() }].slice(-10);
+  const keep = t.reminders.filter((r) => r.kind === "relative" || !r.snooze || Date.parse(r.at) > now.getTime());
+  const reminders = [
+    ...keep.map((r): ReminderInput => (r.kind === "relative" ? { kind: "relative", offsetMin: r.offsetMin } : { kind: "absolute", at: r.at, ...(r.snooze ? { snooze: true as const } : {}) })),
+    { kind: "absolute" as const, at: at.toISOString(), snooze: true as const },
+  ].slice(-10);
   return updateTask(me, id, { reminders });
 }
 
@@ -295,7 +310,7 @@ async function applyUpdate(repo: TaskRepo, me: string, id: string, patch: PatchT
     // Drop its completion row and move the date (and absolute reminders) back to it.
     if (await repo.removeCompletion(id, patch.undoOccurrence)) {
       next.dueDate = patch.undoOccurrence;
-      next.reminders = shiftAbsolute(next.reminders ?? prev.reminders, daysBetween(prev.dueDate, patch.undoOccurrence), prev.dueTz || "UTC");
+      next.reminders = shiftAbsolute(next.reminders ?? prev.reminders, daysBetween(prev.dueDate, patch.undoOccurrence), prev.dueTz || "UTC", false);
     }
   }
   const dueDate = next.dueDate !== undefined ? next.dueDate : prev.dueDate;
@@ -306,6 +321,12 @@ async function applyUpdate(repo: TaskRepo, me: string, id: string, patch: PatchT
   } else {
     if (!prev.dueTz && next.dueTz === undefined) next.dueTz = (await repo.prefs(me)).tz ?? "UTC";
     if (next.recurrence) next.recurrence = pinMonthDay(next.recurrence, dueDate);
+    // The user moved the date: a day of the month taken from the old date
+    // follows it (an explicitly chosen one stays).
+    else if (patch.dueDate !== undefined && patch.dueDate !== prev.dueDate && patch.undoOccurrence === undefined && prev.recurrence) {
+      const r = repinMonthDay(prev.recurrence, dueDate);
+      if (r !== prev.recurrence) next.recurrence = r;
+    }
   }
   const now = new Date().toISOString();
   const recurrence = next.recurrence !== undefined ? next.recurrence : prev.recurrence;
@@ -323,7 +344,7 @@ async function applyUpdate(repo: TaskRepo, me: string, id: string, patch: PatchT
       // Already logged (a concurrent request won): don't move the date again.
       if (await repo.addCompletion(id, me, dueDate)) {
         next.dueDate = following;
-        next.reminders = shiftAbsolute(next.reminders ?? prev.reminders, daysBetween(dueDate, following), (next.dueTz ?? prev.dueTz) || "UTC");
+        next.reminders = shiftAbsolute(next.reminders ?? prev.reminders, daysBetween(dueDate, following), (next.dueTz ?? prev.dueTz) || "UTC", true);
         for (const c of await repo.children(id)) if (c.completedAt) await repo.update(c.id, { completedAt: null, completedBy: null, updatedAt: now });
       }
     }
@@ -389,7 +410,10 @@ export async function deleteTask(_me: string, id: string): Promise<Result<true>>
 /**
  * Undo a delete (U1): while the task is still soft-deleted
  * (RETENTION_DELETED_DAYS). Links, labels and placements were never removed;
- * sub-tasks and comments deleted with it come back too.
+ * sub-tasks and comments deleted with it come back too. A sub-task whose
+ * parent has since been deleted comes back as a top-level task, filed where
+ * the parent was (Inbox if that project is gone): Undo always brings back
+ * what was deleted, and a sub-task of a deleted parent would be invisible.
  */
 export async function restoreTask(me: string, id: string): Promise<Result<Task>> {
   const repo = taskRepo();
@@ -397,6 +421,13 @@ export async function restoreTask(me: string, id: string): Promise<Result<Task>>
     const t = await repo.getDeleted(id);
     if (!t?.deletedAt) return notFound;
     await repo.restoreTask(id, t.deletedAt);
+    if (t.parentId && !(await repo.get(t.parentId))) {
+      const placements = await repo.placements(me);
+      const wanted = placements.get(id)?.projectId ?? placements.get(t.parentId)?.projectId ?? null;
+      const projectId = (await ownProject(repo, me, wanted)) ? wanted : null;
+      await repo.update(id, { parentId: null, sectionId: null, updatedAt: new Date().toISOString() });
+      await repo.setPlacement(id, me, { projectId, position: (await repo.maxPosition(me, projectId)) + 1 });
+    }
     const back = await repo.get(id);
     return back ? { ok: true, value: await viewOne(repo, me, back) } : notFound;
   });

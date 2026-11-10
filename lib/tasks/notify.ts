@@ -23,7 +23,10 @@ export function reminderTimes(t: TaskCore): { key: string; at: Date }[] {
   const occurrence = `${t.dueDate ?? "nodate"}T${t.dueTime ?? "allday"}`;
   if (t.dueDate && t.dueTime) out.push({ key: `due:${occurrence}`, at: zonedToUtc(t.dueDate, t.dueTime, tz) });
   for (const r of t.reminders) {
-    if (r.kind === "absolute") out.push({ key: `abs:${r.id}`, at: new Date(r.at) });
+    // The instant is part of the key: a recurring task's absolute reminder keeps
+    // its ID as it moves to each occurrence, and an undo that moves it back
+    // must not fire it again.
+    if (r.kind === "absolute") out.push({ key: `abs:${r.id}:${Date.parse(r.at)}`, at: new Date(r.at) });
     else if (t.dueDate) {
       const base = zonedToUtc(t.dueDate, t.dueTime ?? DEFAULT_REMINDER_TIME, tz);
       out.push({ key: `rel:${r.id}:${occurrence}`, at: new Date(base.getTime() - r.offsetMin * 60_000) });

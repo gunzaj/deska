@@ -72,7 +72,8 @@ describe("due times and recurrence (§12.5)", () => {
     // 18:00 Prague on Thu 22 Oct (CEST) -> 18:00 Prague on Thu 29 Oct (CET).
     const after = (done.body.task.reminders as { id: string; at: string }[])[0]!;
     expect(after.at).toBe("2026-10-29T17:00:00.000Z");
-    expect(after.id).not.toBe(before.id);
+    // Same ID: the dedupe key carries the instant, so an undo that moves it back stays fired.
+    expect(after.id).toBe(before.id);
   });
 
   it("every! counts from the completion day; Complete forever ends the recurrence", async () => {

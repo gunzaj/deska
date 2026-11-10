@@ -46,6 +46,24 @@ export function pinMonthDay<R extends { rule: string; fromCompletion: boolean }>
   return { ...r, rule: `${r.rule};BYMONTHDAY=${day}` };
 }
 
+/**
+ * The rule for a task whose due date moved to `newDate`. A BYMONTHDAY that
+ * `pinMonthDay` took from the old date follows the new one ("every month"
+ * created on the 30th, moved to the 15th, repeats on the 15th). One the user
+ * chose ("every month on the 30th", from quick add or the repeat picker) says
+ * so in its text and stays.
+ */
+export function repinMonthDay<R extends { rule: string; text: string; fromCompletion: boolean }>(r: R, newDate: string): R {
+  const p = parseRule(r.rule);
+  if (!p || (p.freq !== "MONTHLY" && p.freq !== "YEARLY") || p.byMonthDay == null || r.fromCompletion || /\bon the\b/i.test(r.text)) return r;
+  const bare = r.rule
+    .split(";")
+    .filter((part) => !/^BYMONTHDAY=/i.test(part))
+    .join(";");
+  const out = pinMonthDay({ ...r, rule: bare }, newDate);
+  return out.rule === r.rule ? r : out;
+}
+
 function monthDay(date: string, day: number): string {
   const [y = 0, m = 1] = date.split("-").map(Number);
   const last = new Date(Date.UTC(y, m, 0)).getUTCDate();

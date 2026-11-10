@@ -1,0 +1,172 @@
+// Regressions in personal tasks: snooze on recurring tasks, reminder dedupe
+// across undo, a pinned day of the month after the date moves, quick add's
+// "on the Nth", restoring an orphaned sub-task, and the DST gap. In-memory repo.
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+vi.mock("@/lib/session", () => ({ getViewerLogin: async () => "alice" }));
+
+const { __resetTasks } = await import("@/lib/tasks/repo");
+const { createTask, updateTask, snoozeTask, deleteTask, restoreTask, createProject, listTasks } = await import("@/lib/tasks/service");
+const { createTaskSchema } = await import("@/lib/tasks/model");
+const { fireReminders } = await import("@/lib/tasks/notify");
+const { parseQuickAdd } = await import("@/lib/tasks/quick-add");
+const { zonedToUtc } = await import("@/lib/tasks/dates");
+const { LOCAL_OWNER } = await import("@/lib/local-owner");
+
+const me = LOCAL_OWNER;
+const make = async (input: Record<string, unknown>) => {
+  const r = await createTask(me, createTaskSchema.parse({ tz: "UTC", ...input }));
+  if (!r.ok) throw new Error(r.error);
+  return r.value;
+};
+const update = async (id: string, patch: Parameters<typeof updateTask>[2]) => {
+  const r = await updateTask(me, id, patch);
+  if (!r.ok) throw new Error(r.error);
+  return r.value;
+};
+const at = (iso: string) => vi.setSystemTime(new Date(iso));
+
+beforeEach(() => {
+  __resetTasks();
+  vi.useFakeTimers({ now: new Date("2026-10-12T06:00:00Z"), toFake: ["Date"] });
+});
+afterEach(() => vi.useRealTimers());
+
+describe("snooze on a recurring task is one-shot", () => {
+  it("completing the occurrence drops the snooze instead of moving it to every later day", async () => {
+    const t = await make({ title: "Stretch", dueDate: "2026-10-12", dueTime: "07:30", recurrence: { rule: "FREQ=DAILY", text: "every day" } });
+    at("2026-10-12T07:31:00Z");
+    const snoozed = await snoozeTask(me, t.id, "1h");
+    expect(snoozed.ok && snoozed.value.reminders).toMatchObject([{ kind: "absolute", at: "2026-10-12T08:31:00.000Z", snooze: true }]);
+    // The client resends the full set without the flag: it stays a snooze.
+    const resent = await update(t.id, { reminders: [{ kind: "absolute", at: "2026-10-12T08:31:00.000Z" }, { kind: "relative", offsetMin: 10 }] });
+    expect(resent.reminders.find((r) => r.kind === "absolute")).toMatchObject({ snooze: true });
+
+    const done = await update(t.id, { completed: true });
+    expect(done.dueDate).toBe("2026-10-13");
+    expect(done.reminders).toEqual([expect.objectContaining({ kind: "relative", offsetMin: 10 })]);
+    // Nothing fires at 08:31 the next day.
+    at("2026-10-13T08:31:30Z");
+    await fireReminders(new Date(), me);
+    at("2026-10-13T08:32:00Z");
+    expect(await fireReminders(new Date(), me)).toBe(0);
+  });
+
+  it("snoozing keeps the task's own passed absolute reminder, which then moves with the occurrence", async () => {
+    const t = await make({ title: "Pills", dueDate: "2026-10-12", recurrence: { rule: "FREQ=DAILY", text: "every day" }, reminders: [{ kind: "absolute", at: "2026-10-12T07:00:00Z" }] });
+    at("2026-10-12T07:05:00Z");
+    await snoozeTask(me, t.id, "1h");
+    const done = await update(t.id, { completed: true });
+    expect(done.reminders).toEqual([expect.objectContaining({ kind: "absolute", at: "2026-10-13T07:00:00.000Z" })]);
+    expect(done.reminders[0]).not.toHaveProperty("snooze");
+  });
+});
+
+describe("undoing an occurrence doesn't fire its absolute reminder again", () => {
+  it("complete then undo: the 08:00 reminder that already fired stays fired", async () => {
+    const t = await make({ title: "Report", dueDate: "2026-10-12", recurrence: { rule: "FREQ=DAILY", text: "every day" }, reminders: [{ kind: "absolute", at: "2026-10-12T08:00:00Z" }] });
+    at("2026-10-12T08:00:30Z");
+    expect(await fireReminders(new Date(), me)).toBe(1);
+    await update(t.id, { completed: true });
+    const undone = await update(t.id, { undoOccurrence: "2026-10-12" });
+    expect(undone.reminders).toMatchObject([{ kind: "absolute", at: "2026-10-12T08:00:00.000Z" }]);
+    expect(await fireReminders(new Date(), me)).toBe(0);
+  });
+
+  it("a moved reminder still fires for the next occurrence", async () => {
+    const t = await make({ title: "Report", dueDate: "2026-10-12", recurrence: { rule: "FREQ=DAILY", text: "every day" }, reminders: [{ kind: "absolute", at: "2026-10-12T08:00:00Z" }] });
+    at("2026-10-12T08:00:30Z");
+    expect(await fireReminders(new Date(), me)).toBe(1);
+    await update(t.id, { completed: true });
+    at("2026-10-13T08:00:30Z");
+    expect(await fireReminders(new Date(), me)).toBe(1);
+  });
+});
+
+describe("a day of the month taken from the date follows the date", () => {
+  it("every month, created on the 30th and moved to the 15th, repeats on the 15th", async () => {
+    const t = await make({ title: "Rent", dueDate: "2026-11-30", recurrence: { rule: "FREQ=MONTHLY", text: "every month" } });
+    expect(t.recurrence?.rule).toBe("FREQ=MONTHLY;BYMONTHDAY=30");
+    const moved = await update(t.id, { dueDate: "2026-11-15" });
+    expect(moved.recurrence?.rule).toBe("FREQ=MONTHLY");
+    expect((await update(t.id, { completed: true })).dueDate).toBe("2026-12-15");
+  });
+
+  it("moving to another late day re-pins to that day", async () => {
+    const t = await make({ title: "Rent", dueDate: "2026-11-30", recurrence: { rule: "FREQ=MONTHLY", text: "every month" } });
+    expect((await update(t.id, { dueDate: "2026-12-29" })).recurrence?.rule).toBe("FREQ=MONTHLY;BYMONTHDAY=29");
+  });
+
+  it("every year from 29 Feb, moved to 10 Mar, repeats on 10 Mar", async () => {
+    const t = await make({ title: "Leap", dueDate: "2028-02-29", recurrence: { rule: "FREQ=YEARLY", text: "every year" } });
+    expect(t.recurrence?.rule).toBe("FREQ=YEARLY;BYMONTHDAY=29");
+    await update(t.id, { dueDate: "2028-03-10" });
+    expect((await update(t.id, { completed: true })).dueDate).toBe("2029-03-10");
+  });
+
+  it("an explicitly chosen day stays", async () => {
+    const t = await make({ title: "Rent", dueDate: "2026-11-30", recurrence: { rule: "FREQ=MONTHLY;BYMONTHDAY=30", text: "every month on the 30th" } });
+    const moved = await update(t.id, { dueDate: "2026-11-15" });
+    expect(moved.recurrence?.rule).toBe("FREQ=MONTHLY;BYMONTHDAY=30");
+    expect((await update(t.id, { completed: true })).dueDate).toBe("2026-11-30");
+  });
+});
+
+describe("quick add: 'on the Nth' outside monthly stays in the title", () => {
+  const ctx = { today: "2026-11-10" };
+  it.each([
+    ["x every year on the 5th", "FREQ=YEARLY", "x on the 5th"],
+    ["x every friday on the 15th", "FREQ=WEEKLY;BYDAY=FR", "x on the 15th"],
+    ["x every day on the 5th", "FREQ=DAILY", "x on the 5th"],
+    ["x every 2 weeks on the 3rd", "FREQ=WEEKLY;INTERVAL=2", "x on the 3rd"],
+  ])("%s", (input, rule, title) => {
+    const p = parseQuickAdd(input, ctx);
+    expect(p.recurrence?.rule).toBe(rule);
+    expect(p.title).toBe(title);
+  });
+
+  it("monthly still takes it", () => {
+    const p = parseQuickAdd("x every month on the 15th", ctx);
+    expect(p).toMatchObject({ title: "x", dueDate: "2026-11-15", recurrence: { rule: "FREQ=MONTHLY;BYMONTHDAY=15", label: "every month on the 15th" } });
+  });
+});
+
+describe("restoring a sub-task whose parent was deleted", () => {
+  it("comes back as a top-level task in the parent's project", async () => {
+    const p = await createProject(me, { name: "Home", color: "grey" });
+    if (!p.ok) throw new Error(p.error);
+    const parent = await make({ title: "Move", projectId: p.value.id });
+    const child = await make({ title: "Boxes", parentId: parent.id });
+    expect((await deleteTask(me, child.id)).ok).toBe(true);
+    expect((await deleteTask(me, parent.id)).ok).toBe(true);
+
+    const r = await restoreTask(me, child.id);
+    expect(r.ok && r.value).toMatchObject({ id: child.id, parentId: null, projectId: p.value.id });
+    const listed = (await listTasks(me)).tasks;
+    expect(listed.map((t) => t.id)).toEqual([child.id]);
+  });
+
+  it("a sub-task restored while its parent is live stays a sub-task", async () => {
+    const parent = await make({ title: "Move" });
+    const child = await make({ title: "Boxes", parentId: parent.id });
+    await deleteTask(me, child.id);
+    const r = await restoreTask(me, child.id);
+    expect(r.ok && r.value.parentId).toBe(parent.id);
+  });
+});
+
+describe("zonedToUtc in the spring-forward gap", () => {
+  it("lands after the gap east and west of UTC", () => {
+    // Prague: 02:00 CET → 03:00 CEST. 02:30 → 03:30 CEST = 01:30Z.
+    expect(zonedToUtc("2026-03-29", "02:30", "Europe/Prague").toISOString()).toBe("2026-03-29T01:30:00.000Z");
+    // New York: 02:00 EST → 03:00 EDT. 02:30 → 03:30 EDT = 07:30Z (not 01:30 EST).
+    expect(zonedToUtc("2026-03-08", "02:30", "America/New_York").toISOString()).toBe("2026-03-08T07:30:00.000Z");
+  });
+
+  it("an hour repeated by the fall-back is its first occurrence; ordinary times are unchanged", () => {
+    expect(zonedToUtc("2026-10-25", "02:30", "Europe/Prague").toISOString()).toBe("2026-10-25T00:30:00.000Z");
+    expect(zonedToUtc("2026-11-01", "01:30", "America/New_York").toISOString()).toBe("2026-11-01T05:30:00.000Z");
+    expect(zonedToUtc("2026-03-08", "01:59", "America/New_York").toISOString()).toBe("2026-03-08T06:59:00.000Z");
+    expect(zonedToUtc("2026-03-08", "03:00", "America/New_York").toISOString()).toBe("2026-03-08T07:00:00.000Z");
+  });
+});
