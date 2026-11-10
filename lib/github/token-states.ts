@@ -15,6 +15,12 @@ export type ConnectionState =
   | "offline"
   /** 403/429 with no requests left. */
   | "rate-limited"
+  /** GitHub CLI source: no `gh` on the login-shell PATH. */
+  | "gh-not-found"
+  /** GitHub CLI source: `gh auth token` gave no token. */
+  | "gh-logged-out"
+  /** GitHub CLI source: the login lacks `read:project` (`project` with writes on). */
+  | "missing-scope"
   | "ok"
   /** Not the desktop app (dev preview, tests): no token, sample data. */
   | "preview";
@@ -49,6 +55,12 @@ export type PermissionResult = {
 
 export type ConnectionStatus = {
   state: ConnectionState;
+  /** Where the token comes from: a pasted token, or the GitHub CLI's login (SPEC §3.1). */
+  source: "token" | "gh";
+  /** The token's classic scopes (`x-oauth-scopes`); null for a fine-grained token, which has none. */
+  scopes: string[] | null;
+  /** A command for the user to run in a terminal (Deska never runs it), e.g. `gh auth login`. */
+  command: string | null;
   /** The state's message (SPEC §3.3); null when nothing is wrong. */
   message: string | null;
   login: string | null;
@@ -64,7 +76,7 @@ export type ConnectionStatus = {
   readOnly: boolean;
   readOnlyMessage: string | null;
   permissions: PermissionResult[];
-  /** Missing required permissions by name, e.g. "Organization → Projects: Read". */
+  /** Missing required permissions by name, e.g. "Organization → Projects: Read"; with `missing-scope`, the scopes. */
   missing: string[];
   /** ISO time the rate limit resets, when rate limited. */
   rateLimitedUntil: string | null;
@@ -83,7 +95,18 @@ export const MESSAGES = {
   rateLimited: (hhmm: string) => `Rate limited until ${hhmm}`,
   expiring: (date: string) => `Your GitHub token expires on ${date}`,
   readOnly: "Read-only token",
+  ghNotFound: "GitHub CLI isn't installed",
+  ghLoggedOut: "GitHub CLI isn't logged in",
+  ghMissingScope: (scopes: string[]) => `Your GitHub CLI login is missing the ${scopes.join(", ")} scope`,
+  ghNotApproved: "Your org may need to approve the GitHub CLI app",
+  ghCanWrite: (scopes: string[]) => `The GitHub CLI login can also write (${scopes.join(", ")}). Deska stays read-only: it writes to GitHub only when "GitHub writes" is on in Settings.`,
   writeScopes: (scopes: string[]) => `This classic token can also write (${scopes.join(", ")}). Deska only reads, but a token with only read:project is safer.`,
+} as const;
+
+/** The commands Deska shows and never runs (SPEC §3.1). */
+export const GH_COMMANDS = {
+  login: "gh auth login",
+  addScope: (scope: string) => `gh auth refresh -h github.com -s ${scope}`,
 } as const;
 
 /** `HH:MM` in the Mac's own time zone (the server runs on it). */

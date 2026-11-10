@@ -9,10 +9,10 @@
 import { inArray } from "drizzle-orm";
 import { dbDir, getDb } from "@/db";
 import { syncState } from "@/db/schema";
-import { githubApiBase } from "./config";
+import { githubApiBase, writeMode } from "./config";
 import { desktopGuard } from "./desktop/guard";
-import { checkToken, previewStatus, missingStatus, MESSAGES, type CheckTarget, type ConnectionStatus } from "./github/connection";
-import { localToken, tokenState } from "./github/local-token";
+import { checkToken, ghCliStatus, previewStatus, missingStatus, MESSAGES, type CheckTarget, type ConnectionStatus } from "./github/connection";
+import { localToken, requestGhReread, tokenAuth, tokenState } from "./github/local-token";
 import { currentTarget, settingsVersion } from "./settings";
 
 const OK_TTL_MS = 10 * 60_000;
@@ -71,7 +71,9 @@ export function cachedConnection(): ConnectionStatus | null {
 export async function connectionStatus({ refresh = false }: { refresh?: boolean } = {}): Promise<ConnectionStatus> {
   if (!desktopGuard()) return previewStatus();
   const token = localToken();
-  if (!token) return missingStatus();
+  const auth = tokenAuth();
+  // The GitHub CLI source without a token says why (SPEC §3.3), not "connect GitHub".
+  if (!token) return auth.source === "gh" && auth.cli !== "ok" ? ghCliStatus(auth.cli) : missingStatus();
   const c = cache();
   const { generation } = tokenState();
   const settings = settingsVersion();
@@ -80,9 +82,12 @@ export async function connectionStatus({ refresh = false }: { refresh?: boolean 
   if (!refresh && c.status && Date.now() - c.at < ttl(c.status)) return c.status;
   if (c.inflight) return c.inflight;
   const run = (async () => {
-    const status = await checkToken(token, await checkTarget(), { apiBase: githubApiBase() });
+    const status = await checkToken(token, await checkTarget(), { apiBase: githubApiBase(), source: auth.source, writes: writeMode() });
     // A token change while the check ran: this answer belongs to the old one.
     if (cache().generation !== generation) return status;
+    // A 401 on the GitHub CLI's token: the CLI may hold a newer one. Main reads
+    // it again, once; a 401 on that answer is the invalid state (SPEC §2.3).
+    if (status.state === "invalid" && (await requestGhReread())) return connectionStatus({ refresh: true });
     Object.assign(cache(), { status, at: Date.now(), fromSync: false });
     if (status.login) cache().owner = { login: status.login, name: status.name, avatarUrl: status.avatarUrl };
     if (status.login) await saveIdentity(status).catch((e) => console.error(`could not save the GitHub identity: ${e instanceof Error ? e.message : String(e)}`));
@@ -105,9 +110,12 @@ export function noteSyncProblem(state: "invalid" | "offline"): void {
   const c = cache();
   const { generation } = tokenState();
   if (c.generation !== generation) Object.assign(c, { generation, settings: settingsVersion(), owner: null });
+  // The GitHub CLI may hold a newer token than the one GitHub just refused:
+  // main reads it again (once), and its answer starts the next sync.
+  if (state === "invalid") void requestGhReread();
   const prev = c.status;
   if (prev?.state === state) return;
-  const base = prev ?? missingStatus();
+  const base = prev ?? { ...missingStatus(), source: tokenAuth().source };
   const owner = c.owner;
   const status: ConnectionStatus = {
     ...base,
@@ -159,7 +167,12 @@ export async function savedIdentity(): Promise<Identity | null> {
  * GitHub can't be asked, so cached data stays usable offline.
  */
 export async function localLogin(): Promise<string | null> {
-  if (!localToken()) return null;
+  if (!localToken()) {
+    // The GitHub CLI source lost its token (logged out, uninstalled): the user
+    // it last was keeps the app and its cached data open, under the banner.
+    if (tokenAuth().source === "gh") return (await savedIdentity().catch(() => null))?.login ?? null;
+    return null;
+  }
   const cached = cachedConnection();
   if (cached?.login) return cached.login;
   // This token's owner was confirmed earlier in this run; a 401 or an outage since keeps it.

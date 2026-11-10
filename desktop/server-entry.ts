@@ -9,7 +9,7 @@
 // next is visible to every request handler (SPEC §2.3: memory only).
 import http from "node:http";
 import path from "node:path";
-import type { ServerMessage, ServerReply } from "./bridge";
+import type { ServerMessage, ServerReply, TokenAuth } from "./bridge";
 
 type Port = { on(event: "message", fn: (e: { data: ServerMessage }) => void): void; postMessage(msg: unknown): void };
 
@@ -28,6 +28,8 @@ function reply(msg: ServerReply) {
 // The same globalThis slots lib/github/local-token.ts reads.
 const TOKEN = Symbol.for("deska.githubToken");
 const TOKEN_STATE = Symbol.for("deska.githubTokenState");
+const TOKEN_AUTH = Symbol.for("deska.githubTokenAuth");
+const TOKEN_WAITERS = Symbol.for("deska.githubTokenWaiters");
 const DB = Symbol.for("deska.db");
 // lib/backup/files.ts: the second backup folder, and the hook that copies to it.
 const MIRROR = Symbol.for("deska.backupMirror");
@@ -49,11 +51,17 @@ function requestSync(reason: "wake" | "token") {
     .catch((e: unknown) => console.error(`deska: sync request failed: ${e instanceof Error ? e.message : String(e)}`));
 }
 
-function setToken(token: string | null, source: "launch" | "user") {
+/** The same as `setLocalToken` in lib/github/local-token.ts (this file is compiled apart from lib/). */
+function setToken(token: string | null, source: "launch" | "user", auth: TokenAuth = { source: "token" }, reread = false) {
   const g = globalThis as Record<symbol, unknown>;
   const prev = (g[TOKEN_STATE] as { generation?: number; changedByUser?: boolean } | undefined) ?? {};
   g[TOKEN] = token ?? undefined;
-  g[TOKEN_STATE] = { generation: (prev.generation ?? 0) + 1, changedByUser: !!prev.changedByUser || source === "user" };
+  g[TOKEN_AUTH] = auth.source === "gh" ? { source: "gh", cli: auth.cli } : { source: "token" };
+  g[TOKEN_STATE] = { generation: (prev.generation ?? 0) + 1, changedByUser: !!prev.changedByUser || source === "user", afterReread: reread };
+  // Whoever waits for main's answer to a `gh-reread` (lib/github/local-token.ts).
+  const waiters = g[TOKEN_WAITERS] as Set<() => void> | undefined;
+  g[TOKEN_WAITERS] = undefined;
+  for (const w of waiters ?? []) w();
 }
 
 async function stop() {
@@ -103,6 +111,8 @@ function start(msg: Extract<ServerMessage, { type: "start" }>) {
     DESKA_HOST: `127.0.0.1:${msg.port}`,
     DESKA_LAUNCH_SECRET: msg.secret,
     DESKA_DB_DIR: msg.dbDir,
+    // The login-shell PATH (SPEC §2.1), for the `claude` CLI (§4.9). This process's own PATH stays as it is.
+    DESKA_LOGIN_PATH: msg.loginPath,
   });
   if (msg.mode === "production") {
     Object.assign(process.env, { NODE_ENV: "production", DESKA_MIGRATIONS_DIR: path.join(msg.serverDir, "drizzle") });
@@ -129,7 +139,7 @@ onMessage((msg) => {
   if (msg.type === "start") start(msg);
   else if (msg.type === "backup-mirror") setBackupMirror(typeof msg.dir === "string" ? msg.dir : null);
   else if (msg.type === "token") {
-    setToken(msg.token, msg.source);
+    setToken(msg.token, msg.source, msg.auth, msg.reread === true);
     reply({ type: "token-ack", id: msg.id });
     if (msg.token) requestSync("token");
   } else if (msg.type === "sync") requestSync(msg.reason);

@@ -6,6 +6,15 @@ export type AppInfo = { name: string; version: string; platform: string };
 
 export type TokenStatus = { stored: boolean; encryptionAvailable: boolean };
 
+/** Where the GitHub token comes from (SPEC §2.3): a pasted token main stores encrypted, or the GitHub CLI's login. */
+export type GithubAuthSource = "token" | "gh";
+
+/** What `gh auth token` said: "not-found" = no `gh` on the login-shell PATH, "logged-out" = it gave no token. */
+export type GithubCliState = "ok" | "not-found" | "logged-out";
+
+/** What the page may know about the sign-in: the source and the CLI's state and account. Never a token. */
+export type GithubAuthStatus = { source: GithubAuthSource; cli: GithubCliState; cliLogin: string | null };
+
 /**
  * Desktop-only settings (SPEC §2.4, §4.6): kept by the main process in a small
  * file in the profile, because main is what registers the shortcut, shows the
@@ -27,11 +36,20 @@ export type DesktopPrefs = {
    * cannot name a path itself.
    */
   backupFolder: string;
+  /**
+   * "gh": no token is stored; main reads it from the GitHub CLI (SPEC §2.3).
+   * Changed only by `github.useCli`, `token.set` and `token.clear`, never
+   * through `desktop.set`.
+   */
+  githubAuthSource: GithubAuthSource;
 };
+
+/** The prefs the page may change through `desktop.set`. */
+export type SettablePrefs = Omit<DesktopPrefs, "backupFolder" | "githubAuthSource">;
 
 export const DEFAULT_SHORTCUT = "Control+Alt+Space";
 
-export const DEFAULT_DESKTOP_PREFS: DesktopPrefs = { shortcut: DEFAULT_SHORTCUT, notifications: true, launchAtLogin: false, dockBadge: true, backupFolder: "" };
+export const DEFAULT_DESKTOP_PREFS: DesktopPrefs = { shortcut: DEFAULT_SHORTCUT, notifications: true, launchAtLogin: false, dockBadge: true, backupFolder: "", githubAuthSource: "token" };
 
 /** What Settings shows: the prefs plus whether the shortcut is registered right now. */
 export type DesktopState = { prefs: DesktopPrefs; shortcutActive: boolean; notificationsSupported: boolean; canLaunchAtLogin: boolean };
@@ -51,7 +69,7 @@ export interface DeskaBridge {
   /** Desktop-only settings; `set` reports a shortcut that could not be registered. */
   desktop: {
     get(): Promise<DesktopState>;
-    set(patch: Partial<Omit<DesktopPrefs, "backupFolder">>): Promise<{ state: DesktopState; error: string | null }>;
+    set(patch: Partial<SettablePrefs>): Promise<{ state: DesktopState; error: string | null }>;
     /** Opens the folder dialog; resolves with the new state (`error` when the folder was refused, none when the dialog was cancelled). */
     chooseBackupFolder(): Promise<{ state: DesktopState; error: string | null }>;
     /** Stops copying backups to the second folder (the copies already there stay). */
@@ -75,6 +93,19 @@ export interface DeskaBridge {
     clear(): Promise<TokenStatus>;
     status(): Promise<TokenStatus>;
   };
+  /** The GitHub CLI login as a token source (SPEC §3.1). Absent in builds before D15. */
+  github?: {
+    /** The current source, and whether `gh` is installed and logged in (and as whom). */
+    status(): Promise<GithubAuthStatus>;
+    /**
+     * "Use my GitHub CLI login": reads the token with `gh auth token`, deletes
+     * any stored token and hands the CLI's to the local server. Nothing is
+     * written to disk but the choice. Changes nothing when `gh` gives no token.
+     */
+    useCli(): Promise<GithubAuthStatus>;
+    /** "Check again": with the CLI source, reads its token again. */
+    recheck(): Promise<GithubAuthStatus>;
+  };
 }
 
 /** IPC channels the bridge uses. */
@@ -85,6 +116,9 @@ export const CHANNELS = {
   tokenSet: "deska:token-set",
   tokenClear: "deska:token-clear",
   tokenStatus: "deska:token-status",
+  githubStatus: "deska:github-status",
+  githubUseCli: "deska:github-use-cli",
+  githubRecheck: "deska:github-recheck",
   desktopGet: "deska:desktop-get",
   desktopSet: "deska:desktop-set",
   backupFolderChoose: "deska:backup-folder-choose",
@@ -93,6 +127,9 @@ export const CHANNELS = {
   /** main → renderer */
   openTask: "deska:open-task",
 } as const;
+
+/** Where a token message's token came from. */
+export type TokenAuth = { source: "token" } | { source: "gh"; cli: GithubCliState };
 
 /** Messages from main to the server process. The secret and token travel only this way. */
 export type ServerMessage =
@@ -105,9 +142,16 @@ export type ServerMessage =
       secret: string;
       dbDir: string;
       env: Record<string, string>;
+      /** The login-shell PATH (§2.1): where the server finds `claude` (§4.9). Not a secret. */
+      loginPath: string;
     }
-  /** `id` is echoed in a `token-ack` once the server holds the token. */
-  | { type: "token"; token: string | null; source: "launch" | "user"; id: number }
+  /**
+   * `id` is echoed in a `token-ack` once the server holds the token. `auth`
+   * says where it came from (absent = a stored token); with the GitHub CLI
+   * source a null token carries why (`cli`). `reread` marks the answer to a
+   * `gh-reread`.
+   */
+  | { type: "token"; token: string | null; source: "launch" | "user"; id: number; auth?: TokenAuth; reread?: boolean }
   /** The second backup folder (null = none), set by main from its prefs at start and on every change. */
   | { type: "backup-mirror"; dir: string | null }
   /** Run a sync now: the Mac woke from sleep (powerMonitor "resume"). */
@@ -117,6 +161,8 @@ export type ServerMessage =
 /** Messages from the server process to main. */
 export type ServerReply =
   | { type: "token-ack"; id: number }
+  /** GitHub answered 401 to the GitHub CLI's token: read it again, once (SPEC §2.3). */
+  | { type: "gh-reread" }
   /** Reminders that just fired, to show as native notifications (D12). */
   | { type: "reminders"; items: ReminderItem[] }
   /** The Dock badge: open tasks overdue or due today (D12). */

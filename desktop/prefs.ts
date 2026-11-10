@@ -2,7 +2,7 @@
 // JSON file, this decides what a file or a request may contain. A damaged or
 // hand-edited file falls back to the defaults per field, never to a crash.
 import { isAbsolute } from "node:path";
-import { DEFAULT_DESKTOP_PREFS, type DesktopPrefs } from "./bridge";
+import { DEFAULT_DESKTOP_PREFS, type DesktopPrefs, type SettablePrefs } from "./bridge";
 
 const MODIFIERS = new Set(["Command", "Cmd", "Control", "Ctrl", "CommandOrControl", "CmdOrCtrl", "Alt", "Option", "Shift"]);
 const KEY = /^([A-Z0-9]|F([1-9]|1\d|2[0-4])|Space|Tab|Enter|Return|Backspace|Delete|Insert|Home|End|PageUp|PageDown|Up|Down|Left|Right|Plus|Minus|Equal|Comma|Period|Slash|Backslash|Semicolon|Quote|Backquote)$/;
@@ -31,16 +31,18 @@ export function parseDesktopPrefs(raw: unknown): DesktopPrefs {
     launchAtLogin: typeof o.launchAtLogin === "boolean" ? o.launchAtLogin : d.launchAtLogin,
     dockBadge: typeof o.dockBadge === "boolean" ? o.dockBadge : d.dockBadge,
     backupFolder: typeof o.backupFolder === "string" && (o.backupFolder === "" || (isAbsolute(o.backupFolder) && !o.backupFolder.includes("\0"))) ? o.backupFolder : d.backupFolder,
+    githubAuthSource: o.githubAuthSource === "gh" ? "gh" : d.githubAuthSource,
   };
 }
 
 /**
  * A change request from the page: only known fields of the right type; `error` names the first refused one.
  * `backupFolder` is never accepted here: only the folder dialog in main sets it.
+ * Nor is `githubAuthSource`: only connecting or disconnecting changes it.
  */
-export function parsePrefsPatch(raw: unknown): { patch: Partial<Omit<DesktopPrefs, "backupFolder">>; error: string | null } {
+export function parsePrefsPatch(raw: unknown): { patch: Partial<SettablePrefs>; error: string | null } {
   const o = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {};
-  const patch: Partial<Omit<DesktopPrefs, "backupFolder">> = {};
+  const patch: Partial<SettablePrefs> = {};
   let error: string | null = null;
   if (o.shortcut !== undefined) {
     if (typeof o.shortcut === "string" && validAccelerator(o.shortcut)) patch.shortcut = o.shortcut;
