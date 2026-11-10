@@ -31,6 +31,8 @@ function fakeGh(body: string) {
 }
 
 const PATH_WITH = () => `${dir}:/usr/bin:/bin`;
+/** A PATH with no `gh` on it. Not /usr/bin: a machine (CI) may have the real GitHub CLI there. */
+const PATH_WITHOUT = () => path.join(dir, "empty");
 
 describe("login-shell PATH (§2.1)", () => {
   it("reads the PATH between the markers, whatever the profile prints around them", () => {
@@ -67,7 +69,7 @@ describe("GitHub CLI token (§2.3, §3.1)", () => {
     writeFileSync(path.join(dir, "notes"), "not a program");
     expect(findOnPath("gh", PATH_WITH())).toBe(path.join(dir, "gh"));
     expect(findOnPath("notes", PATH_WITH())).toBeNull();
-    expect(findOnPath("gh", "/usr/bin:/bin:relative")).toBeNull();
+    expect(findOnPath("gh", `${PATH_WITHOUT()}:relative`)).toBeNull();
   });
 
   it("a logged-in gh gives its token, asked for github.com only", async () => {
@@ -77,7 +79,7 @@ describe("GitHub CLI token (§2.3, §3.1)", () => {
   });
 
   it("no gh on the PATH: not found, and nothing is run", async () => {
-    expect(await readGhToken("/usr/bin:/bin", {})).toEqual({ state: "not-found" });
+    expect(await readGhToken(PATH_WITHOUT(), {})).toEqual({ state: "not-found" });
     expect(existsSync(path.join(dir, "args.log"))).toBe(false);
   });
 
@@ -109,7 +111,7 @@ describe("GitHub CLI token (§2.3, §3.1)", () => {
     expect(await readGhLogin(PATH_WITH(), {})).toBe("bob");
     fakeGh(`echo "You are not logged into any GitHub hosts." >&2\nexit 1`);
     expect(await readGhLogin(PATH_WITH(), {})).toBeNull();
-    expect(await readGhLogin("/usr/bin:/bin", {})).toBeNull();
+    expect(await readGhLogin(PATH_WITHOUT(), {})).toBeNull();
   });
 });
 

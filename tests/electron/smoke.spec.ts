@@ -238,9 +238,10 @@ async function launch(userData: string, github: MockGitHub, opts: { seed?: strin
     DESKA_USER_DATA_DIR: userData,
     DESKA_DEMO_SEED: opts.seed ?? "fixtures",
     DESKA_GITHUB_API_URL: github.url,
-    // The PATH `gh` is looked up on (D15): a folder with a fake `gh`, or none.
-    // Never the login shell's, so no test can reach a real GitHub CLI.
-    DESKA_TEST_PATH: `${opts.ghDir ? `${opts.ghDir}:` : ""}/usr/bin:/bin`,
+    // The PATH `gh` is looked up on (D15): the folder with a fake `gh`, or a
+    // folder with nothing in it. Never the login shell's or a system folder,
+    // so no test can reach a real GitHub CLI.
+    DESKA_TEST_PATH: opts.ghDir ?? path.join(userData, "no-gh"),
     ...(opts.envTarget === false ? {} : { GITHUB_REPO: "acme/widgets", GITHUB_ORG: "acme", GITHUB_PROJECT_NUMBER: "7" }),
   });
   const exe = packagedApp();
