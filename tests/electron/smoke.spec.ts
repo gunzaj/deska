@@ -386,7 +386,9 @@ test.describe("desktop shell", () => {
       // Edit controls say why they are off.
       await win.goto(`${origin}/issues?issue=101`);
       const panel = win.getByRole("complementary", { name: "Issue #101" });
-      await expect(panel.getByRole("button", { name: /Close issue/ })).toHaveAttribute("title", "Read-only token", { timeout: 60_000 });
+      // The token reads "Read-only token" in Settings (line above); this build is
+      // read-only, so the edit controls name the build's write switch (W0).
+      await expect(panel.getByRole("button", { name: /Close issue/ })).toHaveAttribute("title", "Editing is off for this deployment", { timeout: 60_000 });
 
       // The server checked the token and discovered the project against the (mock) API with reads only.
       expect(github.requests.length).toBeGreaterThan(0);
