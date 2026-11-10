@@ -123,3 +123,39 @@ test("with writes off every picker is disabled with the tooltip and nothing is s
   expect(sent).toEqual([]);
   await context.close();
 });
+
+test("the dimension, Release, Type and Milestone pickers each write their field and show the new value", async ({ browser }) => {
+  const { context, page } = await as(browser);
+  await writesOn(page);
+  const sent = await editRoute(page, done);
+  const panel = await openBug(page);
+
+  // The mapped dimension (#102 has no Team): dim:<field ID>, base null.
+  await panel.getByRole("button", { name: "Team: change" }).click();
+  await page.getByRole("option", { name: /Checkout/ }).click();
+  await expect.poll(() => sent.length).toBe(1);
+  expect(sent[0]).toMatchObject({ field: "dim:PVTSSF_acme_team", base: null, next: "c0000002" });
+  await expect(panel.getByRole("button", { name: "Team: change" })).toContainText("Checkout");
+
+  // Release: none -> the current Sprint (an iteration ID, not a name).
+  await panel.getByRole("button", { name: "Release: change" }).click();
+  await page.getByRole("option", { name: /Sprint 23/ }).click();
+  await expect.poll(() => sent.length).toBe(2);
+  expect(sent[1]).toMatchObject({ field: "release", base: null, next: "e0000023" });
+  await expect(panel.getByRole("button", { name: "Release: change" })).toContainText("Sprint 23");
+
+  // Type: Bug -> Feature.
+  await panel.getByRole("button", { name: "Type: change" }).click();
+  await page.getByRole("option", { name: "Feature" }).click();
+  await expect.poll(() => sent.length).toBe(3);
+  expect(sent[2]).toMatchObject({ field: "type", base: "IT_acme_bug", next: "IT_acme_feature" });
+  await expect(panel.getByRole("button", { name: "Type: change" })).toContainText("Feature");
+
+  // Milestone: none -> Sprint 23.
+  await panel.getByRole("button", { name: "Milestone: change" }).click();
+  await page.getByRole("option", { name: "Sprint 23" }).click();
+  await expect.poll(() => sent.length).toBe(4);
+  expect(sent[3]).toMatchObject({ field: "milestone", base: null, next: "M_1" });
+  await expect(panel.getByRole("button", { name: "Milestone: change" })).toContainText("Sprint 23");
+  await context.close();
+});
