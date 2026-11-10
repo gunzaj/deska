@@ -73,7 +73,7 @@ describe("token states (SPEC §3.3)", () => {
     server.use(...github());
     const s = await check();
     expect(s).toMatchObject({ state: "ok", message: null, login: "carol", name: "Carol", readOnly: true, writeAccess: "no", missing: [] });
-    expect(s.readOnlyMessage).toContain("can't write");
+    expect(s.readOnlyMessage).toBe("Read-only token");
     expect(s.writeAccessMessage).toContain("Repository → Issues: Read and write");
     expect(s.writeAccessMessage).toContain("Organization → Projects: Read and write");
     expect(s.permissions.map((p) => [p.key, p.status])).toEqual([
