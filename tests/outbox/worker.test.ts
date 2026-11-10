@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { needsBulkConfirm, writeEnabled, type OutboxEntry } from "@/lib/outbox/queue";
+import { needsBulkConfirm, type OutboxEntry } from "@/lib/outbox/queue";
 import { isRetryable, processEntry, type AuditRecord, type WriteClient } from "@/lib/outbox/worker";
 
 function fakeClient(remote: Record<string, unknown>, failTimes = 0): WriteClient & { log: string[]; remote: Record<string, unknown> } {
@@ -47,11 +47,7 @@ function entry(over: Partial<OutboxEntry> = {}): OutboxEntry {
 }
 
 describe("write-back (M6)", () => {
-  it("gates on WRITE_MODE and confirms bulk edits over 50", () => {
-    process.env.WRITE_MODE = "off";
-    expect(writeEnabled()).toBe(false);
-    process.env.WRITE_MODE = "on";
-    expect(writeEnabled()).toBe(true);
+  it("confirms bulk edits over 50", () => {
     expect(needsBulkConfirm(50)).toBe(false);
     expect(needsBulkConfirm(51)).toBe(true);
   });

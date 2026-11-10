@@ -27,6 +27,8 @@ const FICTIONAL = new Set([
   // tests
   "PVT_other_project",
   "PVT_some_other_project",
+  "PVT_1",
+  "PVTI_1",
   "IT_bug",
   "IT_feature",
 ]);

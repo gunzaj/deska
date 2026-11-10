@@ -99,6 +99,63 @@ export function missingProjectScope(scopes: string[] | null, writes: boolean): s
   return writes ? "project" : scopes.includes("read:project") ? null : "read:project";
 }
 
+/** Classic scopes that let a token write issues: `repo` covers all repositories, `public_repo` public ones. */
+const ISSUE_WRITE_SCOPES = new Set(["repo", "public_repo"]);
+
+/**
+ * The write permissions of a classic token or a GitHub CLI login, from its
+ * scopes (SPEC §3.1). `project` is the write scope for project fields;
+ * `read:project` only reads. The message names what is missing.
+ */
+export function classicWriteAccess(scopes: string[], source: "token" | "gh"): Pick<ConnectionStatus, "writeAccess" | "writeAccessMessage"> {
+  const issues = scopes.some((s) => ISSUE_WRITE_SCOPES.has(s));
+  const projects = scopes.includes("project");
+  if (issues && projects) return { writeAccess: "yes", writeAccessMessage: null };
+  const missing = [...(issues ? [] : ["Repository → Issues: Read and write"]), ...(projects ? [] : ["Organization → Projects: Read and write"])];
+  return {
+    writeAccess: "no",
+    writeAccessMessage: source === "gh" ? MESSAGES.writeMissingCli(missing, GH_COMMANDS.addScope("project")) : MESSAGES.writeMissing(missing),
+  };
+}
+
+/** One read-only check of a fine-grained token's write permissions (never a write). */
+const WRITE_CHECK_QUERY = `query DeskaWriteCheck($owner: String!, $name: String!, $org: String!, $num: Int!) {
+  repository(owner: $owner, name: $name) {
+    issues(first: 1, states: OPEN) {
+      nodes { viewerCanUpdate viewerCanLabel viewerCanAssign viewerCanClose }
+    }
+  }
+  organization: repositoryOwner(login: $org) { ... on ProjectV2Owner { projectV2(number: $num) { viewerCanUpdate } } }
+}`;
+
+type WriteCheckData = {
+  data?: {
+    repository?: { issues?: { nodes?: { viewerCanUpdate?: boolean; viewerCanLabel?: boolean; viewerCanAssign?: boolean; viewerCanClose?: boolean }[] } | null } | null;
+    organization?: { projectV2?: { viewerCanUpdate?: boolean } | null } | null;
+  } | null;
+};
+
+/**
+ * The write permissions of a fine-grained token, from GitHub's `viewerCan*`
+ * fields (SPEC §3.3, W0's detection). `unknown` when the answer can't be read:
+ * a transient failure must not turn writes off for a token that can write.
+ */
+export function writeAccessFrom(outcome: Outcome, source: "token" | "gh"): Pick<ConnectionStatus, "writeAccess" | "writeAccessMessage"> {
+  if (outcome.kind !== "ok") return { writeAccess: "unknown", writeAccessMessage: null };
+  const data = (outcome.data as WriteCheckData)?.data;
+  const issue = data?.repository?.issues?.nodes?.[0];
+  const project = data?.organization?.projectV2;
+  const issues = issue ? Boolean(issue.viewerCanUpdate && issue.viewerCanLabel && issue.viewerCanAssign && issue.viewerCanClose) : null;
+  const projects = project ? project.viewerCanUpdate === true : null;
+  if (issues === true && projects === true) return { writeAccess: "yes", writeAccessMessage: null };
+  if (issues === null || projects === null) return { writeAccess: "unknown", writeAccessMessage: null };
+  const missing = [...(issues ? [] : ["Repository → Issues: Read and write"]), ...(projects ? [] : ["Organization → Projects: Read and write"])];
+  return {
+    writeAccess: "no",
+    writeAccessMessage: source === "gh" ? MESSAGES.writeMissingCli(missing, GH_COMMANDS.addScope("project")) : MESSAGES.writeMissing(missing),
+  };
+}
+
 /** One response, classified. Exported for tests. */
 export function classify(res: ProbeResponse, now: Date): Outcome {
   const detail = redactSecrets(messageOf(res.data)).slice(0, 300);
@@ -177,6 +234,8 @@ function base(now: Date, source: "token" | "gh" = "token"): ConnectionStatus {
     scopeWarning: null,
     readOnly: false,
     readOnlyMessage: null,
+    writeAccess: "unknown",
+    writeAccessMessage: null,
     permissions: PERMISSIONS.map((p) => ({ key: p.key, label: p.label, level: p.level, required: p.required, status: "unchecked", detail: null })),
     missing: [],
     rateLimitedUntil: null,
@@ -238,12 +297,16 @@ export async function checkToken(token: string | null, target: CheckTarget | nul
       expires && expires.getTime() - now.getTime() < EXPIRY_WARNING_DAYS * 86_400_000 ? MESSAGES.expiring(expires.toISOString().slice(0, 10)) : null,
     scopes,
     scopeWarning: writeScopesWarning(user.res?.headers["x-oauth-scopes"], source),
-    // Write permissions can't be read off a fine-grained token without trying
-    // a write, and Deska is read-only until Phase C: every token counts as
-    // read-only (decided in D3, revisited in W0).
-    readOnly: true,
-    readOnlyMessage: MESSAGES.readOnly,
   };
+  // SPEC §3.3/§3.4: can the token write? A classic or GitHub CLI token
+  // says so in its scopes. A fine-grained token has no scopes, so GitHub is
+  // asked with read-only `viewerCan*` fields (never a write attempt).
+  if (scopes) {
+    s = { ...s, ...classicWriteAccess(scopes, source) };
+  } else if (target) {
+    const write = await call(() => client.graphql(WRITE_CHECK_QUERY, { owner: target.owner, name: target.repo, org: target.org, num: target.projectNumber }), now);
+    s = { ...s, ...writeAccessFrom(write.outcome, source) };
+  }
   // A GitHub CLI login without the project scope can't read any project:
   // name the scope and the command, before any project read fails less clearly.
   const scope = source === "gh" ? missingProjectScope(scopes, opts.writes === true) : null;
@@ -280,6 +343,8 @@ export async function checkToken(token: string | null, target: CheckTarget | nul
     }),
   };
 
+  // The read-only state of SPEC §3.3 is the write detection of §3.4.
+  s = { ...s, readOnly: s.writeAccess === "no", readOnlyMessage: s.writeAccess === "no" ? (s.writeAccessMessage ?? MESSAGES.readOnly) : null };
   const all = Object.values(outcomes);
   const first = <K extends Outcome["kind"]>(kind: K) => all.find((o): o is Extract<Outcome, { kind: K }> => o.kind === kind);
   const hard = first("invalid") ?? first("rate-limited") ?? first("offline");

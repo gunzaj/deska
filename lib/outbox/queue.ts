@@ -1,7 +1,11 @@
-import { writeMode } from "../config";
-
 export type OutboxOp = "update" | "close" | "reopen" | "create";
-export type OutboxStatus = "pending" | "done" | "failed" | "conflict";
+
+/**
+ * `pending`: not sent yet (or waiting for a retry); `sending`: claimed by the
+ * one process that is writing it (W0); then the outcome. A crash leaves `sending`;
+ * the next start recovers it.
+ */
+export type OutboxStatus = "pending" | "sending" | "done" | "failed" | "conflict";
 
 export type OutboxEntry = {
   id: string;
@@ -12,16 +16,16 @@ export type OutboxEntry = {
   idempotencyKey: string;
   base: unknown;
   next: unknown;
+  /** For a multi-step job: the last step that finished (W0). */
+  step?: string | null;
+  /** A create job's confirmed issue, so a resumed job does not create a second one (W3). */
+  result?: unknown;
   status: OutboxStatus;
   attempts: number;
   error: string | null;
 };
 
-export function writeEnabled(): boolean {
-  return writeMode();
-}
-
-/** Bulk edits over 50 issues need a confirmation dialog (SPEC §5). */
+/** Bulk edits over 50 issues need a confirmation dialog (SPEC §4.8). */
 export function needsBulkConfirm(count: number): boolean {
   return count > 50;
 }

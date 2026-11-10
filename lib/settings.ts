@@ -23,7 +23,16 @@ export type StoredTarget = {
   projectTitle: string;
 };
 
-const KEYS = { target: "github.target", mapping: "project.mapping", tasksOnly: "app.tasks-only", ai: "ai.settings", aiVerified: "ai.verified", aiEndpointModes: "ai.endpoint-modes" } as const;
+const KEYS = {
+  target: "github.target",
+  mapping: "project.mapping",
+  tasksOnly: "app.tasks-only",
+  writes: "github.writes",
+  writeAccess: "github.write-access",
+  ai: "ai.settings",
+  aiVerified: "ai.verified",
+  aiEndpointModes: "ai.endpoint-modes",
+} as const;
 
 type Cache = { loaded: Promise<void> | null; values: Map<string, unknown>; version: number };
 const CACHE = Symbol.for("deska.settings");
@@ -70,6 +79,17 @@ async function set(key: string, value: unknown): Promise<void> {
   c.version += 1;
 }
 
+/**
+ * Save only when the value changed. The connection check re-reads the token's
+ * capabilities every few minutes; without this every check bumped the settings
+ * version and with it the data ETag, so every client reloaded its data for nothing.
+ */
+async function setIfChanged(key: string, value: unknown): Promise<void> {
+  await load();
+  if (JSON.stringify(cache().values.get(key) ?? null) === JSON.stringify(value)) return;
+  await set(key, value);
+}
+
 /** Bumped by every save: part of the data ETag, so a remap reaches the browser. */
 export function settingsVersion(): number {
   return cache().version;
@@ -106,6 +126,36 @@ export async function readTasksOnly(): Promise<boolean> {
 
 export async function saveTasksOnly(on: boolean): Promise<void> {
   await set(KEYS.tasksOnly, on);
+}
+
+/** Settings → "GitHub writes" (SPEC §3.4, part 2). Off by default and after every token change. */
+export async function readWrites(): Promise<boolean> {
+  return (await get(KEYS.writes)) === true;
+}
+
+export async function saveWrites(on: boolean): Promise<void> {
+  await setIfChanged(KEYS.writes, on);
+}
+
+/**
+ * What the token's write permissions were found to be (SPEC §3.3), detected with
+ * read-only queries and stored so the gate survives a relaunch. `unknown` until
+ * the check has run for the current token.
+ */
+export type StoredWriteAccess = { state: "yes" | "no" | "unknown"; message: string | null; checkedAt: string | null };
+
+const NO_WRITE_ACCESS: StoredWriteAccess = { state: "unknown", message: null, checkedAt: null };
+
+export async function readWriteAccess(): Promise<StoredWriteAccess> {
+  const v = await get(KEYS.writeAccess);
+  if (!v || typeof v !== "object") return NO_WRITE_ACCESS;
+  const a = v as Partial<StoredWriteAccess>;
+  if (a.state !== "yes" && a.state !== "no" && a.state !== "unknown") return NO_WRITE_ACCESS;
+  return { state: a.state, message: typeof a.message === "string" ? a.message : null, checkedAt: typeof a.checkedAt === "string" ? a.checkedAt : null };
+}
+
+export async function saveWriteAccess(a: StoredWriteAccess): Promise<void> {
+  await setIfChanged(KEYS.writeAccess, a);
 }
 
 /** AI assist settings (SPEC §4.9). Never the API key. */

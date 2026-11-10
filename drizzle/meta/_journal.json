@@ -57,6 +57,13 @@
       "when": 1794296580488,
       "tag": "0007_ai0_ai_results",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1794300000000,
+      "tag": "0008_w0_outbox_steps",
+      "breakpoints": true
     }
   ]
 }

@@ -3,9 +3,69 @@
 // WRITE_MODE=on (off in production until IT/security sign-off).
 import { gqlClient, restClient } from "./client";
 import { githubTarget, pinnedProjectId, type GithubTarget } from "../config";
-import { writeEnabled } from "../outbox/queue";
 import { NonRetryableError, type WriteClient } from "../outbox/worker";
 import { dimFieldId, isDimKey, type FieldRef, type ProjectFieldMap } from "../sync/field-map";
+import type { WriteGate } from "../writes/gate";
+
+/**
+ * SPEC §4.8: the only GitHub operations Deska may ever send. Anything else
+ * throws before a request leaves the process. There is no delete in this list and
+ * no field, option or iteration mutation: a test fails when one is added.
+ */
+export const ALLOWED_MUTATIONS: readonly string[] = [
+  // Add an issue to the pinned project (before setting its fields).
+  "addProjectV2ItemById",
+  // Set or clear a project field value (Sprint, Status, Priority, dimensions).
+  "updateProjectV2ItemFieldValue",
+  "clearProjectV2ItemFieldValue",
+  // Set an issue's type.
+  "updateIssueIssueType",
+];
+
+/** REST writes the allowlist covers. The REST client is only called through these. */
+export const ALLOWED_REST_WRITES: readonly string[] = [
+  // Milestone and close/reopen (state, state_reason).
+  "issues.update",
+  // Create issue (W3).
+  "issues.create",
+  // Labels and assignees, as deltas.
+  "issues.addLabels",
+  "issues.removeLabel",
+  "issues.addAssignees",
+  "issues.removeAssignees",
+];
+
+/**
+ * The operation allowlist is checked here, not at the call sites: every GraphQL
+ * mutation and every REST write goes through these two methods, so an operation
+ * added anywhere in this class is refused unless it is on the list.
+ */
+export class WriteRefused extends NonRetryableError {
+  constructor(message: string) {
+    super(message);
+    this.name = "WriteRefused";
+  }
+}
+
+/** The mutation's name: the first field inside a GraphQL `mutation` document. */
+export function mutationName(query: string): string {
+  const m = /\bmutation\b[^{]*\{\s*([A-Za-z_][A-Za-z0-9_]*)/.exec(query);
+  if (!m) throw new WriteRefused("refusing a GraphQL mutation without a name");
+  return m[1]!;
+}
+
+/** Throws unless the mutation is on the allowlist (SPEC §4.8). Exported for the test. */
+export function assertAllowedMutation(query: string): string {
+  const name = mutationName(query);
+  if (!ALLOWED_MUTATIONS.includes(name)) throw new WriteRefused(`refusing GitHub mutation ${name}: not in the operation allowlist (SPEC §4.8)`);
+  return name;
+}
+
+/** Throws unless the REST write is on the allowlist (SPEC §4.8). Exported for the test. */
+export function assertAllowedRest(op: string): string {
+  if (!ALLOWED_REST_WRITES.includes(op)) throw new WriteRefused(`refusing GitHub REST write ${op}: not in the operation allowlist (SPEC §4.8)`);
+  return op;
+}
 
 type FieldMeta = {
   id: string;
@@ -36,10 +96,14 @@ export class GitHubWriteClient implements WriteClient {
   /** The pinned project node ID: the stored one (onboarding), else `GITHUB_PROJECT_ID`. */
   private pinned: string | null;
 
-  constructor(token: string, private fieldMap: ProjectFieldMap, target: GithubTarget & { projectId?: string | null } = githubTarget()) {
-    // Defence in depth (AGENTS.md): the routes check WRITE_MODE too, but no
-    // code path may hold a write client while writes are off.
-    if (!writeEnabled()) throw new Error("GitHub writes are disabled (WRITE_MODE is not on)");
+  constructor(
+    token: string,
+    private fieldMap: ProjectFieldMap,
+    target: GithubTarget & { projectId?: string | null } = githubTarget(),
+    /** SPEC §3.4: defence in depth — the routes check the gate, and no code path may hold a write client while it is off. */
+    gate: Pick<WriteGate, "allowed"> = { allowed: false },
+  ) {
+    if (!gate.allowed) throw new WriteRefused("GitHub writes are disabled by the write gate (SPEC §3.4)");
     this.rest = restClient(token);
     this.gql = gqlClient(token);
     // No production defaults: a sandbox deployment with one variable missing
@@ -49,6 +113,20 @@ export class GitHubWriteClient implements WriteClient {
     this.org = target.org;
     this.projectNumber = target.projectNumber;
     this.pinned = target.projectId ?? pinnedProjectId();
+  }
+
+  /** A GraphQL mutation, refused unless its name is on the allowlist (SPEC §4.8). */
+  private async mutate(query: string, variables: Record<string, unknown>): Promise<any> {
+    assertAllowedMutation(query);
+    return this.gql(query, variables);
+  }
+
+  /** A REST write, refused unless its operation is on the allowlist (SPEC §4.8). */
+  private async restWrite(op: string, params: Record<string, unknown>): Promise<any> {
+    assertAllowedRest(op);
+    // `issues.update` -> `this.rest.issues.update` (the client is already the issues API).
+    const method = op.replace(/^issues\./, "");
+    return (this.rest.issues as unknown as Record<string, (p: Record<string, unknown>) => Promise<any>>)[method]!(params);
   }
 
   private loadMeta(): Promise<Meta> {
@@ -154,7 +232,7 @@ export class GitHubWriteClient implements WriteClient {
     const existing = await this.findItem(issueNodeId);
     if (existing) return existing;
     const meta = await this.loadMeta();
-    const added = await this.gql(
+    const added = await this.mutate(
       `mutation($project:ID!, $content:ID!) { addProjectV2ItemById(input:{projectId:$project, contentId:$content}) { item { id } } }`,
       { project: meta.projectId, content: issueNodeId },
     );
@@ -221,14 +299,14 @@ export class GitHubWriteClient implements WriteClient {
 
   async applyField(issueNodeId: string, field: string | null, next: unknown): Promise<void> {
     if (field === "type") {
-      await this.gql(
+      await this.mutate(
         `mutation($issue:ID!, $type:ID) { updateIssueIssueType(input:{issueId:$issue, issueTypeId:$type}) { issue { id } } }`,
         { issue: issueNodeId, type: next ?? null },
       );
       return;
     }
     if (field === "milestone") {
-      await this.rest.issues.update({
+      await this.restWrite("issues.update", {
         owner: this.owner,
         repo: this.repo,
         issue_number: await this.issueNumber(issueNodeId),
@@ -242,17 +320,17 @@ export class GitHubWriteClient implements WriteClient {
       if (field === "labels") {
         for (const name of delta.removed) {
           try {
-            await this.rest.issues.removeLabel({ owner: this.owner, repo: this.repo, issue_number, name });
+            await this.restWrite("issues.removeLabel", { owner: this.owner, repo: this.repo, issue_number, name });
           } catch (e) {
             // 404: the label is already off the issue (removed concurrently),
             // which is the state this delta asked for.
             if ((e as { status?: number }).status !== 404) throw e;
           }
         }
-        for (const name of delta.added) await this.rest.issues.addLabels({ owner: this.owner, repo: this.repo, issue_number, labels: [name] });
+        for (const name of delta.added) await this.restWrite("issues.addLabels", { owner: this.owner, repo: this.repo, issue_number, labels: [name] });
       } else {
-        for (const login of delta.removed) await this.rest.issues.removeAssignees({ owner: this.owner, repo: this.repo, issue_number, assignees: [login] });
-        if (delta.added.length) await this.rest.issues.addAssignees({ owner: this.owner, repo: this.repo, issue_number, assignees: delta.added });
+        for (const login of delta.removed) await this.restWrite("issues.removeAssignees", { owner: this.owner, repo: this.repo, issue_number, assignees: [login] });
+        if (delta.added.length) await this.restWrite("issues.addAssignees", { owner: this.owner, repo: this.repo, issue_number, assignees: delta.added });
       }
       return;
     }
@@ -262,14 +340,14 @@ export class GitHubWriteClient implements WriteClient {
     if (!def) throw new NonRetryableError(`the ${ref.name} field is no longer in the project`);
     const itemId = await this.itemFor(issueNodeId);
     if (next == null) {
-      await this.gql(
+      await this.mutate(
         `mutation($project:ID!, $item:ID!, $field:ID!) { clearProjectV2ItemFieldValue(input:{projectId:$project, itemId:$item, fieldId:$field}) { clientMutationId } }`,
         { project: meta.projectId, item: itemId, field: def.id },
       );
       return;
     }
     const valueKey = def.dataType === "ITERATION" ? "iterationId" : "singleSelectOptionId";
-    await this.gql(
+    await this.mutate(
       `mutation($project:ID!, $item:ID!, $field:ID!, $value:ID!) {
         updateProjectV2ItemFieldValue(input:{projectId:$project, itemId:$item, fieldId:$field, value:{${valueKey}:$value}}) { clientMutationId }
       }`,
@@ -278,16 +356,18 @@ export class GitHubWriteClient implements WriteClient {
   }
 
   async closeIssue(issueNodeId: string): Promise<void> {
-    await this.rest.issues.update({
+    await this.restWrite("issues.update", {
       owner: this.owner,
       repo: this.repo,
       issue_number: await this.issueNumber(issueNodeId),
       state: "closed",
+      state_reason: "completed",
     });
   }
 
   async reopenIssue(issueNodeId: string): Promise<void> {
-    await this.rest.issues.update({
+    // Reopen leaves Status alone (SPEC §4.8): state only, no state_reason.
+    await this.restWrite("issues.update", {
       owner: this.owner,
       repo: this.repo,
       issue_number: await this.issueNumber(issueNodeId),

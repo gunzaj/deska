@@ -17,8 +17,11 @@ const NOT_ACCESSIBLE = { message: "Resource not accessible by personal access to
 type Gql = { project?: "ok" | "forbidden" | "not-found" | "null"; issueTypes?: "ok" | "forbidden" };
 
 /** Handlers for a token that can read everything, with overrides. */
-function github(over: { user?: () => Response; repo?: () => Response; issues?: () => Response; gql?: Gql } = {}) {
+function github(over: { user?: () => Response; repo?: () => Response; issues?: () => Response; gql?: Gql; writes?: boolean } = {}) {
   const gql = { project: "ok", issueTypes: "ok", ...over.gql } as Required<Gql>;
+  // SPEC §3.3: a fine-grained token's write permissions are read with
+  // read-only `viewerCan*` fields (W0's detection), never by writing.
+  const canWrite = over.writes ?? false;
   return [
     http.get(`${API}/user`, ({ request }) => {
       // The check sends the token as a bearer, and nothing else.
@@ -30,6 +33,14 @@ function github(over: { user?: () => Response; repo?: () => Response; issues?: (
     http.post(`${API}/graphql`, async ({ request }) => {
       const { query } = (await request.json()) as { query: string };
       expect(query).not.toMatch(/\bmutation\b/);
+      if (query.includes("viewerCanUpdate")) {
+        return HttpResponse.json({
+          data: {
+            repository: { issues: { nodes: [{ viewerCanUpdate: canWrite, viewerCanLabel: canWrite, viewerCanAssign: canWrite, viewerCanClose: canWrite }] } },
+            organization: { projectV2: { viewerCanUpdate: canWrite } },
+          },
+        });
+      }
       if (query.includes("projectV2")) {
         if (gql.project === "forbidden") return HttpResponse.json({ data: { organization: { projectV2: null } }, errors: [{ type: "FORBIDDEN", message: "Resource not accessible by personal access token" }] });
         if (gql.project === "not-found") return HttpResponse.json({ data: { organization: null }, errors: [{ type: "NOT_FOUND", message: "Could not resolve to an Organization with the login of 'acme'." }] });
@@ -61,7 +72,10 @@ describe("token states (SPEC §3.3)", () => {
   it("read-only token: works, every read permission granted, marked read-only", async () => {
     server.use(...github());
     const s = await check();
-    expect(s).toMatchObject({ state: "ok", message: null, login: "carol", name: "Carol", readOnly: true, readOnlyMessage: "Read-only token", missing: [] });
+    expect(s).toMatchObject({ state: "ok", message: null, login: "carol", name: "Carol", readOnly: true, writeAccess: "no", missing: [] });
+    expect(s.readOnlyMessage).toContain("can't write");
+    expect(s.writeAccessMessage).toContain("Repository → Issues: Read and write");
+    expect(s.writeAccessMessage).toContain("Organization → Projects: Read and write");
     expect(s.permissions.map((p) => [p.key, p.status])).toEqual([
       ["metadata", "granted"],
       ["issues", "granted"],
@@ -80,6 +94,28 @@ describe("token states (SPEC §3.3)", () => {
     const s = await checkToken(TOKEN, TARGET, { now: NOW, timeZone: TZ });
     expect(s.state).toBe("ok");
     expect(s.scopeWarning).toContain("repo");
+    // SPEC §3.4 part 1: `repo` writes issues but not project fields.
+    expect(s).toMatchObject({ readOnly: true, writeAccess: "no" });
+    expect(s.writeAccessMessage).toContain("Organization → Projects: Read and write");
+  });
+
+  it("classic token with repo and project scopes can write", async () => {
+    server.use(...github({ user: () => HttpResponse.json({ login: "carol" }, { headers: { "x-oauth-scopes": "read:org, project, repo" } }) }));
+    const s = await checkToken(TOKEN, TARGET, { now: NOW, timeZone: TZ });
+    expect(s).toMatchObject({ state: "ok", readOnly: false, readOnlyMessage: null, writeAccess: "yes", writeAccessMessage: null });
+  });
+
+  it("a fine-grained token's write permissions are detected with read-only viewerCan fields (W0)", async () => {
+    server.use(...github({ writes: true }));
+    const s = await check();
+    expect(s).toMatchObject({ state: "ok", writeAccess: "yes", readOnly: false });
+    // Read-only detection: the write check is a query, and the mock refuses mutations.
+    const seen: string[] = [];
+    server.events.on("request:start", ({ request }) => seen.push(`${request.method} ${new URL(request.url).pathname}`));
+    server.use(...github());
+    expect((await check()).writeAccess).toBe("no");
+    expect(seen.filter((r) => r.startsWith("POST ")).every((r) => r === "POST /graphql")).toBe(true);
+    server.events.removeAllListeners();
   });
 
   it("invalid / revoked / expired: 401", async () => {
@@ -188,7 +224,8 @@ describe("token states (SPEC §3.3)", () => {
   it("without a repository and project to check yet: identity only, permissions unchecked", async () => {
     server.use(...github());
     const s = await check(null);
-    expect(s).toMatchObject({ state: "ok", login: "carol", readOnly: true });
+    // Without a project there is no issue to ask GitHub about: not detected yet.
+    expect(s).toMatchObject({ state: "ok", login: "carol", writeAccess: "unknown" });
     expect(s.permissions.every((p) => p.status === "unchecked")).toBe(true);
   });
 
@@ -208,13 +245,16 @@ describe("the token never comes back", () => {
     expect(s.permissions.find((p) => p.key === "issues")?.detail).toContain("[redacted]");
   });
 
-  it("only GETs and GraphQL queries are sent", async () => {
+  it("only GETs and GraphQL queries are sent (the write check is a query too)", async () => {
     const seen: string[] = [];
     server.events.on("request:start", ({ request }) => seen.push(`${request.method} ${new URL(request.url).pathname}`));
     server.use(...github());
     await check();
     server.events.removeAllListeners();
-    expect(seen.sort()).toEqual(["GET /repos/acme/widgets", "GET /repos/acme/widgets/issues", "GET /user", "POST /graphql", "POST /graphql"]);
+    expect(seen.sort()).toEqual(["GET /repos/acme/widgets", "GET /repos/acme/widgets/issues", "GET /user", "POST /graphql", "POST /graphql", "POST /graphql"]);
+    // Every REST call is a GET; the only POSTs are the GraphQL queries (never a mutation).
+    expect(seen.filter((r) => r.startsWith("GET ")).length).toBe(3);
+    expect(seen.filter((r) => r.startsWith("POST ")).every((r) => r === "POST /graphql")).toBe(true);
   });
 });
 

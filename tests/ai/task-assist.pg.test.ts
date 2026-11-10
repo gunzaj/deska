@@ -30,7 +30,7 @@ const { saveResult } = await import("@/lib/ai/results");
 const { inputHash } = await import("@/lib/ai/prompt");
 const { taskAssistTask } = await import("@/lib/ai/task-assist");
 const { DEFAULT_AI_SETTINGS, verifyId } = await import("@/lib/ai/types");
-const { writeEnabled } = await import("@/lib/outbox/queue");
+const { writeGate } = await import("@/lib/writes/gate");
 const { LOCAL_OWNER } = await import("@/lib/local-owner");
 const { createLabel, createProject, createSection, createTask, updateTask } = await import("@/lib/tasks/service");
 const { claudeOk, fakeClaude } = await import("./helpers");
@@ -264,7 +264,7 @@ describe("Tidy Inbox", () => {
 
   it("accepts a task suggestion while writes are off, and does not offer it again", async () => {
     await configure();
-    expect(writeEnabled()).toBe(false);
+    expect((await writeGate()).allowed).toBe(false);
     const task = await newTask("Buy milk");
     fake.reply(claudeOk(TIDY_ANSWER));
     await (await tidyPost(json("/api/ai/tidy-inbox", CLOCK))).json();
@@ -296,7 +296,7 @@ describe("Tidy Inbox", () => {
   });
 
   it("still refuses to accept an issue suggestion while writes are off", async () => {
-    expect(writeEnabled()).toBe(false);
+    expect((await writeGate()).allowed).toBe(false);
     const id = await saveResult({
       feature: "issue-triage",
       subjectKind: "issue",

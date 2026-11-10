@@ -4,6 +4,7 @@
 import { prepareDatabase } from "../db-bootstrap";
 import { backupDir, backupIfDue, syncMirror } from "../backup/files";
 import { setDbState } from "../backup/recover";
+import { startOutboxWorker } from "../outbox/worker-loop";
 import { syncService } from "../sync/service";
 import { startReminderService } from "./reminders";
 
@@ -41,9 +42,13 @@ function startBackupSchedule(): void {
   g[SCHEDULE] = timer;
 }
 
-/** The sync loop (D5), the backup schedule (D8) and reminders with the Dock badge (D12); all need an open database. */
+/**
+ * The sync loop (D5), the backup schedule (D8), reminders with the Dock badge
+ * (D12) and the outbox worker (W0); all need an open database.
+ */
 export function startDesktopServices(): void {
   startBackupSchedule();
   startReminderService();
+  startOutboxWorker();
   syncService().start();
 }

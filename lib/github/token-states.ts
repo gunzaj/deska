@@ -72,9 +72,13 @@ export type ConnectionStatus = {
   expiryWarning: string | null;
   /** Classic tokens only: set when the token's scopes allow writing (anything but read-only scopes). */
   scopeWarning: string | null;
-  /** True when the token has no write permissions (every token until writes land, Phase C). */
+  /** True when the token has no write permissions (SPEC §3.3; detected by a read-only check). */
   readOnly: boolean;
   readOnlyMessage: string | null;
+  /** The token's write permissions (SPEC §3.4 part 1), detected without writing. */
+  writeAccess: "yes" | "no" | "unknown";
+  /** Why the token can't write, when it can't. */
+  writeAccessMessage: string | null;
   permissions: PermissionResult[];
   /** Missing required permissions by name, e.g. "Organization → Projects: Read"; with `missing-scope`, the scopes. */
   missing: string[];
@@ -95,6 +99,10 @@ export const MESSAGES = {
   rateLimited: (hhmm: string) => `Rate limited until ${hhmm}`,
   expiring: (date: string) => `Your GitHub token expires on ${date}`,
   readOnly: "Read-only token",
+  writeMissing: (names: string[]) => `This token can't write: missing ${names.join(", ")}`,
+  writeMissingCli: (names: string[], command: string | null) =>
+    `The GitHub CLI login can't write: missing ${names.join(", ")}${command ? ` — run ${command}` : ""}`,
+  writeNotChecked: "Write permissions not checked yet",
   ghNotFound: "GitHub CLI isn't installed",
   ghLoggedOut: "GitHub CLI isn't logged in",
   ghMissingScope: (scopes: string[]) => `Your GitHub CLI login is missing the ${scopes.join(", ")} scope`,

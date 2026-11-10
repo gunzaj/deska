@@ -81,12 +81,37 @@ export const MAX_ATTEMPTS = 4;
  * otherwise become an unhandled 500.
  *
  * `entry.attempts` counts tries already made; this one is `attempts + 1`.
+ * `onStep` is called after each step of a multi-step job succeeds, so a crash
+ * between the steps resumes at the next one (W0).
  */
-export async function attemptEntry(entry: OutboxEntry, client: WriteClient, doneStatusOptionId: string): Promise<Attempt> {
+export async function attemptEntry(
+  entry: OutboxEntry,
+  client: WriteClient,
+  doneStatusOptionId: string,
+  onStep?: (step: string, result?: unknown) => Promise<void>,
+): Promise<Attempt> {
+  if (entry.op === "create") {
+    // The create job arrives with W3; no row of this op is ever enqueued before.
+    return { status: "failed", error: "creating an issue is not available in this build", tried: false };
+  }
   const isState = entry.op === "close" || entry.op === "reopen";
   // Label/assignee deltas commute: concurrent edits to *different* labels
   // never conflict, so deltas skip the full-set stale check.
   const isDelta = entry.next != null && typeof entry.next === "object" && "added" in (entry.next as Record<string, unknown>);
+
+  // A close is two steps: close the issue, then move Status to Done. `entry.step`
+  // is the step that finished before a crash; continue after it without closing
+  // again and without treating the user's own close as a conflict.
+  const closeSteps = entry.op === "close" ? closeSequence() : null;
+  if (closeSteps) {
+    const at = entry.step ? closeSteps.indexOf(entry.step as "close-issue" | "set-status-done") : -1;
+    if (at >= 0) {
+      const rest = closeSteps.slice(at + 1);
+      if (!rest.length) return { status: "done", error: null, tried: true };
+      return applySteps(entry, client, doneStatusOptionId, rest, onStep);
+    }
+  }
+
   let current: unknown;
   try {
     current = await client.readField(entry.issueNodeId, isState ? "state" : entry.field);
@@ -104,43 +129,61 @@ export async function attemptEntry(entry: OutboxEntry, client: WriteClient, done
   if (isState && entry.attempts > 0) {
     const target = entry.op === "close" ? "closed" : "open";
     if (current === target) {
-      try {
-        if (entry.op === "close") await client.applyField(entry.issueNodeId, "status", doneStatusOptionId);
-        return { status: "done", error: null, tried: true };
-      } catch (e) {
-        const tries = entry.attempts + 1;
-        if (isRetryable(e) && tries < MAX_ATTEMPTS) return { status: "retry", error: String(e), tried: true };
-        return { status: "failed", error: String(e), tried: true };
-      }
+      const rest = closeSteps ? closeSteps.slice(1) : [];
+      if (!rest.length) return { status: "done", error: null, tried: true };
+      return applySteps(entry, client, doneStatusOptionId, rest, onStep);
     }
   }
   // A previous try may have applied the change and failed afterwards (a timeout
   // or a 502 after GitHub committed): if GitHub already holds the target value,
   // the edit is done, not a conflict with the user's own write. (State ops are
   // left to the stale check: a close that "already happened" is reported as a
-  // conflict, the SPEC §5 behaviour.)
+  // conflict, the SPEC §4.8 behaviour.)
   if (entry.op === "update" && !isDelta && same(current, entry.next)) return { status: "done", error: null, tried: true };
   const expected = isState ? (entry.base ?? null) : entry.base;
   const stale = isState ? expected != null && !same(current, expected) : !isDelta && !same(current, expected);
   if (stale) return { status: "conflict", error: "Changed on GitHub — review before overwriting", remote: current, tried: false };
   try {
     if (entry.op === "close") {
-      // SPEC §5: close first, then move Status to Done so the board agrees
-      // with the issue state.
-      for (const step of closeSequence()) {
-        if (step === "close-issue") await client.closeIssue(entry.issueNodeId);
-        else await client.applyField(entry.issueNodeId, "status", doneStatusOptionId);
-      }
-    } else if (entry.op === "reopen") {
+      // SPEC §4.8: close first, then move Status to Done so the board agrees
+      // with the issue state. The step is recorded after each write.
+      return await applySteps(entry, client, doneStatusOptionId, closeSequence(), onStep);
+    }
+    if (entry.op === "reopen") {
       await client.reopenIssue(entry.issueNodeId);
-    } else {
-      await client.applyField(entry.issueNodeId, entry.field, entry.next);
+      return { status: "done", error: null, tried: true };
+    }
+    await client.applyField(entry.issueNodeId, entry.field, entry.next);
+    return { status: "done", error: null, tried: true };
+  } catch (e) {
+    const tries = entry.attempts + 1;
+    if (isRetryable(e) && tries < MAX_ATTEMPTS) return { status: "retry", error: String(e), tried: true };
+    return { status: "failed", error: e instanceof NonRetryableError ? e.message : String(e), tried: true };
+  }
+}
+
+/** Run the remaining steps of a multi-step job, recording each after it succeeds. */
+async function applySteps(
+  entry: OutboxEntry,
+  client: WriteClient,
+  doneStatusOptionId: string,
+  steps: readonly string[],
+  onStep?: (step: string, result?: unknown) => Promise<void>,
+): Promise<Attempt> {
+  try {
+    for (const step of steps) {
+      if (step === "set-status-done" && !doneStatusOptionId) {
+        throw new NonRetryableError("the Done Status for closing is not set in Settings");
+      }
+      if (step === "close-issue") await client.closeIssue(entry.issueNodeId);
+      else await client.applyField(entry.issueNodeId, "status", doneStatusOptionId);
+      await onStep?.(step);
     }
     return { status: "done", error: null, tried: true };
   } catch (e) {
     const tries = entry.attempts + 1;
     if (isRetryable(e) && tries < MAX_ATTEMPTS) return { status: "retry", error: String(e), tried: true };
-    return { status: "failed", error: String(e), tried: true };
+    return { status: "failed", error: e instanceof NonRetryableError ? e.message : String(e), tried: true };
   }
 }
 

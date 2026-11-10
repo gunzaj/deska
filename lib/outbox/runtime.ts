@@ -1,14 +1,17 @@
 // Glue between the durable outbox (store.ts), GitHub and the cache (W1).
 import { GitHubWriteClient } from "@/lib/github/write-client";
+import { localToken } from "@/lib/github/local-token";
 import { importFull } from "@/lib/sync/import";
 import type { ProjectFieldMap } from "@/lib/sync/field-map";
 import { currentFieldMap } from "@/lib/sync/runtime";
 import { requireTarget } from "@/lib/settings";
+import { getStore } from "@/lib/store";
 import { GitHubSource } from "@/lib/sync/source-github";
 import type { ReadModel } from "@/lib/sync/read-model";
 import { PostgresStore } from "@/lib/sync/store-postgres";
 import { partialSnapshot } from "@/lib/sync/types";
-import type { ProcessDeps } from "./store";
+import { writeGate } from "@/lib/writes/gate";
+import { saveStep, type ProcessDeps } from "./store";
 
 /**
  * STATUS_DONE_OPTION_ID must name one of the discovered Status options: a
@@ -40,5 +43,27 @@ export async function refreshIssue(token: string, issueNodeId: string): Promise<
 
 /** What the outbox needs to write as this user: the stored project (§2.4), its node ID pinned. */
 export async function depsFor(token: string, doneStatusOptionId: string, fields: ProjectFieldMap): Promise<ProcessDeps> {
-  return { client: new GitHubWriteClient(token, fields, await requireTarget()), doneStatusOptionId, refresh: (id) => refreshIssue(token, id) };
+  const target = await requireTarget();
+  const gate = await writeGate();
+  return {
+    client: new GitHubWriteClient(token, fields, target, gate),
+    doneStatusOptionId,
+    refresh: (id) => refreshIssue(token, id),
+    recordStep: (id, step, result) => saveStep(id, step, result),
+  };
+}
+
+/**
+ * The outbox's dependencies for the current token and cache, or null when there
+ * is nothing to write with (no token, no project, writes gated off). The worker
+ * loop calls the gate first and does not drain while writes are off.
+ */
+export async function currentDeps(): Promise<ProcessDeps | null> {
+  const token = localToken();
+  if (!token) return null;
+  const store = await getStore();
+  const done = doneStatusOption(store);
+  const target = await requireTarget().catch(() => null);
+  if (!target) return null;
+  return depsFor(token, done.ok ? done.id : "", store.projectFieldMap());
 }

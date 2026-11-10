@@ -3,7 +3,14 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { http, HttpResponse } from "msw";
 import { setupServer } from "msw/node";
-import { GitHubWriteClient } from "@/lib/github/write-client";
+import { readFileSync } from "node:fs";
+import {
+  ALLOWED_MUTATIONS,
+  ALLOWED_REST_WRITES,
+  assertAllowedMutation,
+  assertAllowedRest,
+  GitHubWriteClient,
+} from "@/lib/github/write-client";
 import { isRetryable, NonRetryableError } from "@/lib/outbox/worker";
 import { suggestFieldMap } from "@/lib/sync/field-map";
 
@@ -93,13 +100,15 @@ const server = setupServer(
 );
 
 let n = 0;
+/** The full gate (SPEC §3.4): the tests exercise the write client, the gate itself is tested apart. */
+const GATE = { allowed: true } as const;
+
 /** A fresh client (and token) per test: clients are cached per token. */
-const client = () => new GitHubWriteClient(`ghp_write_client_test_token_${++n}_000000000000`, suggestFieldMap(FIELDS, {}));
+const client = () => new GitHubWriteClient(`ghp_write_client_test_token_${++n}_000000000000`, suggestFieldMap(FIELDS, {}), undefined, GATE);
 
 beforeAll(() => server.listen({ onUnhandledRequest: "error" }));
 afterAll(() => server.close());
 beforeEach(() => {
-  process.env.WRITE_MODE = "on";
   process.env.GITHUB_REPO = "acme/widgets";
   mutations = [];
   rest = [];
@@ -110,14 +119,12 @@ beforeEach(() => {
   issueRepo = "acme/widgets";
 });
 afterEach(() => {
-  delete process.env.WRITE_MODE;
   server.resetHandlers();
 });
 
 describe("GitHubWriteClient", () => {
-  it("refuses to exist while writes are off", () => {
-    process.env.WRITE_MODE = "off";
-    expect(() => client()).toThrow(/WRITE_MODE/);
+  it("refuses to exist while the write gate is off (SPEC §3.4)", () => {
+    expect(() => new GitHubWriteClient(`ghp_write_client_test_token_${++n}_000000000000`, suggestFieldMap(FIELDS, {}), undefined, { allowed: false })).toThrow(/write gate/);
   });
 
   it("refuses to write when the project is not the pinned GITHUB_PROJECT_ID (v5 1.2)", async () => {
@@ -150,7 +157,12 @@ describe("GitHubWriteClient", () => {
 
   it("refuses to write when the project is not the node ID pinned in onboarding (D4)", async () => {
     const pinned = (projectId: string) =>
-      new GitHubWriteClient(`ghp_write_client_test_token_${++n}_000000000000`, suggestFieldMap(FIELDS, {}), { repoFull: "acme/widgets", owner: "acme", repo: "widgets", org: "acme", projectNumber: 7, projectId });
+      new GitHubWriteClient(
+        `ghp_write_client_test_token_${++n}_000000000000`,
+        suggestFieldMap(FIELDS, {}),
+        { repoFull: "acme/widgets", owner: "acme", repo: "widgets", org: "acme", projectNumber: 7, projectId },
+        GATE,
+      );
     await expect(pinned("PVT_some_other_project").applyField("I_1", "status", "opt_todo")).rejects.toThrow(/different project than the pinned one/);
     expect(mutations).toHaveLength(0);
     await pinned(PROJECT).applyField("I_1", "status", "opt_todo");
@@ -225,11 +237,14 @@ describe("GitHubWriteClient", () => {
     expect(rest[1]!.body).toEqual({ assignees: ["bob", "alice"] });
   });
 
-  it("closes and reopens through the REST issue update", async () => {
+  it("closes with the completed reason and reopens without touching the Status", async () => {
     const c = client();
     await c.closeIssue("I_1");
     await c.reopenIssue("I_1");
-    expect(rest.map((r) => (r.body as { state?: string })?.state)).toEqual(["closed", "open"]);
+    expect(rest.map((r) => r.body)).toEqual([
+      { state: "closed", state_reason: "completed" },
+      { state: "open" },
+    ]);
   });
 
   it("reads a project field's current value", async () => {
@@ -258,5 +273,46 @@ describe("GitHubWriteClient", () => {
 
   it("rejects an unknown field", async () => {
     await expect(client().applyField("I_1", "nonsense", "x")).rejects.toThrow(/unsupported field/);
+  });
+});
+
+describe("the operation allowlist (SPEC §4.8, W0)", () => {
+  it("refuses every forbidden mutation and REST operation", () => {
+    for (const q of [
+      `mutation { deleteIssue(input:{issueId:"I_1"}) { clientMutationId } }`,
+      `mutation { deleteProjectV2Item(input:{projectId:"PVT_1", itemId:"PVTI_1"}) { clientMutationId } }`,
+      `mutation { transferIssue(input:{issueId:"I_1", repositoryId:"R_1"}) { clientMutationId } }`,
+      `mutation { updateProjectV2Field(input:{fieldId:"F_1", name:"x"}) { projectV2Field { id } } }`,
+      `mutation { createProjectV2Field(input:{projectId:"PVT_1", name:"x", dataType:SINGLE_SELECT}) { projectV2Field { id } } }`,
+      `mutation { deleteProjectV2Field(input:{fieldId:"F_1"}) { projectV2Field { id } } }`,
+      `mutation { deleteProjectV2FieldOption(input:{optionId:"o1"}) { clientMutationId } }`,
+      `mutation { archiveProjectV2Item(input:{projectId:"PVT_1", itemId:"PVTI_1"}) { item { id } } }`,
+    ]) {
+      expect(() => assertAllowedMutation(q), q).toThrow(/allowlist/);
+    }
+    for (const op of ["issues.delete", "issues.removeAllLabels", "repos.delete", "issues.transfer"]) {
+      expect(() => assertAllowedRest(op), op).toThrow(/allowlist/);
+    }
+  });
+
+  it("accepts exactly the §4.8 writes", () => {
+    expect(ALLOWED_MUTATIONS).toEqual(["addProjectV2ItemById", "updateProjectV2ItemFieldValue", "clearProjectV2ItemFieldValue", "updateIssueIssueType"]);
+    expect(ALLOWED_REST_WRITES).toEqual(["issues.update", "issues.create", "issues.addLabels", "issues.removeLabel", "issues.addAssignees", "issues.removeAssignees"]);
+    expect(() => assertAllowedMutation(`mutation($project:ID!, $content:ID!) { addProjectV2ItemById(input:{projectId:$project, contentId:$content}) { item { id } } }`)).not.toThrow();
+  });
+
+  it("every mutation and REST write in the client is on the allowlist", () => {
+    // The source scan is the second net: a mutation added to the client without
+    // an allowlist entry fails this test, before the runtime check would ever see it.
+    const src = readFileSync("lib/github/write-client.ts", "utf8");
+    const mutations = [...src.matchAll(/`mutation\b[^`]*?\{\s*([A-Za-z_][A-Za-z0-9_]*)/g)].map((m) => m[1]!);
+    expect(mutations.length).toBeGreaterThanOrEqual(4);
+    for (const m of mutations) expect(ALLOWED_MUTATIONS, m).toContain(m);
+    const rest = [...src.matchAll(/this\.restWrite\("([^"]+)"/g)].map((m) => m[1]!);
+    expect(rest.length).toBeGreaterThanOrEqual(5);
+    for (const op of rest) expect(ALLOWED_REST_WRITES, op).toContain(op);
+    // No delete anywhere, in any form.
+    expect(src).not.toMatch(/mutation\b[^{]*\{\s*(?:delete|remove)/i);
+    expect(src).not.toMatch(/\.delete\(|\.delete[A-Z]/);
   });
 });
