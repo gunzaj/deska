@@ -20,7 +20,7 @@
 | W0–W3 | todo | | Waits for the maintainer's go (§0.4); skipped until then |
 | D15 | done | [#28](https://github.com/gunzaj/deska/pull/28) | GitHub CLI login as a token source (`gh auth token`), login-shell PATH, new §3.3 states, onboarding + Settings; no migration |
 | AI0 | done | [#29](https://github.com/gunzaj/deska/pull/29) | AI providers and settings (§4.9): Settings → AI, Test connection, job runner, `ai_results` (migration 0007), API key store |
-| AI1 | in progress | | Issue triage suggestions: issue panel, triage-mode key, "Suggest for this queue" |
+| AI1 | done | [#30](https://github.com/gunzaj/deska/pull/30) | Issue triage suggestions: issue panel, triage-mode key `I`, "Suggest for this queue"; no migration |
 | AI2 | todo | | Task assist |
 | AI3 | todo | | Plan my day |
 | AI4 | todo | | Ask |
