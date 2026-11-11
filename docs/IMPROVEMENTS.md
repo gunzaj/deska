@@ -89,8 +89,9 @@ listed for the maintainer at the end.
 
 ## Phase 2/3 plan (completed)
 
-All 14 items are done on `improvements`, one commit each; nothing was pushed and no PR
-was opened, per the maintainer's instruction. The plan below is kept for reference.
+All 14 items are done on `improvements`, one commit each. The branch stayed local
+until the review pass; the maintainer then asked for this PR. The plan below is kept
+for reference.
 
 1. **Item 5 — AI model and effort.** Add `effort` to `AiSettings`
    (`lib/ai/types.ts`), `claudeArgs`/`callClaude` (`lib/ai/claude.ts`) and the
