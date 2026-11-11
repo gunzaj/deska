@@ -5,7 +5,7 @@
 // main process (window.deska.desktop); outside the desktop app this renders
 // nothing.
 import { useEffect, useState } from "react";
-import type { DesktopPrefs, DesktopState } from "@/desktop/bridge";
+import { APP_ICONS, DEFAULT_APP_ICON, type DesktopPrefs, type DesktopState } from "@/desktop/bridge";
 import { acceleratorFromKey, prettyAccelerator } from "@/lib/client/accelerator";
 
 export function DesktopSettings() {
@@ -82,6 +82,32 @@ export function DesktopSettings() {
           disabled={!state.canLaunchAtLogin}
           onChange={(v) => void change({ launchAtLogin: v })}
         />
+        <div role="group" aria-labelledby="app-icon-h" className="space-y-2 border-t border-line pt-3">
+          <div>
+            <p id="app-icon-h" className="font-medium">App icon</p>
+            <p className="text-[12px] text-muted">Shown in the Dock and the app switcher while Deska runs. Finder keeps Coral, the default.</p>
+          </div>
+          <div className="grid grid-cols-4 gap-2">
+            {APP_ICONS.map((icon) => {
+              const selected = prefs.appIcon === icon.id;
+              return (
+                <button
+                  key={icon.id}
+                  type="button"
+                  aria-pressed={selected}
+                  aria-label={icon.id === DEFAULT_APP_ICON ? `${icon.name} (default)` : icon.name}
+                  data-app-icon={icon.id}
+                  onClick={() => void change({ appIcon: icon.id })}
+                  className={`flex flex-col items-center gap-1 rounded-lg p-2 outline-none hover:bg-hover focus-visible:ring-2 focus-visible:ring-[var(--focus)] ${selected ? "ring-2 ring-[var(--brand)]" : ""}`}
+                >
+                  <img src={`/app-icons/${icon.id}-128.png`} width={64} height={64} alt="" />
+                  <span className="text-center text-[12px] leading-tight">{icon.name}</span>
+                  {icon.id === DEFAULT_APP_ICON && <span className="text-[11px] leading-none text-muted">Default</span>}
+                </button>
+              );
+            })}
+          </div>
+        </div>
         <p className="text-[12px] text-muted">Closing the window keeps Deska running so sync and reminders continue. Quit with ⌘Q.</p>
         {message && (
           <p role={message.kind === "error" ? "alert" : "status"} className={message.kind === "error" ? "text-critical" : "text-muted"}>

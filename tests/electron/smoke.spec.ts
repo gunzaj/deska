@@ -997,15 +997,30 @@ test.describe("desktop shell", () => {
       expect(await registered("Control+Alt+K")).toBe(true);
 
       await first.win.evaluate(() => window.deska!.desktop.set({ dockBadge: false }));
+
+      // App icon (1.1.2): Settings shows all eight, Coral selected; a pick sets the Dock icon at once.
+      // The ⌃⌥K keystrokes above also open the ⌘K palette (⌃K): close it by its backdrop.
+      if (await first.win.locator(".bg-underlay").count()) await first.win.locator(".bg-underlay").click({ position: { x: 5, y: 5 } });
+      await expect(first.win.locator(".bg-underlay")).toHaveCount(0);
+      await expect(first.win.locator("[data-app-icon]")).toHaveCount(8);
+      await expect(first.win.locator('[data-app-icon="coral"]')).toHaveAttribute("aria-pressed", "true");
+      await expect.poll(() => first.win.locator('[data-app-icon="violet"] img').evaluate((img: HTMLImageElement) => img.naturalWidth)).toBe(128);
+      await first.win.locator('[data-app-icon="violet"]').click();
+      await expect(first.win.locator('[data-app-icon="violet"]')).toHaveAttribute("aria-pressed", "true");
+     
+      const refusedIcon = await first.win.evaluate(() => window.deska!.desktop.set({ appIcon: "../icon" as never }));
+      expect(refusedIcon.error).toMatch(/app icon/);
+      expect(refusedIcon.state.prefs.appIcon).toBe("violet");
     } finally {
       await first.app.close();
     }
     // The prefs file keeps no secret and is read again on the next launch.
-    expect(JSON.parse(readFileSync(path.join(userData, "desktop-prefs.json"), "utf8"))).toEqual({ shortcut: "Control+Alt+K", notifications: true, launchAtLogin: false, dockBadge: false, backupFolder: "", githubAuthSource: "token" });
+    expect(JSON.parse(readFileSync(path.join(userData, "desktop-prefs.json"), "utf8"))).toEqual({ shortcut: "Control+Alt+K", notifications: true, launchAtLogin: false, dockBadge: false, backupFolder: "", githubAuthSource: "token", appIcon: "violet" });
     const second = await launch(userData, github);
     try {
       expect(await second.app.evaluate(({ globalShortcut }) => globalShortcut.isRegistered("Control+Alt+K"))).toBe(true);
       expect(await second.win.evaluate(() => window.deska!.desktop.get().then((s) => s.prefs.dockBadge))).toBe(false);
+      expect(await second.win.evaluate(() => window.deska!.desktop.get().then((s) => s.prefs.appIcon))).toBe("violet");
     } finally {
       await second.app.close();
     }

@@ -143,6 +143,8 @@ function build() {
     // The server goes into Contents/Resources/server after packing:
     // extraResources silently drops node_modules folders.
     afterPack: afterPackHook(),
+    // The Dock icons Settings offers (Contents/Resources/app-icons/<id>.png).
+    extraResources: [{ from: path.join(root, "desktop", "assets", "app-icons"), to: "app-icons", filter: ["*.png"] }],
     asar: true,
     npmRebuild: false,
     nodeGypRebuild: false,

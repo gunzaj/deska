@@ -2,7 +2,7 @@
 // JSON file, this decides what a file or a request may contain. A damaged or
 // hand-edited file falls back to the defaults per field, never to a crash.
 import { isAbsolute } from "node:path";
-import { DEFAULT_DESKTOP_PREFS, type DesktopPrefs, type SettablePrefs } from "./bridge";
+import { DEFAULT_DESKTOP_PREFS, isAppIconId, type DesktopPrefs, type SettablePrefs } from "./bridge";
 
 const MODIFIERS = new Set(["Command", "Cmd", "Control", "Ctrl", "CommandOrControl", "CmdOrCtrl", "Alt", "Option", "Shift"]);
 const KEY = /^([A-Z0-9]|F([1-9]|1\d|2[0-4])|Space|Tab|Enter|Return|Backspace|Delete|Insert|Home|End|PageUp|PageDown|Up|Down|Left|Right|Plus|Minus|Equal|Comma|Period|Slash|Backslash|Semicolon|Quote|Backquote)$/;
@@ -32,6 +32,7 @@ export function parseDesktopPrefs(raw: unknown): DesktopPrefs {
     dockBadge: typeof o.dockBadge === "boolean" ? o.dockBadge : d.dockBadge,
     backupFolder: typeof o.backupFolder === "string" && (o.backupFolder === "" || (isAbsolute(o.backupFolder) && !o.backupFolder.includes("\0"))) ? o.backupFolder : d.backupFolder,
     githubAuthSource: o.githubAuthSource === "gh" ? "gh" : d.githubAuthSource,
+    appIcon: isAppIconId(o.appIcon) ? o.appIcon : d.appIcon,
   };
 }
 
@@ -50,6 +51,10 @@ export function parsePrefsPatch(raw: unknown): { patch: Partial<SettablePrefs>; 
   }
   for (const k of ["notifications", "launchAtLogin", "dockBadge"] as const) {
     if (o[k] !== undefined && typeof o[k] === "boolean") patch[k] = o[k] as boolean;
+  }
+  if (o.appIcon !== undefined) {
+    if (isAppIconId(o.appIcon)) patch.appIcon = o.appIcon;
+    else error ??= "That app icon is not one Deska offers.";
   }
   return { patch, error };
 }
