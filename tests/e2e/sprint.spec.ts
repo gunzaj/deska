@@ -96,6 +96,8 @@ test("[ and ] step to the previous and next sprint", async ({ browser }) => {
   await expect(page.getByRole("button", { name: "Next sprint" })).toBeDisabled();
   await page.keyboard.press("[");
   await expect(page).toHaveURL(new RegExp(`/releases/${PREVIOUS}$`));
+  // The new page has to mount its key handler before the next press.
+  await expect(page.getByRole("heading", { name: /Release Sprint 22/ })).toBeVisible();
   await page.keyboard.press("]");
   await expect(page).toHaveURL(new RegExp(`/releases/${CURRENT}$`));
   await context.close();
