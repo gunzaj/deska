@@ -27,7 +27,9 @@ test("choosing an endpoint shows its fields, refuses plain http to a public addr
   await expect(page.getByLabel("Base URL")).toBeVisible();
   await expect(page.getByText("Not tested. Nothing is sent until the test passes.")).toBeVisible();
   await page.getByLabel("Base URL").fill("http://models.example.test/v1");
-  await page.getByLabel("Model", { exact: true }).fill("tiny-model");
+  await page.getByLabel("Model", { exact: true }).selectOption("__custom");
+  await page.getByLabel("Model name").fill("tiny-model");
+  await expect(page.getByText("Effort is not available for this provider.")).toBeVisible();
   await page.getByRole("button", { name: "Save", exact: true }).click();
   await expect(page.locator("[data-ai-message]")).toContainText("Plain http is only allowed");
   // Put it back: the e2e server's database is shared with the other specs.

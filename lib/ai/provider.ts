@@ -20,7 +20,7 @@ export async function askModel(settings: AiSettings, ask: Ask): Promise<ModelAns
   const timeoutMs = settings.timeoutSec * 1000;
   if (settings.provider === "claude-code") {
     const p = ask.prompt({ schemaInPrompt: false });
-    return callClaude({ model: settings.model, system: p.system, user: p.user, schema: ask.schema, timeoutMs, signal: ask.signal });
+    return callClaude({ model: settings.model, effort: settings.effort || undefined, system: p.system, user: p.user, schema: ask.schema, timeoutMs, signal: ask.signal });
   }
   if (settings.provider === "openai") {
     const modes = await readEndpointModes();

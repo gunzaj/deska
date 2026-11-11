@@ -5,6 +5,7 @@ import { sql } from "drizzle-orm";
 import { z } from "zod/v4";
 import { getDb } from "@/db";
 import { GET as settingsGet, POST as settingsPost } from "@/app/api/ai/settings/route";
+import { GET as modelsGet } from "@/app/api/ai/models/route";
 import { POST as testRoute } from "@/app/api/ai/test/route";
 import { GET as jobGet } from "@/app/api/ai/jobs/[id]/route";
 import { POST as jobCancel } from "@/app/api/ai/jobs/[id]/cancel/route";
@@ -158,6 +159,39 @@ describe("settings route", () => {
   it("rejects out-of-range and unknown fields", async () => {
     expect((await settingsPost(json("/api/ai/settings", { ...DEFAULT_AI_SETTINGS, timeoutSec: 5 }))).status).toBe(400);
     expect((await settingsPost(json("/api/ai/settings", { ...DEFAULT_AI_SETTINGS, apiKey: KEY }))).status).toBe(400);
+    expect((await settingsPost(json("/api/ai/settings", { ...DEFAULT_AI_SETTINGS, effort: "turbo" }))).status).toBe(400);
+  });
+
+  it("stores the effort, reports what the CLI offers, and keeps the pass when only the effort changes", async () => {
+    await configure({ provider: "claude-code", model: "opus", effort: "high" }, true);
+    const view = (await (await settingsGet(new Request("http://127.0.0.1:3000/api/ai/settings"))).json()) as { settings: AiSettings; verified: boolean; claude: unknown };
+    expect(view.settings.effort).toBe("high");
+    expect(view.claude).toEqual({ found: true, effort: true });
+    expect(view.verified).toBe(true);
+
+    // The effort is not part of verifyId: picking another level keeps the pass.
+    const res = await settingsPost(json("/api/ai/settings", { ...DEFAULT_AI_SETTINGS, provider: "claude-code", model: "opus", effort: "max" }));
+    const body = (await res.json()) as { verified: boolean; settings: AiSettings };
+    expect(body.verified).toBe(true);
+    expect(body.settings).toMatchObject({ effort: "max" });
+
+    fake.withoutFlag("--effort");
+    const older = (await (await settingsGet(new Request("http://127.0.0.1:3000/api/ai/settings"))).json()) as { claude: unknown };
+    expect(older.claude).toEqual({ found: true, effort: false });
+  });
+
+  it("lists the endpoint's models for Settings before Test connection", async () => {
+    await saveAiSettings({ ...DEFAULT_AI_SETTINGS, provider: "openai", baseUrl: ep.url, model: "tiny-model" });
+    ep.handle(() => [200, { data: [{ id: "tiny-model" }, { id: "other" }] }]);
+    expect(await (await modelsGet(new Request("http://127.0.0.1:3000/api/ai/models"))).json()).toEqual({ models: ["other", "tiny-model"], error: null });
+
+    ep.handle(() => [401, { error: { message: "bad key" } }]);
+    const failed = (await (await modelsGet(new Request("http://127.0.0.1:3000/api/ai/models"))).json()) as { models: string[]; error: string };
+    expect(failed.models).toEqual([]);
+    expect(failed.error).toMatch(/refused the API key/);
+
+    await saveAiSettings({ ...DEFAULT_AI_SETTINGS, provider: "claude-code" });
+    expect(await (await modelsGet(new Request("http://127.0.0.1:3000/api/ai/models"))).json()).toEqual({ models: [], error: null });
   });
 });
 
