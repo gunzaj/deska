@@ -206,7 +206,8 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
       cacheSidebar(p.sidebar);
       cacheTeam(p.defaultTeam ?? null);
       // First visit: remember the browser's zone so reminders use it server-side.
-      if (!p.tz) {
+      // A zone the user picked while this was loading wins (edited.current).
+      if (!p.tz && edited.current.tz === undefined) {
         const tz = browserTz();
         await fetch("/api/me/prefs", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ tz }) }).catch(() => null);
         setPrefsState((x) => ({ ...x, tz }));
@@ -330,16 +331,9 @@ export function NotificationBell() {
   );
 }
 
-/** Time zone and browser notifications, at the bottom of the bell popover. */
+/** Browser notifications, at the bottom of the bell popover. */
 function NotificationSettings() {
-  const { prefs, setPrefs, tz } = usePrefs();
-  const zones = useMemo(() => {
-    try {
-      return (Intl as unknown as { supportedValuesOf?: (k: string) => string[] }).supportedValuesOf?.("timeZone") ?? [tz];
-    } catch {
-      return [tz];
-    }
-  }, [tz]);
+  const { prefs, setPrefs } = usePrefs();
   const permission = typeof Notification === "undefined" ? "unsupported" : Notification.permission;
   // Read after mount: the server render has no window.deska.
   const [desktop, setDesktop] = useState(false);
@@ -363,16 +357,6 @@ function NotificationSettings() {
           {permission === "denied" && <p className="text-[11.5px] text-faint">Blocked in this browser&apos;s site settings. The bell keeps working.</p>}
         </>
       )}
-      <label className="flex items-center gap-2">
-        <span className="shrink-0 text-muted">Time zone</span>
-        <select value={tz} onChange={(e) => void setPrefs({ tz: e.target.value })} className="h-7 min-w-0 flex-1 rounded-md border border-line bg-surface px-1.5 text-[12px] outline-none" aria-label="Time zone">
-          {zones.map((z) => (
-            <option key={z} value={z}>
-              {z}
-            </option>
-          ))}
-        </select>
-      </label>
     </div>
   );
 }
