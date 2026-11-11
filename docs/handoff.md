@@ -11,9 +11,9 @@ Everything someone needs to install, run and look after Deska v1.0.
 
 ## Permissions
 
-Create a **fine-grained personal access token** with resource owner = your org and repository access = **only the one repository** Deska reads. A classic token with read-only scopes also works (see [`security.md`](security.md)). If you use the GitHub CLI, onboarding also offers "Use my GitHub CLI login": nothing to paste and no token stored, but that login can write, so Deska's own write switch is what keeps it read-only.
+Create a **fine-grained personal access token** with resource owner = your org and repository access = **only the one repository** Deska reads. A classic token with read-only scopes also works (see [`security.md`](security.md)). If you use the GitHub CLI, onboarding also offers "Use my GitHub CLI login": nothing to paste and no token stored, but that login can write, so Deska's own "GitHub writes" switch (off by default) is what keeps it read-only.
 
-| Permission | v1.0 (read-only) | Later, with writes |
+| Permission | Read-only | With GitHub writes on |
 |---|---|---|
 | Repository → Metadata | Read (mandatory) | Read |
 | Repository → Issues | Read | Read and write |
@@ -22,9 +22,11 @@ Create a **fine-grained personal access token** with resource owner = your org a
 
 Nothing else is requested. Your org may need to approve the token, and may cap its lifetime. Deska warns 14 days before it expires. The token is encrypted with the macOS Keychain-backed `safeStorage`, kept in memory by the local server, and never written to logs, exports or backups. [`security.md`](security.md) has the details.
 
-## What is read-only
+## Writes
 
-This build has the write switch off (`DESKA_WRITES=off` at build time, SPEC §3.4), so it refuses every GitHub write whatever the token allows. It never deletes anything and never changes project fields, options or iterations. Personal tasks, views, snoozes and watches are local and not part of GitHub, so they stay editable.
+From v1.1.0 the build allows GitHub writes (`DESKA_WRITES=on`, SPEC §3.4), but Deska writes only when all three hold: the token has the write permissions above, Settings → GitHub writes is on (off by default, and off again after every token change), and the build allows it. Writes are planning edits (Status, Priority, Sprint, dimensions, assignees, labels, Type, milestone), close/reopen and creating an issue, each only after your action, with a check that nothing changed on GitHub first. Deska never deletes anything and never changes project fields, options or iterations. Personal tasks, views, snoozes and watches are local and not part of GitHub, so they are always editable.
+
+v1.0.x builds have the write switch off and refuse every GitHub write.
 
 ## Where data lives
 

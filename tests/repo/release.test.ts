@@ -1,4 +1,5 @@
-// D14: the release pipeline stays read-only, unsigned and draft-only.
+// D14: the release pipeline stays unsigned and draft-only. From v1.1.0 it
+// builds with writes allowed (SPEC §3.4 part 3); the token and Settings still gate them.
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
@@ -7,9 +8,9 @@ const read = (f: string) => readFileSync(f, "utf8");
 describe("release workflow", () => {
   const wf = read(".github/workflows/release.yml");
 
-  it("runs on v* tags and builds with writes off", () => {
+  it("runs on v* tags and builds with writes allowed (v1.1.0)", () => {
     expect(wf).toMatch(/tags:\s*\["v\*"\]/);
-    expect(wf).toMatch(/DESKA_WRITES:\s*"off"/);
+    expect(wf).toMatch(/DESKA_WRITES:\s*"on"/);
     expect(wf).toContain("pnpm desktop:build");
   });
 

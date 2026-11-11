@@ -14,8 +14,10 @@ jobs:
     runs-on: macos-latest
     timeout-minutes: 40
     env:
-      # The v1.0 build refuses GitHub writes (SPEC §3.4).
-      DESKA_WRITES: "off"
+      # From v1.1.0 the build allows GitHub writes (SPEC §3.4 part 3). The
+      # token's permissions and Settings → GitHub writes (off by default)
+      # still have to allow them.
+      DESKA_WRITES: "on"
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4

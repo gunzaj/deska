@@ -277,7 +277,7 @@ An error is NEVER shown as an empty list.
 A GitHub write happens only when all three hold:
 1. The token has the write permissions (§3.3). Detected with read-only queries when the token is checked and stored, so a relaunch and an offline session know it. Turning the switch below on re-checks it first.
 2. Settings → "GitHub writes" is on. Off by default, and off again after every token change (replace token, disconnect, switch source).
-3. The build allows writes. `DESKA_WRITES=off` at build time produces a binary that refuses writes regardless of 1 and 2. v1.0 is built with it off.
+3. The build allows writes. `DESKA_WRITES=off` at build time produces a binary that refuses writes regardless of 1 and 2. v1.0 is built with it off. **[Changed at the maintainer's request]** Releases from v1.1.0 are built with `DESKA_WRITES=on`; parts 1 and 2 still keep writes off until the user turns them on with a token that can write.
 
 ---
 
