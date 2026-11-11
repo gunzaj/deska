@@ -78,8 +78,8 @@ listed for the maintainer at the end.
   run one at a time.
 - **Item 13:** `pnpm typecheck`, `pnpm lint`, `pnpm test` (167 files, 1213 tests);
   targeted Playwright specs `ai-settings`, `ramble` and `task-views` pass one at a time.
-- **Final:** `pnpm typecheck`, `pnpm lint`, `pnpm test` (167 files, 1213 tests),
-  `pnpm test:e2e` (210 tests, one worker, one retry allowed and none used),
+- **Final:** `pnpm typecheck`, `pnpm lint`, `pnpm test` (168 files, 1220 tests),
+  `pnpm test:e2e` (211 tests, one worker, one retry allowed and none used),
   `pnpm desktop:build` (`release/Deska-1.1.2-universal.dmg`) and
   `node scripts/leak-guard.mjs --all` all pass. The full e2e run also caught an
   issue-view save that sent the task-view `kind`; the client no longer does, and the
@@ -256,8 +256,47 @@ microphone and a real transcription endpoint are manual checks (below).
   a row, and create. Then check a real transcription endpoint (the model defaults to
   `whisper-1`) and that a failed create followed by a retry does not duplicate.
 
-The final full local e2e run passed **210 tests** (0 failures), and the desktop
+The final full local e2e run passed **211 tests** (0 failures), and the desktop
 build produced `release/Deska-1.1.2-universal.dmg`. The run used one worker because
 the two dev servers share settings and task state across spec files; default-worker
 runs flaked in settings, views, bulk, health, ask and sprint specs, which each
 passed alone.
+
+## Review pass before the PR
+
+The branch was reviewed against `docs/SPEC.md` and this file before the PR was
+opened. These bugs were found and fixed, each with a test where the code is pure:
+
+- **Ramble, Cancel while recording** still uploaded the recording: Cancel/Escape/the
+  backdrop went through `stop → onstop → transcribe`. A per-open session id now
+  discards the stopped recorder's answer, and every `parse`/`transcribe`/`poll`/
+  `create` continuation checks it, so a late answer can't land in the next dialog.
+- **Ramble, microphone and recorder setup**: a failed `MediaRecorder` setup left the
+  stream live, and a permission granted after the dialog closed could start
+  recording in the background. Setup failures stop the tracks, and the permission
+  answer is checked against the session.
+- **Ramble, a vanished parse job** (server restart, pruned job) polled a 404
+  forever; it now falls back to one editable row after a 404 or ten failed polls,
+  and the parse screen has a Cancel button.
+- **Ramble, "Add task"** could pass the 12-task cap and make Create fail after the
+  review; it stops at `MAX_RAMBLE_TASKS`.
+- **Ramble, a section from another project** passed the one enum of every section
+  and made Create refuse the whole batch; the schema now rejects a section that is not
+  in the task's project, so the normal retry/invalid-output path runs.
+- **Tidy Inbox Undo** brought a moved date back without the day of the month the
+  server had re-pinned; it now sends the old rule too.
+- **A saved Inbox task view** listed sub-tasks (their own project is null) while
+  the Inbox page and badge kept them out; the Inbox view now hides them.
+- **A batch-create retry** that overlapped the first request could create two
+  batches (the key was only remembered after commit); the second now waits for the
+  first.
+- **Clearing a recurrence while moving the date** in one PATCH brought the
+  recurrence back; the day-of-month repin only runs when the patch did not name a
+  recurrence.
+- **A one-off absolute reminder** that fired before the upgrade fired again (the
+  dedupe key gained the instant); one-off reminders keep the old key, recurring ones
+  keep the instant.
+- **The microphone permission** also granted the camera when a request asked for both;
+  only an audio-only request is allowed.
+- **Settings → AI** told a user without Claude Code to update it; it now says the CLI
+  is not installed.

@@ -3,7 +3,7 @@ import { z } from "zod";
 import { route } from "@/lib/server/route";
 import { createTaskSchema } from "@/lib/tasks/model";
 import { fail, resolver } from "@/lib/tasks/http";
-import { batchIds, rememberBatch } from "@/lib/tasks/batches";
+import { batchIds, batchInFlight, beginBatch, rememberBatch } from "@/lib/tasks/batches";
 import { createTasks, getTask } from "@/lib/tasks/service";
 
 export const dynamic = "force-dynamic";
@@ -26,8 +26,20 @@ export const POST = route({ auth: "viewer", body: batchBody, invalid: "invalid t
     const found = await Promise.all(seen.map((id) => getTask(owner, id)));
     return { tasks: found.flatMap((r) => (r.ok ? [r.value] : [])) };
   }
-  const r = await createTasks(owner, body.tasks, body.tasks.some((t) => t.links.length) ? await resolver() : undefined);
+  // The first request's answer may be lost while it is still committing: a
+  // retry with the same key waits for it instead of creating a second batch.
+  const inflight = batchInFlight(body.idempotencyKey);
+  if (inflight) {
+    const r = await inflight;
+    if (!r.ok) return await fail(r);
+    return NextResponse.json({ tasks: r.value }, { status: 201 });
+  }
+  const p = createTasks(owner, body.tasks, body.tasks.some((t) => t.links.length) ? await resolver() : undefined).then((r) => {
+    if (r.ok) rememberBatch(body.idempotencyKey, r.value.map((t) => t.id));
+    return r;
+  });
+  beginBatch(body.idempotencyKey, p);
+  const r = await p;
   if (!r.ok) return await fail(r);
-  rememberBatch(body.idempotencyKey, r.value.map((t) => t.id));
   return NextResponse.json({ tasks: r.value }, { status: 201 });
 });

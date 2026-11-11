@@ -54,6 +54,13 @@ export function taskViewMatches(t: Task, filter: TaskViewFilter, today: string):
   }
 }
 
+/**
+ * Whether a saved view lists sub-tasks. The Inbox view is the one that would
+ * match a sub-task (its own project is null) while the Inbox page and badge keep
+ * it out: a project view cannot match a sub-task of that project anyway.
+ */
+export const taskViewShowsSubtasks = (filter: TaskViewFilter): boolean => filter.projectId !== "none";
+
 /** The "New task" prefill a view implies: its project, when it names one. */
 export function taskViewPrefill(filter: TaskViewFilter): { projectId: string | null } {
   const id = filter.projectId;

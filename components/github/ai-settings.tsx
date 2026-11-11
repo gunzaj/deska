@@ -265,7 +265,9 @@ export function AiSettingsSection() {
           </div>
 
           {isClaude ? (
-            view?.claude.effort ? (
+            view && !view.claude.found ? (
+              <p className="text-[11.5px] text-faint">Claude Code is not installed, so there is no effort to choose. Install it, then test the connection.</p>
+            ) : view?.claude.effort ? (
               <div className="space-y-1.5">
                 <label htmlFor="ai-effort" className="block text-[12.5px] font-medium">
                   Effort

@@ -361,7 +361,7 @@ async function applyUpdate(repo: TaskRepo, me: string, id: string, patch: PatchT
     if (next.recurrence) next.recurrence = pinMonthDay(next.recurrence, dueDate);
     // The user moved the date: a day of the month taken from the old date
     // follows it (an explicitly chosen one stays).
-    else if (patch.dueDate !== undefined && patch.dueDate !== prev.dueDate && patch.undoOccurrence === undefined && prev.recurrence) {
+    else if (patch.dueDate !== undefined && patch.dueDate !== prev.dueDate && patch.undoOccurrence === undefined && next.recurrence === undefined && prev.recurrence) {
       const r = repinMonthDay(prev.recurrence, dueDate);
       if (r !== prev.recurrence) next.recurrence = r;
     }

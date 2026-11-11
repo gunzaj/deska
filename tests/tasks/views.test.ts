@@ -1,6 +1,6 @@
 // Item 12: a saved task view's strict schema and what it matches.
 import { describe, expect, it } from "vitest";
-import { taskViewMatches, taskViewPrefill, taskViewSchema } from "@/lib/tasks/views";
+import { taskViewMatches, taskViewPrefill, taskViewSchema, taskViewShowsSubtasks } from "@/lib/tasks/views";
 import type { Task } from "@/lib/tasks/model";
 
 const task = (over: Partial<Task> = {}): Task => ({
@@ -60,6 +60,12 @@ describe("saved task views", () => {
     expect(taskViewMatches(task(), { due: "none" }, today)).toBe(true);
     expect(taskViewMatches(task({ dueDate: "2026-10-13" }), { due: "none" }, today)).toBe(false);
     expect(taskViewMatches(task({ dueDate: "2026-10-13" }), { due: "any" }, today)).toBe(true);
+  });
+
+  it("lists sub-tasks everywhere except in the Inbox view", () => {
+    expect(taskViewShowsSubtasks({ projectId: "none" })).toBe(false);
+    expect(taskViewShowsSubtasks({ projectId: "p1" })).toBe(true);
+    expect(taskViewShowsSubtasks({})).toBe(true);
   });
 
   it("combines its filters and prefills the project it names", () => {

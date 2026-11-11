@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@/lib/session", () => ({ getViewerLogin: async () => "alice" }));
 
-const { __resetTasks } = await import("@/lib/tasks/repo");
+const { __resetTasks, taskRepo } = await import("@/lib/tasks/repo");
 const { createTask, updateTask, snoozeTask, deleteTask, restoreTask, createProject, listTasks } = await import("@/lib/tasks/service");
 const { createTaskSchema } = await import("@/lib/tasks/model");
 const { fireReminders } = await import("@/lib/tasks/notify");
@@ -62,6 +62,16 @@ describe("snooze on a recurring task is one-shot", () => {
   });
 });
 
+describe("an absolute reminder that already fired stays fired", () => {
+  it("a one-off reminder fired before the upgrade keeps its old dedupe key", async () => {
+    const t = await make({ title: "Call", dueDate: "2026-10-12", reminders: [{ kind: "absolute", at: "2026-10-12T08:00:00Z" }] });
+    const repo = taskRepo();
+    await repo.addNotification({ login: me, kind: "reminder", taskId: t.id, title: t.title, dedupeKey: `rem:${t.id}:abs:${t.reminders[0]!.id}` });
+    at("2026-10-12T08:00:30Z");
+    expect(await fireReminders(new Date(), me)).toBe(0);
+  });
+});
+
 describe("undoing an occurrence doesn't fire its absolute reminder again", () => {
   it("complete then undo: the 08:00 reminder that already fired stays fired", async () => {
     const t = await make({ title: "Report", dueDate: "2026-10-12", recurrence: { rule: "FREQ=DAILY", text: "every day" }, reminders: [{ kind: "absolute", at: "2026-10-12T08:00:00Z" }] });
@@ -102,6 +112,13 @@ describe("a day of the month taken from the date follows the date", () => {
     expect(t.recurrence?.rule).toBe("FREQ=YEARLY;BYMONTHDAY=29");
     await update(t.id, { dueDate: "2028-03-10" });
     expect((await update(t.id, { completed: true })).dueDate).toBe("2029-03-10");
+  });
+
+  it("clearing the recurrence while the date moves keeps it cleared", async () => {
+    const t = await make({ title: "Rent", dueDate: "2026-11-30", recurrence: { rule: "FREQ=MONTHLY", text: "every month" } });
+    const moved = await update(t.id, { dueDate: "2026-11-15", recurrence: null });
+    expect(moved.recurrence).toBeNull();
+    expect((await update(t.id, { completed: true })).dueDate).toBe("2026-11-15");
   });
 
   it("an explicitly chosen day stays", async () => {

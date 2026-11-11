@@ -51,6 +51,15 @@ describe("batch create (item 13)", () => {
     expect(await count()).toBe(2);
   });
 
+  it("two overlapping retries with the same key create one batch", async () => {
+    const body = { idempotencyKey: "ramble-race-1", tasks: [input({ title: "Buy milk" }), input({ title: "Call the dentist" })] };
+    const [a, b] = await Promise.all([POST(json(body)), POST(json(body))]);
+    expect([a.status, b.status]).toEqual([201, 201]);
+    const [ab, bb] = (await Promise.all([a.json(), b.json()])) as { tasks: { id: string }[] }[];
+    expect(ab!.tasks.map((t) => t.id)).toEqual(bb!.tasks.map((t) => t.id));
+    expect(await count()).toBe(2);
+  });
+
   it("refuses an empty batch and an empty key", async () => {
     expect((await POST(json({ idempotencyKey: "k", tasks: [] }))).status).toBe(400);
     expect((await POST(json({ idempotencyKey: "", tasks: [input()] }))).status).toBe(400);

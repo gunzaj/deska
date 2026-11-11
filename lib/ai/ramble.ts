@@ -56,7 +56,20 @@ export function rambleSchema(input: Pick<RambleInput, "projects" | "labels">): z
   if (input.projects.length) shape.projectId = z.enum(input.projects.map((p) => p.id)).nullable();
   if (sections.length) shape.sectionId = z.enum(sections.map((s) => s.id)).nullable();
   if (input.labels.length) shape.labelIds = z.array(z.enum(input.labels.map((l) => l.id))).max(5);
-  return z.object({ tasks: z.array(z.object(shape)).min(1).max(MAX_RAMBLE_TASKS) }) as unknown as z.ZodType<{ tasks: RambleTaskSuggestion[] }>;
+  return z
+    .object({ tasks: z.array(z.object(shape)).min(1).max(MAX_RAMBLE_TASKS) })
+    // The schema can close the project and section lists separately, but a
+    // section only fits the project the same task names; otherwise Create would
+    // refuse the whole batch with "unknown section" after the review.
+    .superRefine((value, ctx) => {
+      for (const t of value.tasks) {
+        if (!t.sectionId || !t.projectId) continue;
+        const project = input.projects.find((p) => p.id === t.projectId);
+        if (!project?.sections.some((s) => s.id === t.sectionId)) {
+          ctx.addIssue({ code: "custom", path: ["tasks"], message: "a section must belong to the task's project" });
+        }
+      }
+    }) as unknown as z.ZodType<{ tasks: RambleTaskSuggestion[] }>;
 }
 
 /** A short stable hash of the transcript (not a security hash: a subject key). */

@@ -80,6 +80,54 @@ test("reviews a transcript, creates one batch, and keeps the review when the cre
   await context.close();
 });
 
+test("closing while recording stops it without transcribing", async ({ browser }) => {
+  const context = await browser.newContext({ extraHTTPHeaders: { "x-e2e-login": "alice" } });
+  const page = await context.newPage();
+  let transcribed = 0;
+  await page.route("**/api/ai/transcribe", (route) => {
+    transcribed++;
+    return route.fulfill({ json: { text: "Should not happen" } });
+  });
+  await page.addInitScript(() => {
+    class FakeRecorder {
+      static isTypeSupported() {
+        return true;
+      }
+      state = "inactive";
+      mimeType = "audio/webm";
+      ondataavailable: ((e: { data: Blob }) => void) | null = null;
+      onstop: (() => void) | null = null;
+      start() {
+        this.state = "recording";
+      }
+      stop() {
+        this.state = "inactive";
+        setTimeout(() => {
+          this.ondataavailable?.({ data: new Blob(["audio"]) });
+          this.onstop?.();
+        }, 10);
+      }
+    }
+    Object.defineProperty(window, "MediaRecorder", { configurable: true, value: FakeRecorder });
+    Object.defineProperty(navigator.mediaDevices, "getUserMedia", {
+      configurable: true,
+      value: async () => ({ getTracks: () => [{ stop() {} }] }),
+    });
+  });
+  await page.goto("/tasks");
+  await page.getByRole("button", { name: "Ramble" }).click();
+  const dialog = page.getByRole("dialog", { name: "Ramble" });
+  await dialog.getByRole("button", { name: "Record" }).click();
+  await expect(dialog.locator("[data-ramble-recording]")).toBeVisible();
+  // Cancel (Escape) while the fake recorder's stop answer is still on its way:
+  // it must never send the recording to the transcription endpoint.
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("dialog", { name: "Ramble" })).toHaveCount(0);
+  await page.waitForTimeout(250);
+  expect(transcribed).toBe(0);
+  await context.close();
+});
+
 test("microphone denial keeps the transcript and says why", async ({ browser }) => {
   const context = await browser.newContext({ extraHTTPHeaders: { "x-e2e-login": "alice" } });
   const page = await context.newPage();

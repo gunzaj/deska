@@ -15,7 +15,7 @@ import { DeleteSectionDialog, movedPosition, SectionDialog, SectionMenu } from "
 import { NEW_SOURCE } from "@/lib/client/project-source";
 import { ProjectSourceSection } from "../tasks/project-source";
 import { useAppViews } from "../app/provider";
-import { taskViewMatches, taskViewPrefill } from "@/lib/tasks/views";
+import { taskViewMatches, taskViewPrefill, taskViewShowsSubtasks } from "@/lib/tasks/views";
 import { useToday } from "../tasks/notifications";
 import { PlanMyDay } from "../tasks/plan-my-day";
 import { useTasks, type ComposePrefill } from "../tasks/store";
@@ -481,7 +481,9 @@ export function TaskSavedViewPage({ id }: { id: string }) {
         ? {
             title: view.name,
             icon: <Icon name="sliders" size={15} />,
-            withSubtasks: true,
+            // The Inbox view matches a sub-task whose own project is null:
+            // the Inbox page and badge keep those out.
+            withSubtasks: taskViewShowsSubtasks(view.filter),
             filter: (t, c) => taskViewMatches(t, view.filter, c.today),
             // A project view is one list; any other view splits overdue from the rest like Inbox.
             group: (open, c) =>

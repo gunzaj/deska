@@ -6,7 +6,7 @@
 // rows, and a retry uses the same idempotency key so it never duplicates them.
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Job } from "@/lib/ai/runner";
-import type { RambleTaskSuggestion } from "@/lib/ai/ramble";
+import { MAX_RAMBLE_TASKS, type RambleTaskSuggestion } from "@/lib/ai/ramble";
 import { usePoll } from "@/lib/client/poll";
 import { PRIORITIES, type Priority } from "@/lib/tasks/model";
 import { useTasks } from "./store";
@@ -71,6 +71,9 @@ export function RambleDialog({ open, onClose }: { open: boolean; onClose: () => 
   const chunks = useRef<Blob[]>([]);
   const timer = useRef<ReturnType<typeof setInterval> | null>(null);
   const stopTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // One id per open dialog: an answer from a closed one (a recording stopped by
+  // Cancel, a parse that finished after closing) must not land in the next.
+  const session = useRef(0);
 
   const stopRecording = useCallback(() => {
     if (timer.current) clearInterval(timer.current);
@@ -84,6 +87,7 @@ export function RambleDialog({ open, onClose }: { open: boolean; onClose: () => 
   }, []);
 
   const close = useCallback(() => {
+    session.current += 1;
     stopRecording();
     recorder.current = null;
     chunks.current = [];
@@ -100,6 +104,7 @@ export function RambleDialog({ open, onClose }: { open: boolean; onClose: () => 
   // backdrop) stops the microphone.
   useEffect(() => {
     if (!open) return;
+    session.current += 1;
     setIdempotencyKey(crypto.randomUUID());
     setPhase("ready");
     return () => stopRecording();
@@ -107,6 +112,8 @@ export function RambleDialog({ open, onClose }: { open: boolean; onClose: () => 
 
   const parse = useCallback(
     async (text: string) => {
+      const s = session.current;
+      pollFailures.current = 0;
       setPhase("parsing");
       setError(null);
       setJob(null);
@@ -116,6 +123,7 @@ export function RambleDialog({ open, onClose }: { open: boolean; onClose: () => 
           headers: { "content-type": "application/json" },
           body: JSON.stringify({ transcript: text.trim(), clock: { today, now, tz } }),
         });
+        if (s !== session.current) return;
         const body = (await res.json().catch(() => ({}))) as { job?: Job; error?: string };
         if (!res.ok || !body.job) {
           setError(body.error ?? `The transcript could not be read (${res.status}).`);
@@ -130,6 +138,7 @@ export function RambleDialog({ open, onClose }: { open: boolean; onClose: () => 
           setPhase("review");
         }
       } catch (e) {
+        if (s !== session.current) return;
         setError(e instanceof Error ? e.message : String(e));
         setRows([fallbackRow(text)]);
         setPhase("review");
@@ -139,12 +148,14 @@ export function RambleDialog({ open, onClose }: { open: boolean; onClose: () => 
   );
 
   const transcribe = useCallback(async (blob: Blob) => {
+    const s = session.current;
     setPhase("transcribing");
     setError(null);
     const form = new FormData();
     form.append("file", blob, "ramble.webm");
     try {
       const res = await fetch("/api/ai/transcribe", { method: "POST", body: form });
+      if (s !== session.current) return;
       const body = (await res.json().catch(() => ({}))) as { text?: string; error?: string };
       if (!res.ok) {
         setError(body.error ?? `Transcription failed (${res.status}).`);
@@ -160,18 +171,40 @@ export function RambleDialog({ open, onClose }: { open: boolean; onClose: () => 
       }
       await parse(text);
     } catch (e) {
+      if (s !== session.current) return;
       setError(e instanceof Error ? e.message : String(e));
       setPhase("ready");
     }
   }, [parse]);
 
   const jobId = job?.id ?? null;
+  const pollFailures = useRef(0);
   const poll = useCallback(async () => {
     if (!jobId) return;
+    const s = session.current;
     try {
       const res = await fetch(`/api/ai/jobs/${jobId}`, { cache: "no-store" });
-      if (!res.ok) return;
+      if (s !== session.current) return;
+      // The job lives in server memory: a restart (or a pruned job) makes it
+      // vanish. Say so instead of polling a 404 forever.
+      if (res.status === 404) {
+        setError("The transcript is no longer being read. Read it again.");
+        setRows([fallbackRow(transcript)]);
+        setPhase("review");
+        return;
+      }
+      if (!res.ok) {
+        // A short outage is retried; a long one falls back to the transcript.
+        if (++pollFailures.current >= 10) {
+          setError("The transcript could not be read. Read it again.");
+          setRows([fallbackRow(transcript)]);
+          setPhase("review");
+        }
+        return;
+      }
+      pollFailures.current = 0;
       const body = (await res.json()) as { job: Job };
+      if (s !== session.current) return;
       setJob(body.job);
       if (body.job.state === "done") {
         const result = body.job.result as { tasks?: RambleTaskSuggestion[] } | null;
@@ -189,10 +222,25 @@ export function RambleDialog({ open, onClose }: { open: boolean; onClose: () => 
   }, [jobId, transcript]);
   usePoll(poll, { every: 800, enabled: phase === "parsing" && !!jobId });
 
+  async function cancelParse() {
+    // Cancelling stops the job; the transcript stays for "Read transcript".
+    session.current += 1;
+    if (jobId) await fetch(`/api/ai/jobs/${jobId}/cancel`, { method: "POST" }).catch(() => null);
+    setJob(null);
+    setRows([]);
+    setError(null);
+    setPhase("ready");
+  }
+
   async function record() {
+    const s = session.current;
     setError(null);
     try {
       const media = await navigator.mediaDevices.getUserMedia({ audio: true });
+      if (s !== session.current) {
+        for (const track of media.getTracks()) track.stop();
+        return;
+      }
       stream.current = media;
       const type = ["audio/webm;codecs=opus", "audio/webm", "audio/mp4"].find((t) => MediaRecorder.isTypeSupported(t));
       const rec = new MediaRecorder(media, type ? { mimeType: type } : undefined);
@@ -202,6 +250,7 @@ export function RambleDialog({ open, onClose }: { open: boolean; onClose: () => 
         if (e.data.size) chunks.current.push(e.data);
       };
       rec.onstop = () => {
+        if (s !== session.current) return;
         const blob = new Blob(chunks.current, { type: rec.mimeType || "audio/webm" });
         chunks.current = [];
         void transcribe(blob);
@@ -213,6 +262,10 @@ export function RambleDialog({ open, onClose }: { open: boolean; onClose: () => 
       // Two minutes is plenty for a list of tasks; the recording stops itself.
       stopTimer.current = setTimeout(() => stopRecording(), MAX_RECORD_MS);
     } catch {
+      // A failed recorder setup must not leave the microphone live.
+      for (const track of stream.current?.getTracks() ?? []) track.stop();
+      stream.current = null;
+      if (s !== session.current) return;
       setError("Microphone access was denied. Allow Deska to use the microphone in System Settings, then try again. You can also type the tasks below.");
       setPhase("ready");
     }
@@ -242,6 +295,7 @@ export function RambleDialog({ open, onClose }: { open: boolean; onClose: () => 
       setError("Add a title to at least one task.");
       return;
     }
+    const s = session.current;
     setPhase("creating");
     setError(null);
     try {
@@ -250,6 +304,7 @@ export function RambleDialog({ open, onClose }: { open: boolean; onClose: () => 
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ idempotencyKey, tasks }),
       });
+      if (s !== session.current) return;
       const body = (await res.json().catch(() => ({}))) as { tasks?: unknown[]; error?: string };
       if (!res.ok) {
         setError(body.error ?? `Could not create the tasks (${res.status}).`);
@@ -260,6 +315,7 @@ export function RambleDialog({ open, onClose }: { open: boolean; onClose: () => 
       await reload();
       close();
     } catch (e) {
+      if (s !== session.current) return;
       setError(e instanceof Error ? e.message : String(e));
       setPhase("review");
     }
@@ -331,6 +387,9 @@ export function RambleDialog({ open, onClose }: { open: boolean; onClose: () => 
         <div className="flex items-center gap-2 p-4 text-[12.5px] text-muted" role="status">
           <span className="size-3 animate-spin rounded-full border-2 border-line border-t-brand" aria-label="Reading the transcript" />
           Reading the transcript…
+          <button type="button" onClick={() => void cancelParse()} className={btn.ghost} data-ramble-cancel>
+            Cancel
+          </button>
         </div>
       )}
 
@@ -438,7 +497,14 @@ export function RambleDialog({ open, onClose }: { open: boolean; onClose: () => 
             ))}
           </div>
           <div className="flex flex-wrap items-center justify-between gap-2 border-t border-line-soft pt-3">
-            <button type="button" disabled={phase === "creating"} onClick={() => setRows((prev) => [...prev, newRow()])} className={btn.ghost} data-ramble-add>
+            <button
+              type="button"
+              disabled={phase === "creating" || rows.length >= MAX_RAMBLE_TASKS}
+              title={rows.length >= MAX_RAMBLE_TASKS ? `A Ramble creates at most ${MAX_RAMBLE_TASKS} tasks` : undefined}
+              onClick={() => setRows((prev) => [...prev, newRow()])}
+              className={btn.ghost}
+              data-ramble-add
+            >
               <Icon name="plus" size={13} /> Add task
             </button>
             <div className="flex gap-1.5">

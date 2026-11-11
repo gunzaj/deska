@@ -21,6 +21,15 @@ describe("Ramble (item 13)", () => {
     expect(rambleSchema(input()).safeParse({ tasks: [{ title: "Buy milk", dueDate: null, dueTime: null, priority: 4, reason: "Shopping.", labelIds: ["other"] }] }).success).toBe(false);
     expect(rambleSchema(input()).safeParse({ tasks: [{ title: "Buy milk", dueDate: "2026-02-30", dueTime: null, priority: 4, reason: "Shopping." }] }).success).toBe(false);
     expect(rambleSchema(input()).safeParse({ tasks: [] }).success).toBe(false);
+    // The section IDs are one enum, but a section must belong to the task's project.
+    const two = rambleSchema(input({
+      projects: [
+        { id: "p1", name: "Home", sections: [{ id: "s1", name: "Errands" }] },
+        { id: "p2", name: "Work", sections: [{ id: "s2", name: "Admin" }] },
+      ],
+    }));
+    expect(two.safeParse({ tasks: [{ title: "Buy milk", dueDate: null, dueTime: null, priority: 4, reason: "Shopping.", projectId: "p1", sectionId: "s2", labelIds: [] }] }).success).toBe(false);
+    expect(two.safeParse({ tasks: [{ title: "Buy milk", dueDate: null, dueTime: null, priority: 4, reason: "Shopping.", projectId: "p2", sectionId: "s2", labelIds: [] }] }).success).toBe(true);
     expect(rambleSchema(input()).safeParse({ tasks: [{ title: "Buy milk", dueDate: null, dueTime: null, priority: 9, reason: "Shopping." }] }).success).toBe(false);
   });
 

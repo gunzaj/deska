@@ -839,7 +839,9 @@ async function boot() {
   ses.webRequest.onBeforeRequest((details, cb) => cb({ cancel: !requestAllowed(details.url, details.resourceType, s.origin) }));
   // Ramble records audio (item 13): the microphone is the one media permission.
   const allowedPermissions = new Set(["notifications", "clipboard-sanitized-write"]);
-  const allowed = (permission: string, mediaTypes?: string[]) => (permission === "media" ? mediaTypes?.includes("audio") === true : allowedPermissions.has(permission));
+  // The microphone is the one media permission: audio only, never a camera.
+  const allowed = (permission: string, mediaTypes?: string[]) =>
+    permission === "media" ? mediaTypes?.length === 1 && mediaTypes[0] === "audio" : allowedPermissions.has(permission);
   ses.setPermissionRequestHandler((_wc, permission, cb, details) => cb(allowed(permission, "mediaTypes" in details ? details.mediaTypes : undefined)));
   ses.setPermissionCheckHandler((_wc, permission, _origin, details) => (permission === "media" ? details.mediaType === "audio" : allowedPermissions.has(permission)));
   // A session cookie (no expiry): HttpOnly keeps it from page scripts,
