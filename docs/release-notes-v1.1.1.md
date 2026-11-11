@@ -9,6 +9,7 @@ A macOS app for working with GitHub Issues and a GitHub Project: filtering, fast
 A small update to 1.1.0 with fixes:
 
 - **Release page:** the summary at the top (progress, counts, Risk) can be hidden with "Hide summary", so the board gets more room. It shrinks to one line and Deska remembers your choice.
+- **Global shortcut:** the quick add window now opens on top of Deska instead of hiding or minimizing the main window.
 - **Quick add:** a token followed by a sentence-ending period (for example a date or project at the end of a sentence) is now recognised.
 
 Everything from 1.1.0 is still included; see its notes for the full list.

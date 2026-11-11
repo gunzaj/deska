@@ -517,7 +517,10 @@ function openQuickAdd() {
   });
   lockDown(win.webContents, server.origin);
   win.setAlwaysOnTop(true, "floating");
-  win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+  // `visibleOnFullScreen` makes macOS briefly turn Deska into a background app, which hides
+  // an open main window. Only use it when there is no main window on screen to hide.
+  const mainOnScreen = !!mainWindow && !mainWindow.isDestroyed() && mainWindow.isVisible() && !mainWindow.isMinimized();
+  win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: !mainOnScreen });
   win.once("ready-to-show", () => {
     win.show();
     win.focus();
