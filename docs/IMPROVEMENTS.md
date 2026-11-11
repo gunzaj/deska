@@ -78,7 +78,7 @@ listed for the maintainer at the end.
   run one at a time.
 - **Item 13:** `pnpm typecheck`, `pnpm lint`, `pnpm test` (167 files, 1213 tests);
   targeted Playwright specs `ai-settings`, `ramble` and `task-views` pass one at a time.
-- **Final:** `pnpm typecheck`, `pnpm lint`, `pnpm test` (168 files, 1220 tests),
+- **Final:** `pnpm typecheck`, `pnpm lint`, `pnpm test` (169 files, 1221 tests),
   `pnpm test:e2e` (211 tests, one worker, one retry allowed and none used),
   `pnpm desktop:build` (`release/Deska-1.1.2-universal.dmg`) and
   `node scripts/leak-guard.mjs --all` all pass. The full e2e run also caught an
