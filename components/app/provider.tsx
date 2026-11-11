@@ -4,6 +4,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import type { ClientData, ClientIssue, ClientOption, ClientRelease, DimKey, SingleSelectKey, WireData, WireIssue } from "@/lib/client/types";
 import { preloadAppFetches } from "@/lib/client/preload";
 import type { RelativeRelease } from "@/lib/views/engine";
+import type { TaskView, TaskViewDraft } from "@/lib/tasks/views";
 import type { View } from "@/lib/views/view";
 import { isUnauthorized } from "@/lib/client/session";
 import { ToastProvider } from "../ui/toast";
@@ -54,6 +55,10 @@ type ViewsCtx = {
   removeView: (id: string) => Promise<boolean>;
   /** Undo a view delete (U1). */
   restoreView: (id: string) => Promise<View | null>;
+  /** Saved task views (item 12). */
+  taskViews: TaskView[];
+  upsertTaskView: (v: TaskViewDraft) => Promise<TaskView | null>;
+  removeTaskView: (id: string) => Promise<boolean>;
 };
 
 type ThemeCtx = { theme: Theme; setTheme: (t: Theme) => void };
@@ -90,6 +95,7 @@ export function useApp(): Ctx {
 export function AppProvider({ viewer, children }: { viewer: string; children: ReactNode }) {
   const [wire, setWire] = useState<WireData | null>(null);
   const [views, setViews] = useState<View[] | null>(null);
+  const [taskViews, setTaskViews] = useState<TaskView[] | null>(null);
   const [etag, setEtag] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
 
@@ -101,17 +107,19 @@ export function AppProvider({ viewer, children }: { viewer: string; children: Re
     try {
       // /api/data: default cache mode, so the browser revalidates with the ETag
       // and an unchanged cache costs a 304 (S5).
-      const [d, v] = await Promise.all([fetch("/api/data"), fetch("/api/views", { cache: "no-store" })]);
-      if (isUnauthorized(d) || isUnauthorized(v)) return;
-      if (!d.ok || !v.ok) {
-        const body = await (d.ok ? v : d).json().catch(() => null);
-        throw new Error(body?.error ?? `HTTP ${d.ok ? v.status : d.status}`);
+      const [d, v, t] = await Promise.all([fetch("/api/data"), fetch("/api/views", { cache: "no-store" }), fetch("/api/views?kind=tasks", { cache: "no-store" })]);
+      if (isUnauthorized(d) || isUnauthorized(v) || isUnauthorized(t)) return;
+      if (!d.ok || !v.ok || !t.ok) {
+        const failed = !d.ok ? d : !v.ok ? v : t;
+        const body = await failed.json().catch(() => null);
+        throw new Error(body?.error ?? `HTTP ${failed.status}`);
       }
-      const [wire, views] = await Promise.all([d.json(), v.json()]);
+      const [wire, views, taskViews] = await Promise.all([d.json(), v.json(), t.json()]);
       if (my !== loadSeq.current) return;
       setWire(withViewer(wire, viewer));
       setEtag(d.headers.get("etag"));
       setViews(views);
+      setTaskViews(taskViews);
     } catch (e) {
       if (my === loadSeq.current) setLoadError(e instanceof Error ? e.message : String(e));
     }
@@ -122,18 +130,32 @@ export function AppProvider({ viewer, children }: { viewer: string; children: Re
     void load();
   }, [load]);
 
-  if (!wire || !views) return <Loading viewer={viewer} error={loadError} retry={() => void load()} />;
+  if (!wire || !views || !taskViews) return <Loading viewer={viewer} error={loadError} retry={() => void load()} />;
   return (
-    <Loaded viewer={viewer} initialWire={wire} initialViews={views} initialEtag={etag}>
+    <Loaded viewer={viewer} initialWire={wire} initialViews={views} initialTaskViews={taskViews} initialEtag={etag}>
       {children}
     </Loaded>
   );
 }
 
-function Loaded({ viewer, initialWire, initialViews, initialEtag, children }: { viewer: string; initialWire: WireData; initialViews: View[]; initialEtag: string | null; children: ReactNode }) {
+function Loaded({
+  viewer,
+  initialWire,
+  initialViews,
+  initialTaskViews,
+  initialEtag,
+  children,
+}: {
+  viewer: string;
+  initialWire: WireData;
+  initialViews: View[];
+  initialTaskViews: TaskView[];
+  initialEtag: string | null;
+  children: ReactNode;
+}) {
   const { data, refresh, staleSince, wireIssue, overlayIssue, clearOverlay, commitIssue } = useIssueData(viewer, initialWire, initialEtag);
   const { sync, syncNow } = useSyncStatus(refresh);
-  const { views, upsertView, removeView, restoreView } = useViews(initialViews);
+  const { views, upsertView, removeView, restoreView, taskViews, upsertTaskView, removeTaskView } = useViews(initialViews, initialTaskViews);
   const { theme, setTheme } = useTheme();
 
   const dataValue = useMemo<DataCtx>(() => {
@@ -167,7 +189,10 @@ function Loaded({ viewer, initialWire, initialViews, initialEtag, children }: { 
     };
   }, [data, refresh, wireIssue, overlayIssue, clearOverlay, commitIssue]);
   const syncValue = useMemo<SyncCtx>(() => ({ sync, syncNow, staleSince }), [sync, syncNow, staleSince]);
-  const viewsValue = useMemo<ViewsCtx>(() => ({ views, upsertView, removeView, restoreView }), [views, upsertView, removeView, restoreView]);
+  const viewsValue = useMemo<ViewsCtx>(
+    () => ({ views, upsertView, removeView, restoreView, taskViews, upsertTaskView, removeTaskView }),
+    [views, upsertView, removeView, restoreView, taskViews, upsertTaskView, removeTaskView],
+  );
   const themeValue = useMemo<ThemeCtx>(() => ({ theme, setTheme }), [theme, setTheme]);
 
   return (

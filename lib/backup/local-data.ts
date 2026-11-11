@@ -177,13 +177,23 @@ export async function importLocalData(value: unknown): Promise<ImportResult> {
   const doc = parseLocalData(value);
   const db = requireDb();
   const { viewSchema } = await import("../views/view");
+  const { taskViewSchema } = await import("../tasks/views");
   const result: ImportResult = { tables: {}, added: 0 };
   try {
     await db.transaction(async (tx) => {
       for (const t of LOCAL_TABLES) {
         let rows = doc.tables[t.name];
         if (!rows?.length) continue;
-        if (t.name === "views") rows = rows.filter((r) => viewSchema.safeParse(r.definition_json).success);
+        if (t.name === "views") {
+          rows = rows.filter((r) => {
+            // A backup from before 0009 has no kind: its views were issue views.
+            const kind = r.kind === "tasks" || (r.definition_json as { kind?: unknown } | null)?.kind === "tasks" ? "tasks" : "issues";
+            const parsed = kind === "tasks" ? taskViewSchema.safeParse(r.definition_json) : viewSchema.safeParse(r.definition_json);
+            if (!parsed.success) return false;
+            r.kind = kind;
+            return true;
+          });
+        }
         if (!rows.length) continue;
         const json = JSON.stringify(rows);
         const cond = t.where ? `WHERE ${t.where}` : "";

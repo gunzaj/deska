@@ -7,12 +7,15 @@ import { compareCompleted, compareTasks, type PatchTaskInput, type Task, type Ta
 import { Page } from "../app/shell";
 import { Icon, type IconName } from "../icons";
 import { EmptyHint } from "../props";
+import { Dialog } from "../ui/dialog";
 import { btn } from "../ui/popover";
 import { TaskErrorBanner } from "../tasks/bits";
 import { ColorDot, LabelDialog, ProjectDialog } from "../tasks/organize";
 import { DeleteSectionDialog, movedPosition, SectionDialog, SectionMenu } from "../tasks/sections";
 import { NEW_SOURCE } from "@/lib/client/project-source";
 import { ProjectSourceSection } from "../tasks/project-source";
+import { useAppViews } from "../app/provider";
+import { taskViewMatches, taskViewPrefill } from "@/lib/tasks/views";
 import { useToday } from "../tasks/notifications";
 import { PlanMyDay } from "../tasks/plan-my-day";
 import { useTasks, type ComposePrefill } from "../tasks/store";
@@ -461,6 +464,70 @@ export function TaskLabelPage({ id }: { id: string }) {
     <>
       <TaskList def={def} />
       <LabelDialog open={editing} onClose={() => setEditing(false)} label={label} onDeleted={() => router.push("/tasks")} />
+    </>
+  );
+}
+
+/** A saved task view (item 12): the Tasks list with the view's filters. */
+export function TaskSavedViewPage({ id }: { id: string }) {
+  const { taskViews, removeTaskView } = useAppViews();
+  const router = useRouter();
+  const { toast } = useToast();
+  const [deleting, setDeleting] = useState(false);
+  const view = taskViews.find((v) => v.id === id);
+  const def = useMemo<ViewDef | null>(
+    () =>
+      view
+        ? {
+            title: view.name,
+            icon: <Icon name="sliders" size={15} />,
+            withSubtasks: true,
+            filter: (t, c) => taskViewMatches(t, view.filter, c.today),
+            // A project view is one list; any other view splits overdue from the rest like Inbox.
+            group: (open, c) =>
+              view.filter.projectId && view.filter.projectId !== "none" ? [{ key: "all", title: "Tasks", tasks: open }] : overdueSplit(open, c.today, "Upcoming & no date"),
+            prefill: () => taskViewPrefill(view.filter),
+            empty: { title: "No tasks match", hint: "Save a view with different filters.", icon: "sliders" },
+            actions: (
+              <button type="button" onClick={() => setDeleting(true)} className={btn.ghost}>
+                <Icon name="trash" size={13} /> Delete view
+              </button>
+            ),
+          }
+        : null,
+    [view],
+  );
+  if (!view || !def) {
+    return <EmptyHint icon="sliders" title="View not found" hint="It was deleted, or it never existed." />;
+  }
+  return (
+    <>
+      <TaskList def={def} />
+      <Dialog open={deleting} onClose={() => setDeleting(false)} label="Delete view" width={420}>
+        <div className="p-4">
+          <p className="text-[14px] font-semibold">Delete “{view.name}”?</p>
+          <p className="mt-1 text-[12.5px] text-muted">Its tasks stay where they are; only the saved view goes.</p>
+          <div className="mt-4 flex justify-end gap-1.5">
+            <button type="button" onClick={() => setDeleting(false)} className={btn.ghost}>
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={() =>
+                void removeTaskView(view.id).then((ok) => {
+                  setDeleting(false);
+                  if (!ok) return;
+                  toast({ message: "View deleted." });
+                  router.push("/tasks");
+                })
+              }
+              className={btn.outline}
+            >
+              Delete
+            </button>
+          </div>
+        </div>
+      </Dialog>
     </>
   );
 }

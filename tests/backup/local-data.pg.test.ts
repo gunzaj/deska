@@ -31,6 +31,7 @@ async function seedLocal() {
   await q(`INSERT INTO triage_snoozes (login, issue_node_id, until) VALUES ('local', 'I_acme_2', '2026-12-01')`);
   await q(`INSERT INTO watches (login, kind, target_id) VALUES ('local', 'issue', 'I_acme_3')`);
   await q(`INSERT INTO views (id, name, definition_json) VALUES ('v-mine', 'Mine', '{"id":"v-mine","name":"Mine","layout":"list","filters":[],"sort":[]}')`);
+  await q(`INSERT INTO views (id, name, kind, definition_json) VALUES ('tv-mine', 'Urgent home', 'tasks', '{"id":"tv-mine","kind":"tasks","name":"Urgent home","filter":{"priority":1}}')`);
   await saveTarget({ repo: "acme/widgets", org: "acme", projectNumber: 7, projectId: "PVT_acme_widgets_roadmap", projectTitle: "Widgets Roadmap" });
   await saveMapping(effectiveMapping(null, []));
 }
@@ -160,6 +161,20 @@ describe("import", () => {
     expect(await count("views")).toBe(0);
   });
 
+  it("keeps a saved task view, and reads a backup from before kinds as issue views", async () => {
+    await seedLocal();
+    const before = await exportLocalData();
+    expect(before.tables.views!.find((r) => r.id === "tv-mine")).toMatchObject({ kind: "tasks" });
+    await resetEverything();
+    const old = JSON.parse(JSON.stringify(before)) as typeof before;
+    for (const r of old.tables.views!) delete r.kind;
+    await importLocalData(old);
+    expect(await q(`SELECT id, kind FROM views ORDER BY id`)).toEqual([
+      { id: "tv-mine", kind: "tasks" },
+      { id: "v-mine", kind: "issues" },
+    ]);
+  });
+
   it("skips views the strict schema refuses", async () => {
     const doc = await exportLocalData();
     doc.tables.views = [{ id: "bad", name: "Bad", definition_json: { id: "bad", name: "Bad", layout: "nope" }, position: 0, updated_at: null, deleted_at: null }];
@@ -181,7 +196,7 @@ describe("resets", () => {
     expect(await count("task_links")).toBe(1);
     expect(await count("triage_snoozes")).toBe(1);
     expect(await count("watches")).toBe(1);
-    expect(await count("views")).toBe(1);
+    expect(await count("views")).toBe(2);
     expect(await count("app_settings")).toBe(2);
   });
 

@@ -78,15 +78,20 @@ class PostgresRepo implements ViewRepo {
     return parsed.success ? parsed.data : null;
   }
   async all() {
-    const rows = await getDb().select().from(viewsTable).where(isNull(viewsTable.deletedAt)).orderBy(asc(viewsTable.position), asc(viewsTable.name));
+    // Only the issue views: saved task views share the table (item 12).
+    const rows = await getDb()
+      .select()
+      .from(viewsTable)
+      .where(and(eq(viewsTable.kind, "issues"), isNull(viewsTable.deletedAt)))
+      .orderBy(asc(viewsTable.position), asc(viewsTable.name));
     return rows.map((r) => this.parse(r)).filter((v): v is View => v != null);
   }
   async get(id: string) {
-    const row = await getDb().query.views.findFirst({ where: and(eq(viewsTable.id, id), isNull(viewsTable.deletedAt)) });
+    const row = await getDb().query.views.findFirst({ where: and(eq(viewsTable.id, id), eq(viewsTable.kind, "issues"), isNull(viewsTable.deletedAt)) });
     return row ? this.parse(row) : null;
   }
   async getDeleted(id: string) {
-    const row = await getDb().query.views.findFirst({ where: and(eq(viewsTable.id, id), isNotNull(viewsTable.deletedAt)) });
+    const row = await getDb().query.views.findFirst({ where: and(eq(viewsTable.id, id), eq(viewsTable.kind, "issues"), isNotNull(viewsTable.deletedAt)) });
     return row ? this.parse(row) : null;
   }
   async restore(id: string) {
@@ -96,6 +101,7 @@ class PostgresRepo implements ViewRepo {
     return {
       id: v.id,
       name: v.name,
+      kind: "issues",
       definitionJson: v,
       updatedAt: new Date(),
     };

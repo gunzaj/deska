@@ -221,13 +221,15 @@ export const views = pgTable(
     // reseeding is idempotent and links to them survive a reseed.
     id: text("id").primaryKey(),
     name: text("name").notNull(),
+    /** `issues` (an Explorer view) or `tasks` (a saved task view, item 12). */
+    kind: text("kind").notNull().default("issues"),
     definitionJson: jsonb("definition_json").notNull(),
     position: integer("position").notNull().default(0),
     updatedAt: timestamp("updated_at").defaultNow(),
     /** Soft delete, so a deleted view can be restored (U1); purged after 30 days (S8). */
     deletedAt: timestamp("deleted_at"),
   },
-  (t) => [index("views_deleted_idx").on(t.deletedAt)],
+  (t) => [index("views_deleted_idx").on(t.deletedAt), index("views_kind_idx").on(t.kind)],
 );
 
 export const outbox = pgTable(

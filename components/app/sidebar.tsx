@@ -10,6 +10,7 @@ import { Icon, Logo, type IconName } from "../icons";
 import { Kbd, OptionDot } from "../props";
 import { useTriageCount } from "../triage/queues";
 import { useTasks } from "../tasks/store";
+import { SaveTaskViewDialog } from "../tasks/task-views";
 import { useTaskDrop } from "../tasks/drop";
 import type { DropTarget } from "@/lib/client/task-drop";
 import { useWatchlist } from "../watch/store";
@@ -117,7 +118,7 @@ const GITHUB_SECTIONS: SidebarSection[] = ["workspace", "views", "teams"];
 export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
   const tasksOnly = useTasksOnly();
   const { data, viewer } = useAppData();
-  const { views } = useAppViews();
+  const { views, taskViews } = useAppViews();
   const { sync, syncNow } = useAppSync();
   const { meta, issues } = data;
   const { scope } = useDefaultScope();
@@ -144,6 +145,7 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
   const { tasks, projects, labels, openCompose } = useTasks();
   const { today } = useToday();
   const [newProject, setNewProject] = useState(false);
+  const [saveView, setSaveView] = useState(false);
   const { sections } = useSidebarLayout();
   const [customize, setCustomize] = useState(false);
   const inDrawer = Boolean(onNavigate);
@@ -173,6 +175,8 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
     { href: "/tasks/today", label: "Today", icon: "star", count: taskCounts.due, drop: { kind: "today" } },
     { href: "/tasks/upcoming", label: "Upcoming", icon: "calendar", drop: { kind: "upcoming" } },
     { href: "/tasks/completed", label: "Completed", icon: "circleCheck" },
+    // Saved task views (item 12) come after the four built-in lists.
+    ...taskViews.map((v) => ({ href: `/tasks/views/${v.id}`, label: v.name, icon: "sliders" as IconName })),
   ];
 
   const current = meta.releases.find((r) => r.id === meta.currentReleaseId);
@@ -203,9 +207,14 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
         key="tasks"
         title="Tasks"
         action={
-          <button type="button" onClick={() => openCompose()} title="New task" aria-label="New task" className="grid size-5 place-items-center rounded text-faint hover:bg-hover hover:text-fg">
-            <Icon name="plus" size={13} />
-          </button>
+          <>
+            <button type="button" onClick={() => setSaveView(true)} title="Save view" aria-label="Save view" className="grid size-5 place-items-center rounded text-faint hover:bg-hover hover:text-fg">
+              <Icon name="sliders" size={13} />
+            </button>
+            <button type="button" onClick={() => openCompose()} title="New task" aria-label="New task" className="grid size-5 place-items-center rounded text-faint hover:bg-hover hover:text-fg">
+              <Icon name="plus" size={13} />
+            </button>
+          </>
         }
       >
         {taskNav.map((n) => (
@@ -346,6 +355,7 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
 
         {sections.filter((x) => !x.hidden && !(tasksOnly && GITHUB_SECTIONS.includes(x.id))).map((x) => blocks[x.id])}
         <ProjectDialog open={newProject} onClose={() => setNewProject(false)} />
+        <SaveTaskViewDialog open={saveView} onClose={() => setSaveView(false)} />
         <CustomizeSidebarDialog open={customize} onClose={() => setCustomize(false)} />
       </nav>
 
