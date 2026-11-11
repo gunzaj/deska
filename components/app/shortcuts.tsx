@@ -45,7 +45,7 @@ const GROUPS: { title: string; keys: [string[], string][] }[] = [
       [["T"], "First mapped dimension (e.g. a team field)"],
       [["R"], "Release"],
       [["A"], "Assign"],
-      [["S"], "Skip to the next issue"],
+      [["S"], "Next issue"],
       [["←"], "Previous issue"],
       [["I"], "AI suggestion (when AI assist is on)"],
       [["Z"], "Snooze until a date"],
