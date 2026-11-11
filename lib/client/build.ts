@@ -18,7 +18,7 @@ function addDays(isoDate: string, days: number): string {
  */
 export function buildClientData(
   store: ReadModel,
-  opts: { viewer: string; writeMode: boolean; demo: boolean; now?: Date; repo?: string },
+  opts: { viewer: string; writeMode: boolean; demo: boolean; now?: Date; repo?: string; projectTitle?: string },
 ): WireData {
   const now = opts.now ?? new Date();
   const today = now.toISOString().slice(0, 10);
@@ -105,6 +105,7 @@ export function buildClientData(
 
   const meta: ClientMeta = {
     repo,
+    projectTitle: opts.projectTitle ?? "",
     viewer: opts.viewer,
     writeMode: opts.writeMode,
     demo: opts.demo,

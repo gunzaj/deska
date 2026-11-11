@@ -305,8 +305,12 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
       <div className="flex items-center gap-2 px-1.5">
         <Logo size={22} />
         <div className="min-w-0 flex-1 leading-tight">
-          <p className="text-[13.5px] font-semibold tracking-tight">Deska</p>
-          <p className="truncate text-[11px] text-faint">{tasksOnly ? "Tasks" : meta.repo}</p>
+          <p className="truncate text-[13.5px] font-semibold tracking-tight" title={tasksOnly ? "Deska" : meta.projectTitle || "Deska"}>
+            {tasksOnly ? "Deska" : meta.projectTitle || "Deska"}
+          </p>
+          <p className="truncate text-[11px] text-faint" title={tasksOnly ? "Tasks" : meta.repo}>
+            {tasksOnly ? "Tasks" : meta.repo}
+          </p>
         </div>
         {!tasksOnly && (
           <button

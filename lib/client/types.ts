@@ -50,6 +50,8 @@ export type ClientMapping = {
 
 export type ClientMeta = {
   repo: string;
+  /** The pinned project's title, when one is set (improvement 8); "" otherwise. */
+  projectTitle?: string;
   viewer: string;
   writeMode: boolean;
   /** Why edit controls are off while `writeMode` is false: "Read-only token" with a connected token, else "Editing is off for this deployment". */
