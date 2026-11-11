@@ -51,6 +51,8 @@ describe("requestAllowed", () => {
     expect(requestAllowed("https://github.com/acme/widgets/assets/1/x.png", "image", APP)).toBe(true);
     expect(requestAllowed("https://avatars.githubusercontent.com/u/1", "script", APP)).toBe(false);
     expect(requestAllowed("https://api.github.com/user", "xhr", APP)).toBe(false);
+    expect(requestAllowed("https://github.com/acme/widgets/assets/1/clip.mp4", "media", APP)).toBe(true);
+    expect(requestAllowed("https://evil.example/clip.mp4", "media", APP)).toBe(false);
     expect(requestAllowed("https://evil.example/pixel.png", "image", APP)).toBe(false);
     expect(requestAllowed("https://fonts.example/font.woff2", "font", APP)).toBe(false);
   });

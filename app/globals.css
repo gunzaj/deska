@@ -156,6 +156,14 @@ body {
   max-width: 100%;
   border-radius: 6px;
 }
+[data-issue-description] .gh-markdown img {
+  cursor: zoom-in;
+}
+[data-issue-description] .gh-markdown video {
+  display: block;
+  max-height: 60vh;
+  background: #000;
+}
 .gh-markdown table {
   border-collapse: collapse;
   display: block;

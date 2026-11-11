@@ -8,6 +8,12 @@ describe("sanitizeHtml", () => {
     expect(out).toContain("<p>hi</p>");
   });
 
+  it("renders images in a description", () => {
+    expect(sanitizeHtml(renderMarkdownLite("![A widget](https://github.com/acme/widgets/assets/1/a.png)"))).toBe(
+      '<p><img src="https://github.com/acme/widgets/assets/1/a.png" alt="A widget"></p>',
+    );
+  });
+
   it("opens links in a new tab without opener", () => {
     expect(sanitizeHtml('<a href="https://github.com">gh</a>')).toBe('<a target="_blank" rel="noreferrer noopener" href="https://github.com">gh</a>');
   });

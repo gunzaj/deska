@@ -60,7 +60,16 @@ export function sanitizeHtml(html: string): string {
       }
       return `<${name}${kept.join("")}${/\/\s*$/.test(rest) ? " /" : ""}>`;
     })
-    .replace(/<a\s/gi, '<a target="_blank" rel="noreferrer noopener" ');
+    .replace(/<a\s/gi, '<a target="_blank" rel="noreferrer noopener" ')
+    // Videos in a description must be playable: GitHub sometimes leaves the
+    // attributes off, and Electron refuses a video without controls.
+    .replace(/<video\b([^>]*)>/gi, (_tag, attrs: string) => {
+      let out = `<video${attrs}>`;
+      for (const attr of ["controls", "playsinline", 'preload="metadata"']) {
+        if (!new RegExp(`\\b${attr.split("=")[0]}\\b`, "i").test(attrs)) out = out.replace(/>$/, ` ${attr}>`);
+      }
+      return out;
+    });
 }
 
 function esc(s: string): string {
@@ -71,6 +80,7 @@ function inline(s: string): string {
   return esc(s)
     .replace(/`([^`]+)`/g, "<code>$1</code>")
     .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
+    .replace(/!\[([^\]]*)\]\((https?:\/\/[^)\s]+)\)/g, '<img src="$2" alt="$1">')
     .replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g, '<a href="$2">$1</a>')
     .replace(/(^|\s)#(\d+)\b/g, '$1<a href="https://github.com/__REPO__/issues/$2">#$2</a>');
 }

@@ -31,10 +31,12 @@ describe("content security policy (v5 4.10)", () => {
     expect(contentSecurityPolicy("a", false)).not.toBe(contentSecurityPolicy("b", false));
   });
 
-  it("loads images only from GitHub in the desktop app (SPEC §2.2)", () => {
+  it("loads images and videos only from GitHub in the desktop app (SPEC §2.2)", () => {
     expect(directive(prod, "img-src")).toBe("img-src 'self' data: https:");
+    expect(directive(prod, "media-src")).toBe("media-src 'self' data: https:");
     const desktop = contentSecurityPolicy("n", false, true);
     expect(directive(desktop, "img-src")).toBe("img-src 'self' data: https://github.com https://*.githubusercontent.com");
+    expect(directive(desktop, "media-src")).toBe("media-src 'self' data: https://github.com https://*.githubusercontent.com");
     expect(directive(desktop, "connect-src")).toBe("connect-src 'self'");
   });
 });
