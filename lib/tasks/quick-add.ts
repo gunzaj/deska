@@ -98,7 +98,9 @@ function upcoming(today: string, m: number, d: number, year?: number): string | 
 
 type Match = { start: number; end: number; text: string; value: unknown };
 
-const END = String.raw`(?=$|[\s,;!?)\]])`;
+// A sentence-ending period counts as a boundary ("call mom today."), but not one
+// inside a word or number ("at 3.30", "v2.5").
+const END = String.raw`(?=$|[\s,;!?)\]]|\.(?:$|\s))`;
 const START = String.raw`(?<=^|[\s(\[])`;
 
 /** Regex group accessor: "" for a group that did not participate. */
@@ -287,7 +289,8 @@ export function parseQuickAdd(input: string, ctx: ParseContext): Parsed {
     title += input.slice(at, t.start);
     at = t.end;
   }
-  title = (title + input.slice(at)).replace(/\s+/g, " ").trim();
+  // Removing a token can leave a space before punctuation ("call mom ."): close it up.
+  title = (title + input.slice(at)).replace(/\s+/g, " ").replace(/ ([.,;!?])(?=\s|$)/g, "$1").trim();
 
   const find = <K extends TokenKind>(k: K) => tokens.find((t) => t.kind === k) as Extract<Token, { kind: K }> | undefined;
   const date = find("date");

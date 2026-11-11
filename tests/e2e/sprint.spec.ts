@@ -157,3 +157,18 @@ test("planning controls are visible, disabled and say why while writes are off",
   }
   await context.close();
 });
+
+test("the summary collapses to one line and the choice is remembered", async ({ browser }) => {
+  const { context, page } = await as(browser);
+  await page.goto(`/releases/${CURRENT}`);
+  await expect(page.locator("[data-sprint-header]")).toBeVisible();
+  await page.locator("[data-summary-toggle]").click();
+  await expect(page.locator("[data-sprint-header]")).toHaveCount(0);
+  await expect(page.locator("[data-release-risk]")).toHaveCount(0);
+  await expect(page.locator("[data-summary-collapsed]")).toContainText("Remaining");
+  await page.reload();
+  await expect(page.locator("[data-summary-collapsed]")).toBeVisible();
+  await page.locator("[data-summary-toggle]").click();
+  await expect(page.locator("[data-sprint-header]")).toBeVisible();
+  await context.close();
+});

@@ -45,14 +45,34 @@ export type DesktopPrefs = {
    * through `desktop.set`.
    */
   githubAuthSource: GithubAuthSource;
+  /** The Dock icon while Deska runs: one of `APP_ICONS`. The packaged icon is always Coral. */
+  appIcon: AppIconId;
 };
+
+/**
+ * The app icons Settings offers, in picker order. Main loads
+ * `app-icons/<id>.png` for the Dock; the page shows `/app-icons/<id>-128.png`.
+ */
+export const APP_ICONS = [
+  { id: "coral", name: "Coral" },
+  { id: "ocean-blue", name: "Ocean blue" },
+  { id: "green", name: "Green" },
+  { id: "violet", name: "Violet" },
+  { id: "sunny-yellow", name: "Sunny yellow" },
+  { id: "charcoal", name: "Charcoal" },
+  { id: "coral-pink-gradient", name: "Coral-pink gradient" },
+  { id: "orange", name: "Orange" },
+] as const;
+export type AppIconId = (typeof APP_ICONS)[number]["id"];
+export const DEFAULT_APP_ICON: AppIconId = "coral";
+export const isAppIconId = (v: unknown): v is AppIconId => APP_ICONS.some((i) => i.id === v);
 
 /** The prefs the page may change through `desktop.set`. */
 export type SettablePrefs = Omit<DesktopPrefs, "backupFolder" | "githubAuthSource">;
 
 export const DEFAULT_SHORTCUT = "Control+Alt+Space";
 
-export const DEFAULT_DESKTOP_PREFS: DesktopPrefs = { shortcut: DEFAULT_SHORTCUT, notifications: true, launchAtLogin: false, dockBadge: true, backupFolder: "", githubAuthSource: "token" };
+export const DEFAULT_DESKTOP_PREFS: DesktopPrefs = { shortcut: DEFAULT_SHORTCUT, notifications: true, launchAtLogin: false, dockBadge: true, backupFolder: "", githubAuthSource: "token", appIcon: DEFAULT_APP_ICON };
 
 /** What Settings shows: the prefs plus whether the shortcut is registered right now. */
 export type DesktopState = { prefs: DesktopPrefs; shortcutActive: boolean; notificationsSupported: boolean; canLaunchAtLogin: boolean };

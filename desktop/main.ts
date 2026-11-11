@@ -9,7 +9,7 @@ import { accessSync, constants as fsConstants, existsSync, mkdirSync, readFileSy
 import http from "node:http";
 import net from "node:net";
 import path from "node:path";
-import { app, BrowserWindow, dialog, globalShortcut, ipcMain, Menu, Notification, powerMonitor, safeStorage, session, shell, utilityProcess, type IpcMainInvokeEvent, type UtilityProcess, type WebContents } from "electron";
+import { app, BrowserWindow, dialog, globalShortcut, ipcMain, Menu, nativeImage, Notification, powerMonitor, safeStorage, session, shell, utilityProcess, type IpcMainInvokeEvent, type UtilityProcess, type WebContents } from "electron";
 import { AI_KEY, CHANNELS, DEFAULT_DESKTOP_PREFS, CLASSIC_TOKEN, type AiKeyStatus, FINE_GRAINED_TOKEN, type DesktopPrefs, type DesktopState, type GithubAuthStatus, type ReminderAction, type ReminderItem, type ServerMessage, type ServerReply, type TokenAuth, type TokenStatus } from "./bridge";
 import { fallbackPath, readGhLogin, readGhToken, resolveLoginPath, serverEnv, type GhRead } from "./gh";
 import { aboutDetails, parseBuildInfo, RELEASES_URL, type BuildInfo } from "./about";
@@ -480,6 +480,28 @@ function registerShortcut(): boolean {
   return shortcutActive;
 }
 
+/**
+ * The chosen app icon in the Dock and ⌘Tab while Deska runs. Finder and the
+ * Dock after quitting keep the packaged icon (Coral): changing the bundle
+ * would break a future signature. A missing file is skipped, never fatal.
+ */
+function applyAppIcon() {
+  if (process.platform !== "darwin" || !app.dock) return;
+  // Packaged: Contents/Resources/app-icons. Dev (desktop/dist) and staged
+  // (desktop/build/app) runs read the source folder.
+  const dirs = app.isPackaged
+    ? [path.join(process.resourcesPath, "app-icons")]
+    : [path.resolve(__dirname, "..", "assets", "app-icons"), path.resolve(__dirname, "..", "..", "assets", "app-icons")];
+  const file = dirs.map((d) => path.join(d, `${prefs.appIcon}.png`)).find((f) => existsSync(f));
+  if (!file) return;
+  try {
+    const image = nativeImage.createFromPath(file);
+    if (!image.isEmpty()) app.dock.setIcon(image);
+  } catch {
+    // Keep whatever icon the Dock shows now.
+  }
+}
+
 function applyBadge() {
   app.dock?.setBadge(prefs.dockBadge && badgeCount > 0 ? String(badgeCount) : "");
 }
@@ -517,7 +539,10 @@ function openQuickAdd() {
   });
   lockDown(win.webContents, server.origin);
   win.setAlwaysOnTop(true, "floating");
-  win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+  // `visibleOnFullScreen` makes macOS briefly turn Deska into a background app, which hides
+  // an open main window. Only use it when there is no main window on screen to hide.
+  const mainOnScreen = !!mainWindow && !mainWindow.isDestroyed() && mainWindow.isVisible() && !mainWindow.isMinimized();
+  win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: !mainOnScreen });
   win.once("ready-to-show", () => {
     win.show();
     win.focus();
@@ -669,6 +694,7 @@ function registerIpc() {
     savePrefs();
     applyBadge();
     applyLoginItem();
+    if (prefs.appIcon !== before.appIcon) applyAppIcon();
     return { state: desktopState(), error };
   });
   /** Applies a new second backup folder ("" = none): stored, then handed to the server, which copies to it. */
@@ -816,6 +842,7 @@ app.on("will-quit", () => globalShortcut.unregisterAll());
 void app.whenReady().then(async () => {
   if (!primaryInstance) return;
   prefs = loadPrefs();
+  applyAppIcon();
   installMenu();
   registerIpc();
   powerMonitor.on("resume", onResume);

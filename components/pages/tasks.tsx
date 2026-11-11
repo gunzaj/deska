@@ -243,12 +243,15 @@ function TaskList({ def }: { def: ViewDef }) {
 
 // --- the views -----------------------------------------------------------------
 
-/** Inbox / all my tasks, filterable by project and label (§12.8). */
+/**
+ * Inbox: the capture list, the open tasks with no project, filterable by label.
+ * A task leaves it once it has a project; Today and Upcoming show tasks across
+ * projects by date. Same definition as Tidy Inbox and Plan my day.
+ */
 export function TaskInboxPage() {
-  const { projects, labels } = useTasks();
+  const { labels } = useTasks();
   const router = useRouter();
   const params = useSearchParams();
-  const project = params.get("project");
   const label = params.get("label");
   const setParam = useCallback(
     (k: string, v: string) => {
@@ -264,23 +267,12 @@ export function TaskInboxPage() {
   const def = useMemo<ViewDef>(() => ({
     title: "Inbox",
     icon: <Icon name="inbox" size={15} />,
-    filter: (t) => (!project || (project === "inbox" ? t.projectId == null : t.projectId === project)) && (!label || t.labels.includes(label)),
+    filter: (t) => t.projectId == null && (!label || t.labels.includes(label)),
     group: (open, c) => overdueSplit(open, c.today, "Upcoming & no date"),
-    prefill: () => ({ projectId: project && project !== "inbox" ? project : null }),
-    empty: { title: "Inbox zero", hint: "Tasks you create show up here.", icon: "inbox" },
+    prefill: () => ({ projectId: null }),
+    empty: { title: "Inbox zero", hint: "Tasks without a project show up here.", icon: "inbox" },
     actions: (
       <>
-        <select aria-label="Filter by project" value={project ?? ""} onChange={(e) => setParam("project", e.target.value)} className={select}>
-          <option value="">All projects</option>
-          <option value="inbox">No project</option>
-          {projects
-            .filter((p) => !p.archived)
-            .map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.name}
-              </option>
-            ))}
-        </select>
         {labels.length > 0 && (
           <select aria-label="Filter by label" value={label ?? ""} onChange={(e) => setParam("label", e.target.value)} className={select}>
             <option value="">Any label</option>
@@ -294,7 +286,7 @@ export function TaskInboxPage() {
         <TidyInbox />
       </>
     ),
-  }), [project, label, projects, labels, setParam]);
+  }), [label, labels, setParam]);
   return <TaskList def={def} />;
 }
 

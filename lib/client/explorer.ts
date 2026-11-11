@@ -348,7 +348,7 @@ function optionRank(meta: ClientMeta, field: string, key: string): number {
 
 /**
  * Groups in a meaningful order: single-selects by GitHub option order
- * (priority highest first), releases by date, "no value" last. Rows keep the
+ * (priority highest first), releases oldest first (current release on top), "no release" last. Rows keep the
  * sort order they arrive in.
  */
 export function groupIssues(rows: ClientIssue[], groupBy: string | undefined, meta: ClientMeta): Group[] {
@@ -417,7 +417,7 @@ export function groupIssues(rows: ClientIssue[], groupBy: string | undefined, me
         return BUCKET_ORDER.indexOf(g.key as SprintBucket);
       case "release": {
         const at = meta.releases.findIndex((r) => r.id === g.key);
-        return at < 0 ? UNKNOWN : -at;
+        return at < 0 ? UNKNOWN : at;
       }
       case "type":
         return known(meta.issueTypes.findIndex((t) => t.id === g.key));

@@ -162,7 +162,8 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
     for (const t of tasks) {
       if (t.completedAt || (t.projectId && archived.has(t.projectId))) continue;
       if (t.projectId) perProject.set(t.projectId, (perProject.get(t.projectId) ?? 0) + 1);
-      if (!t.parentId) inbox++;
+      // Inbox is the tasks with no project, as on the Inbox page.
+      if (!t.projectId && !t.parentId) inbox++;
     }
     const due = dueCount(tasks, projects, today);
     return { inbox, due, perProject };
