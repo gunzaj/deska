@@ -91,8 +91,8 @@ export function IssuePeek() {
         aria-orientation="vertical"
         aria-label="Resize issue panel"
         aria-valuemin={360}
-        aria-valuemax={typeof window === "undefined" ? undefined : window.innerWidth - 260}
-        aria-valuenow={width ?? undefined}
+        aria-valuemax={typeof window === "undefined" ? 1200 : window.innerWidth - 260}
+        aria-valuenow={width ?? 736}
         tabIndex={0}
         data-panel-resize
         onPointerDown={startResize}
