@@ -4,6 +4,7 @@
 // a file or the database. globalThis, not a module variable: Next loads server
 // modules more than once.
 const KEY = Symbol.for("deska.aiKey");
+const TRANSCRIBE_KEY = Symbol.for("deska.transcribeKey");
 
 /** The key, or null when none is set. */
 export function aiKey(): string | null {
@@ -14,4 +15,15 @@ export function aiKey(): string | null {
 /** What desktop/server-entry.ts does with an `ai-key` message; tests use it too. */
 export function setAiKey(key: string | null): void {
   (globalThis as Record<symbol, unknown>)[KEY] = key ?? undefined;
+}
+
+/** Ramble's optional transcription key (item 13): the same rules as the AI key. */
+export function transcribeKey(): string | null {
+  const k = (globalThis as Record<symbol, unknown>)[TRANSCRIBE_KEY];
+  return typeof k === "string" && k ? k : null;
+}
+
+/** What desktop/server-entry.ts does with a `transcribe-key` message; tests use it too. */
+export function setTranscribeKey(key: string | null): void {
+  (globalThis as Record<symbol, unknown>)[TRANSCRIBE_KEY] = key ?? undefined;
 }

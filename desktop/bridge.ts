@@ -130,6 +130,12 @@ export interface DeskaBridge {
     clear(): Promise<AiKeyStatus>;
     status(): Promise<AiKeyStatus>;
   };
+  /** Ramble's optional transcription key (item 13). Same rules as `aiKey`. */
+  transcribeKey?: {
+    set(key: string): Promise<AiKeyStatus>;
+    clear(): Promise<AiKeyStatus>;
+    status(): Promise<AiKeyStatus>;
+  };
   /** The GitHub CLI login as a token source (SPEC §3.1). Absent in builds before D15. */
   github?: {
     /** The current source, and whether `gh` is installed and logged in (and as whom). */
@@ -156,6 +162,9 @@ export const CHANNELS = {
   aiKeySet: "deska:ai-key-set",
   aiKeyClear: "deska:ai-key-clear",
   aiKeyStatus: "deska:ai-key-status",
+  transcribeKeySet: "deska:transcribe-key-set",
+  transcribeKeyClear: "deska:transcribe-key-clear",
+  transcribeKeyStatus: "deska:transcribe-key-status",
   githubStatus: "deska:github-status",
   githubUseCli: "deska:github-use-cli",
   githubRecheck: "deska:github-recheck",
@@ -195,6 +204,8 @@ export type ServerMessage =
   | { type: "token"; token: string | null; source: "launch" | "user"; id: number; auth?: TokenAuth; reread?: boolean }
   /** The AI API key (null = none). `id` is echoed in an `ai-key-ack` once the server holds it. */
   | { type: "ai-key"; key: string | null; id: number }
+  /** Ramble's transcription key (null = none). `id` is echoed in a `transcribe-key-ack`. */
+  | { type: "transcribe-key"; key: string | null; id: number }
   /** The second backup folder (null = none), set by main from its prefs at start and on every change. */
   | { type: "backup-mirror"; dir: string | null }
   /** Run a sync now: the Mac woke from sleep (powerMonitor "resume"). */
@@ -205,6 +216,7 @@ export type ServerMessage =
 export type ServerReply =
   | { type: "token-ack"; id: number }
   | { type: "ai-key-ack"; id: number }
+  | { type: "transcribe-key-ack"; id: number }
   /** GitHub answered 401 to the GitHub CLI's token: read it again, once (SPEC §2.3). */
   | { type: "gh-reread" }
   /** Reminders that just fired, to show as native notifications (D12). */

@@ -156,6 +156,21 @@ describe("settings route", () => {
     expect(await readAiSettings()).toMatchObject({ baseUrl: "http://localhost:11434/v1" });
   });
 
+  it("saves Ramble's transcription endpoint without clearing the AI pass", async () => {
+    await configure({ provider: "claude-code" }, true);
+    const res = await settingsPost(
+      json("/api/ai/settings", { ...DEFAULT_AI_SETTINGS, provider: "claude-code", transcribeBaseUrl: "http://localhost:8080/v1/", transcribeModel: "whisper-large-v3" }),
+    );
+    const body = (await res.json()) as { settings: AiSettings; verified: boolean };
+    expect(body.settings).toMatchObject({ transcribeBaseUrl: "http://localhost:8080/v1", transcribeModel: "whisper-large-v3" });
+    expect(body.verified).toBe(true);
+    expect((await readAiSettings()).transcribeModel).toBe("whisper-large-v3");
+
+    const bad = await settingsPost(json("/api/ai/settings", { ...DEFAULT_AI_SETTINGS, transcribeBaseUrl: "http://models.example.test/v1" }));
+    expect(bad.status).toBe(400);
+    expect((await bad.json()).error).toMatch(/Plain http/);
+  });
+
   it("rejects out-of-range and unknown fields", async () => {
     expect((await settingsPost(json("/api/ai/settings", { ...DEFAULT_AI_SETTINGS, timeoutSec: 5 }))).status).toBe(400);
     expect((await settingsPost(json("/api/ai/settings", { ...DEFAULT_AI_SETTINGS, apiKey: KEY }))).status).toBe(400);

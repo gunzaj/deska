@@ -33,6 +33,11 @@ const bridge: DeskaBridge = {
     clear: () => invoke("deska:ai-key-clear"),
     status: () => invoke("deska:ai-key-status"),
   },
+  transcribeKey: {
+    set: (key) => invoke("deska:transcribe-key-set", String(key)),
+    clear: () => invoke("deska:transcribe-key-clear"),
+    status: () => invoke("deska:transcribe-key-status"),
+  },
   github: {
     status: () => invoke("deska:github-status"),
     useCli: () => invoke("deska:github-use-cli"),
@@ -42,5 +47,5 @@ const bridge: DeskaBridge = {
 
 contextBridge.exposeInMainWorld(
   "deska",
-  Object.freeze({ ...bridge, token: Object.freeze(bridge.token), desktop: Object.freeze(bridge.desktop), quickAdd: Object.freeze(bridge.quickAdd), github: Object.freeze(bridge.github), aiKey: Object.freeze(bridge.aiKey) }),
+  Object.freeze({ ...bridge, token: Object.freeze(bridge.token), desktop: Object.freeze(bridge.desktop), quickAdd: Object.freeze(bridge.quickAdd), github: Object.freeze(bridge.github), aiKey: Object.freeze(bridge.aiKey), transcribeKey: Object.freeze(bridge.transcribeKey) }),
 );

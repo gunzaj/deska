@@ -3,7 +3,7 @@
 // anything shaped like a GitHub token (`github_pat_…` and the classic
 // `gh?_…` shapes) and any occurrence of the exact token or key the app holds,
 // when that value looks like a secret (see `looksSecret`).
-import { aiKey } from "./ai/key";
+import { aiKey, transcribeKey } from "./ai/key";
 import { localToken } from "./github/local-token";
 
 const REDACTED = "[redacted]";
@@ -32,7 +32,7 @@ export function looksSecret(v: string): boolean {
 /** `text` with token-shaped strings, the held token and key (when secret-looking) and `extra` values replaced. */
 export function redactSecrets(text: string, extra: readonly (string | null | undefined)[] = []): string {
   let out = text;
-  for (const v of [localToken(), aiKey()]) {
+  for (const v of [localToken(), aiKey(), transcribeKey()]) {
     if (v && looksSecret(v)) out = out.split(v).join(REDACTED);
   }
   for (const v of extra) {

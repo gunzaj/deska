@@ -10,6 +10,7 @@ import { Icon, Logo, type IconName } from "../icons";
 import { Kbd, OptionDot } from "../props";
 import { useTriageCount } from "../triage/queues";
 import { useTasks } from "../tasks/store";
+import { RambleDialog } from "../tasks/ramble";
 import { SaveTaskViewDialog } from "../tasks/task-views";
 import { useTaskDrop } from "../tasks/drop";
 import type { DropTarget } from "@/lib/client/task-drop";
@@ -146,6 +147,7 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
   const { today } = useToday();
   const [newProject, setNewProject] = useState(false);
   const [saveView, setSaveView] = useState(false);
+  const [ramble, setRamble] = useState(false);
   const { sections } = useSidebarLayout();
   const [customize, setCustomize] = useState(false);
   const inDrawer = Boolean(onNavigate);
@@ -208,6 +210,9 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
         title="Tasks"
         action={
           <>
+            <button type="button" onClick={() => setRamble(true)} title="Ramble: speak your tasks" aria-label="Ramble" className="grid size-5 place-items-center rounded text-faint hover:bg-hover hover:text-fg">
+              <Icon name="mic" size={13} />
+            </button>
             <button type="button" onClick={() => setSaveView(true)} title="Save view" aria-label="Save view" className="grid size-5 place-items-center rounded text-faint hover:bg-hover hover:text-fg">
               <Icon name="sliders" size={13} />
             </button>
@@ -356,6 +361,7 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
         {sections.filter((x) => !x.hidden && !(tasksOnly && GITHUB_SECTIONS.includes(x.id))).map((x) => blocks[x.id])}
         <ProjectDialog open={newProject} onClose={() => setNewProject(false)} />
         <SaveTaskViewDialog open={saveView} onClose={() => setSaveView(false)} />
+        <RambleDialog open={ramble} onClose={() => setRamble(false)} />
         <CustomizeSidebarDialog open={customize} onClose={() => setCustomize(false)} />
       </nav>
 

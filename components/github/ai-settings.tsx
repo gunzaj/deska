@@ -23,6 +23,7 @@ import {
 type View = {
   settings: AiSettings;
   hasKey: boolean;
+  hasTranscribeKey: boolean;
   verified: boolean;
   claude: { found: boolean; effort: boolean };
   features: { id: string; name: string; sends: string; milestone: string }[];
@@ -55,8 +56,11 @@ export function AiSettingsSection() {
   const [message, setMessage] = useState<{ kind: "ok" | "error"; text: string } | null>(null);
   const [keyInput, setKeyInput] = useState("");
   const [keyStatus, setKeyStatus] = useState<AiKeyStatus | null>(null);
-  // The key is entered through the desktop shell's bridge, never over HTTP (SPEC §2.3).
+  const [transcribeKeyInput, setTranscribeKeyInput] = useState("");
+  const [transcribeKeyStatus, setTranscribeKeyStatus] = useState<AiKeyStatus | null>(null);
+  // The keys are entered through the desktop shell's bridge, never over HTTP (SPEC §2.3).
   const bridge = typeof window === "undefined" ? undefined : window.deska?.aiKey;
+  const transcribeBridge = typeof window === "undefined" ? undefined : window.deska?.transcribeKey;
 
   const loaded = useRef(false);
 
@@ -93,7 +97,8 @@ export function AiSettingsSection() {
       setMessage({ kind: "error", text: e instanceof Error ? e.message : String(e) });
     }
     setKeyStatus((await bridge?.status().catch(() => null)) ?? null);
-  }, [bridge, loadModels]);
+    setTranscribeKeyStatus((await transcribeBridge?.status().catch(() => null)) ?? null);
+  }, [bridge, loadModels, transcribeBridge]);
   useEffect(() => void load(), [load]);
 
   const dirty = !!view && JSON.stringify(view.settings) !== JSON.stringify(draft);
@@ -146,6 +151,16 @@ export function AiSettingsSection() {
       setKeyInput("");
       await load();
       return action === "set" ? "Key saved in the keychain. Run Test connection." : "Key removed.";
+    });
+  }
+
+  async function transcribeKeyAction(action: "set" | "clear") {
+    if (!transcribeBridge) return;
+    await run(async () => {
+      setTranscribeKeyStatus(action === "set" ? await transcribeBridge.set(transcribeKeyInput) : await transcribeBridge.clear());
+      setTranscribeKeyInput("");
+      await load();
+      return action === "set" ? "Transcription key saved in the keychain." : "Transcription key removed.";
     });
   }
 
@@ -322,6 +337,75 @@ export function AiSettingsSection() {
 
         </>
       )}
+
+      <div className="space-y-3 border-t border-line-soft pt-4" data-ai-transcription>
+        <h3 className="text-[13px] font-semibold">Transcription (Ramble)</h3>
+        <p className="text-[12.5px] text-muted">
+          A voice note is turned into text here, then the provider above turns the text into tasks. Leave the base URL empty to use the OpenAI-compatible chat endpoint
+          {provider === "openai" && draft.baseUrl ? ` (${draft.baseUrl})` : ""}. Claude Code has no audio input, so set an endpoint here.
+        </p>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <label className="block text-[12.5px] font-medium">
+            Transcription base URL
+            <input
+              id="ai-transcribe-url"
+              aria-label="Transcription base URL"
+              value={draft.transcribeBaseUrl}
+              onChange={(e) => setDraft({ ...draft, transcribeBaseUrl: e.target.value })}
+              placeholder={provider === "openai" && draft.baseUrl ? draft.baseUrl : "https://api.example.test/v1"}
+              spellCheck={false}
+              autoCapitalize="off"
+              className={`mt-1 ${field} w-full font-mono`}
+            />
+          </label>
+          <label className="block text-[12.5px] font-medium">
+            Transcription model
+            <input
+              id="ai-transcribe-model"
+              aria-label="Transcription model"
+              value={draft.transcribeModel}
+              onChange={(e) => setDraft({ ...draft, transcribeModel: e.target.value.trim() })}
+              placeholder="whisper-1"
+              spellCheck={false}
+              autoCapitalize="off"
+              className={`mt-1 ${field} w-full font-mono`}
+            />
+          </label>
+        </div>
+        <div className="space-y-1.5" data-ai-transcribe-key>
+          <label htmlFor="ai-transcribe-key" className="block text-[12.5px] font-medium">
+            Transcription API key (optional)
+          </label>
+          {transcribeBridge ? (
+            <>
+              <div className="flex max-w-md gap-2">
+                <input
+                  id="ai-transcribe-key"
+                  type="password"
+                  autoComplete="off"
+                  spellCheck={false}
+                  autoCapitalize="off"
+                  value={transcribeKeyInput}
+                  onChange={(e) => setTranscribeKeyInput(e.target.value)}
+                  placeholder={transcribeKeyStatus?.stored ? "A key is saved" : "none"}
+                  className={`${field} flex-1 font-mono`}
+                />
+                <button type="button" disabled={busy || !transcribeKeyInput.trim()} onClick={() => void transcribeKeyAction("set")} className={button}>
+                  Save key
+                </button>
+                {transcribeKeyStatus?.stored && (
+                  <button type="button" disabled={busy} onClick={() => void transcribeKeyAction("clear")} className={button}>
+                    Remove key
+                  </button>
+                )}
+              </div>
+              <p className="text-[11.5px] text-faint">Stored encrypted with your macOS keychain. It goes only to this endpoint.</p>
+            </>
+          ) : (
+            <p className="text-[12.5px] text-muted">Keys can be entered in the desktop app only.</p>
+          )}
+        </div>
+      </div>
 
       <div className="flex flex-wrap items-center gap-2">
         <button type="button" disabled={busy || !dirty} onClick={() => void run(async () => (await save(), provider === "off" ? "Saved. AI assist is off." : "Saved. Run Test connection."))} className={button}>

@@ -24,9 +24,9 @@ test("choosing an endpoint shows its fields, refuses plain http to a public addr
   const { context, page } = await as(browser);
   await page.goto("/settings");
   await page.getByLabel("Provider").selectOption("openai");
-  await expect(page.getByLabel("Base URL")).toBeVisible();
+  await expect(page.getByLabel("Base URL", { exact: true })).toBeVisible();
   await expect(page.getByText("Not tested. Nothing is sent until the test passes.")).toBeVisible();
-  await page.getByLabel("Base URL").fill("http://models.example.test/v1");
+  await page.getByLabel("Base URL", { exact: true }).fill("http://models.example.test/v1");
   await page.getByLabel("Model", { exact: true }).selectOption("__custom");
   await page.getByLabel("Model name").fill("tiny-model");
   await expect(page.getByText("Effort is not available for this provider.")).toBeVisible();
@@ -36,5 +36,26 @@ test("choosing an endpoint shows its fields, refuses plain http to a public addr
   await page.getByLabel("Provider").selectOption("off");
   await page.getByRole("button", { name: "Save", exact: true }).click();
   await expect(page.locator("[data-ai-message]")).toContainText("AI assist is off");
+  await context.close();
+});
+
+test("Ramble's transcription endpoint is saved independently of the provider", async ({ browser }) => {
+  const { context, page } = await as(browser);
+  await page.goto("/settings");
+  await expect(page.getByRole("heading", { name: "Transcription (Ramble)" })).toBeVisible();
+  // The form fills from the saved settings once; wait for it before typing.
+  await expect(page.getByLabel("Provider")).toBeEnabled();
+  await page.getByLabel("Transcription base URL").fill("http://localhost:8080/v1");
+  await page.getByLabel("Transcription model").fill("whisper-large-v3");
+  await page.getByRole("button", { name: "Save", exact: true }).click();
+  await expect(page.locator("[data-ai-message]")).toContainText("Saved");
+  await page.reload();
+  await expect(page.getByLabel("Transcription base URL")).toHaveValue("http://localhost:8080/v1");
+  await expect(page.getByLabel("Transcription model")).toHaveValue("whisper-large-v3");
+  // Put it back: the e2e server's database is shared with the other specs.
+  await page.getByLabel("Transcription base URL").fill("");
+  await page.getByLabel("Transcription model").fill("whisper-1");
+  await page.getByRole("button", { name: "Save", exact: true }).click();
+  await expect(page.locator("[data-ai-message]")).toContainText("Saved");
   await context.close();
 });
