@@ -105,7 +105,7 @@ test("✨ on a typed line gives chips that only name the existing project and la
   try {
     await page.goto("/tasks");
     // The suggestion's names come from the task store: wait for it to have loaded.
-    await expect(page.getByRole("combobox", { name: "Filter by project" }).getByRole("option", { name: projectName })).toHaveCount(1);
+    await expect(page.locator('[data-drop-target="project"]').filter({ hasText: projectName })).toBeVisible();
     await page.getByRole("button", { name: "New task" }).first().click();
     const dialog = page.getByRole("dialog", { name: "New task" });
     const input = dialog.getByRole("combobox", { name: "Task" });
