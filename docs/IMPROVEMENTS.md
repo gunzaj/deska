@@ -122,3 +122,18 @@ Phase 2 plan, in order:
 
 At the end: the full `pnpm test`, `pnpm test:e2e`, `pnpm desktop:build` and
 `node scripts/leak-guard.mjs --all`, then the spec's Final handoff table.
+
+## Manual checks for the maintainer
+
+- **Item 2:** open an issue whose description has a real GitHub-hosted video and
+  image; play the video, open the image, follow a GitHub link, and drag the panel
+  edge. Non-GitHub links stay blocked by the existing security policy.
+- **Item 3/4:** with a real project, set a default team and open `/epics` and a
+  Release page; change the team and check both sections follow it.
+- **Item 8:** check a long project title in the sidebar and a tasks-only install.
+- **Item 14:** change the zone in Settings → General, restart the app, and check a
+  due date/reminder still uses it.
+
+The full local e2e run passed 203 tests with one known timing flake in
+`ask.spec.ts` (it passes alone) and one test reported "did not run" after that
+flake; both `ask.spec.ts` and `a11y.spec.ts` pass on their own. CI retries once.
