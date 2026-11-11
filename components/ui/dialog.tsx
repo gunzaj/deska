@@ -59,8 +59,10 @@ export function Dialog({ open, onClose, children, width = 440, label }: { open: 
         if (!isTop()) return;
         const other = (e.target as HTMLElement | null)?.closest?.('[role="dialog"]');
         if (other && other !== panel.current) return;
-        // So does an open combobox (e.g. quick-add suggestions).
-        if ((e.target as HTMLElement | null)?.getAttribute?.("aria-expanded") === "true") return;
+        // So does an open combobox (e.g. quick-add suggestions); the command
+        // palette marks itself as one that Escape must close.
+        const target = e.target as HTMLElement | null;
+        if (target?.getAttribute?.("aria-expanded") === "true" && !target.hasAttribute("data-dialog-escape")) return;
         e.stopPropagation();
         close.current();
       }
