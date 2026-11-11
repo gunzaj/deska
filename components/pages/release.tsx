@@ -13,7 +13,8 @@ import { useAppData } from "../app/provider";
 import { Page } from "../app/shell";
 import { Explorer } from "../explorer/explorer";
 import { Icon } from "../icons";
-import { neighbour } from "@/lib/client/sprint";
+import { neighbour, sprintStats, sprintTiming } from "@/lib/client/sprint";
+import type { ClientIssue, ClientRelease } from "@/lib/client/types";
 import { ReleaseNotesButton } from "./release-notes";
 import { ReleaseRisk } from "./release-risk";
 import { SprintHeader } from "./sprint-header";
@@ -22,6 +23,58 @@ import { PickList, Popover, btn } from "../ui/popover";
 
 /** Board by Status (default) or list; the list groups into Remaining, Done and Not planned (§4.5). */
 const SPRINT_DEFAULTS: ExplorerState = { ...PRESETS.release, groupBy: "sprintState" };
+
+const SUMMARY_KEY = "deska.release.summaryCollapsed";
+
+/** The header and Risk section, collapsible so the board gets the room. The choice is remembered per browser. */
+function ReleaseSummary({ sprint, all, rows, filtered, filters }: { sprint: ClientRelease; all: ClientIssue[]; rows: ClientIssue[]; filtered: boolean; filters: Filter[] }) {
+  const { data } = useAppData();
+  const [collapsed, setCollapsed] = useState(false);
+  useEffect(() => {
+    try {
+      setCollapsed(localStorage.getItem(SUMMARY_KEY) === "1");
+    } catch {}
+  }, []);
+  const toggle = () => {
+    const next = !collapsed;
+    setCollapsed(next);
+    try {
+      localStorage.setItem(SUMMARY_KEY, next ? "1" : "0");
+    } catch {}
+  };
+  const stats = useMemo(() => sprintStats(rows, data.meta), [rows, data.meta]);
+  const timing = sprintTiming(sprint, data.meta.today);
+  const when = timing.phase === "current" ? `${timing.daysLeft} day${timing.daysLeft === 1 ? "" : "s"} left` : timing.phase === "upcoming" ? `starts in ${timing.startsIn} day${timing.startsIn === 1 ? "" : "s"}` : "ended";
+  const toggleBtn = (
+    <button type="button" onClick={toggle} aria-expanded={!collapsed} aria-controls="release-summary" data-summary-toggle className={`${btn.outline} shrink-0`} title={collapsed ? "Show summary" : "Hide summary"}>
+      <Icon name={collapsed ? "chevronDown" : "chevronUp"} size={12} />
+      {collapsed ? "Show summary" : "Hide summary"}
+    </button>
+  );
+  if (collapsed) {
+    return (
+      <div className="flex shrink-0 flex-wrap items-center gap-x-5 gap-y-1 border-b border-line px-4 py-1.5 text-[12px]" data-summary-collapsed>
+        {toggleBtn}
+        <span className="font-semibold tabular-nums">
+          {stats.done} / {stats.counted}
+          {stats.pct != null && <span className="ml-1.5 font-normal text-muted">{stats.pct}%</span>}
+        </span>
+        <span className="text-muted">
+          Remaining <span className="font-semibold tabular-nums text-fg">{stats.remaining}</span>
+        </span>
+        <span className="text-muted">{when}</span>
+        {filtered && <span className="text-faint">filtered</span>}
+      </div>
+    );
+  }
+  return (
+    <div id="release-summary" className="relative shrink-0">
+      <SprintHeader sprint={sprint} all={all} rows={rows} filtered={filtered} filters={filters} />
+      <ReleaseRisk release={sprint} />
+      <div className="absolute right-4 top-2.5">{toggleBtn}</div>
+    </div>
+  );
+}
 
 function ReleasePicker({ currentId }: { currentId: string }) {
   const { data } = useAppData();
@@ -116,10 +169,7 @@ export function ReleasePage({ id }: { id: string }) {
         </span>
       }
       summary={({ rows, filtered, filters }) => (
-        <>
-          <SprintHeader sprint={r} all={inSprint} rows={rows} filtered={filtered} filters={filters} />
-          <ReleaseRisk release={r} />
-        </>
+        <ReleaseSummary sprint={r} all={inSprint} rows={rows} filtered={filtered} filters={filters} />
       )}
       icon={<Icon name="calendar" size={15} />}
       base={base}
