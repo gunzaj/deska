@@ -718,6 +718,12 @@ function registerIpc() {
   ipcMain.handle(CHANNELS.quickAddClose, (e) => {
     if (fromApp(e) && quickWindow && !quickWindow.isDestroyed() && e.sender === quickWindow.webContents) quickWindow.close();
   });
+  ipcMain.handle(CHANNELS.quickAddResize, (e, height: unknown) => {
+    if (!fromApp(e) || !quickWindow || quickWindow.isDestroyed() || e.sender !== quickWindow.webContents) return;
+    if (typeof height !== "number" || !Number.isFinite(height)) return;
+    const [w] = quickWindow.getContentSize();
+    quickWindow.setContentSize(w ?? 600, Math.round(Math.min(Math.max(height, 190), 480)));
+  });
 }
 
 async function boot() {

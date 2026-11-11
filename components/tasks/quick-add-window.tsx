@@ -8,7 +8,8 @@ import { parseQuickAdd, type TokenKind } from "@/lib/tasks/quick-add";
 import { Icon } from "../icons";
 import { btn } from "../ui/popover";
 import { TaskAssistChips, useTaskAssist, type TaskAssistChoices } from "./ai-task-assist";
-import { QuickAddInput } from "./quick-add-input";
+import { ColorDot } from "./organize";
+import { QuickAddInput, type SuggestFn } from "./quick-add-input";
 
 /** What the one-line window can store: no `#issue` links (it has no issue data). */
 const ENABLED: ReadonlySet<TokenKind> = new Set<TokenKind>(["date", "time", "recurrence", "priority", "project", "label"]);
@@ -20,6 +21,8 @@ function browserTz(): string {
     return "UTC";
   }
 }
+
+const BASE_HEIGHT = 190;
 
 const close = () => void window.deska?.quickAdd?.close();
 
@@ -153,9 +156,33 @@ export function QuickAddWindow() {
     );
   };
 
+  // `=` lists projects and `+` labels, as in the in-app quick add. No `#`: this
+  // window has no issue data.
+  const suggest: SuggestFn = (trigger, q) => {
+    const needle = q.toLowerCase();
+    if (trigger === "=") {
+      return projects
+        .filter((p) => p.name.toLowerCase().includes(needle))
+        .map((p) => ({ id: `p:${p.id}`, label: p.name, insert: `=${p.name}`, icon: <ColorDot color={p.color} /> }));
+    }
+    if (trigger === "+") {
+      const found = labels.filter((l) => l.name.toLowerCase().includes(needle)).map((l) => ({ id: `+${l.id}`, label: l.name, insert: `+${l.name}`, icon: <ColorDot color={l.color} size={7} shape="tag" /> }));
+      const fresh = q && /^\p{L}[\p{L}\p{N}_-]*$/u.test(q) && !labels.some((l) => l.name.toLowerCase() === needle) ? [{ id: `+new:${q}`, label: `Create label “${q}”`, insert: `+${q}`, icon: <Icon name="plus" size={12} className="text-faint" /> }] : [];
+      return [...found, ...fresh];
+    }
+    return [];
+  };
+
+  // The window is a fixed 190px; grow it by the open list's height, keeping the input where it is.
+  const [suggestCount, setSuggestCount] = useState(0);
+  useEffect(() => {
+    void window.deska?.quickAdd?.resize?.(BASE_HEIGHT + (suggestCount ? suggestCount * 32 + 16 : 0));
+  }, [suggestCount]);
+
   const aiBusy = assist.phase === "checking" || assist.phase === "running";
   return (
-    <main className="flex h-screen flex-col justify-center gap-2 bg-surface px-5" data-quick-add data-state={state}>
+    <main className="h-screen overflow-hidden bg-surface px-5" data-quick-add data-state={state}>
+      <div className="flex flex-col justify-center gap-2" style={{ height: BASE_HEIGHT }}>
       <div className="flex items-center gap-2">
         <p className="flex-1 text-[11px] font-medium uppercase tracking-wide text-faint">New task</p>
         <button
@@ -179,6 +206,8 @@ export function QuickAddWindow() {
         tokens={parsed.tokens}
         onRevert={(key) => setIgnored((prev) => new Set(prev).add(key))}
         onSubmit={() => void submit()}
+        suggest={suggest}
+        onSuggestCount={setSuggestCount}
         placeholder="e.g. Call dentist tomorrow 3pm high"
       />
       {aiBusy && (
@@ -199,6 +228,7 @@ export function QuickAddWindow() {
       <p className="min-h-4 text-[11.5px] text-faint" role={error ? "alert" : undefined}>
         {error ? <span className="text-critical">{error}</span> : <>↵ to save · Esc to close · <b className="font-medium">fri</b> · <b className="font-medium">high</b> · <b className="font-medium">+label</b> · <b className="font-medium">=Project</b></>}
       </p>
+      </div>
     </main>
   );
 }

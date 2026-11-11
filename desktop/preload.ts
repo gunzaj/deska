@@ -17,7 +17,7 @@ const bridge: DeskaBridge = {
     chooseBackupFolder: () => invoke("deska:backup-folder-choose"),
     clearBackupFolder: () => invoke("deska:backup-folder-clear"),
   },
-  quickAdd: { close: () => invoke("deska:quick-add-close") },
+  quickAdd: { close: () => invoke("deska:quick-add-close"), resize: (height) => invoke("deska:quick-add-resize", Number(height)) },
   onOpenTask: (listener) => {
     const handler = (_e: unknown, id: unknown) => typeof id === "string" && listener(id);
     ipcRenderer.on("deska:open-task", handler);

@@ -102,6 +102,8 @@ export interface DeskaBridge {
   quickAdd: {
     /** Closes the quick-add window (Esc, or after saving). */
     close(): Promise<void>;
+    /** Sets the window's content height (px), so an open suggestion list is not clipped. */
+    resize(height: number): Promise<void>;
   };
   /** A native notification asked to open this task. Returns an unsubscribe. */
   onOpenTask(listener: (taskId: string) => void): () => void;
@@ -162,6 +164,7 @@ export const CHANNELS = {
   backupFolderChoose: "deska:backup-folder-choose",
   backupFolderClear: "deska:backup-folder-clear",
   quickAddClose: "deska:quick-add-close",
+  quickAddResize: "deska:quick-add-resize",
   /** main → renderer */
   openTask: "deska:open-task",
 } as const;
