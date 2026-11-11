@@ -3,6 +3,7 @@
 // header, the list groups and the tests all count the same way.
 import { daysBetween } from "./format";
 import { fieldLabel, valueLabel, type FilterFieldKey } from "./explorer";
+import { withDefaultScope, type DefaultScope } from "./team-scope";
 import type { ClientIssue, ClientMeta, ClientRelease } from "./types";
 import type { Filter } from "../views/view";
 
@@ -57,6 +58,25 @@ export function neighbour(releases: Pick<ClientRelease, "id">[], id: string, dir
   const at = releases.findIndex((r) => r.id === id);
   if (at < 0) return null;
   return releases[at + dir]?.id ?? null;
+}
+
+/**
+ * The team filters a Release page's overview follows: the page's own filter on
+ * the viewer's default dimension wins over the default value, and both win over
+ * everything. Other filters (search, Status) narrow the list but not the overview.
+ */
+export function releaseTeamFilters(
+  filters: Filter[],
+  base: Filter[],
+  defaultScope: Pick<DefaultScope, "dimension"> | null,
+  scope: Pick<DefaultScope, "dimension" | "optionId"> | null,
+): Filter[] {
+  const key = (defaultScope ?? scope)?.dimension.key;
+  if (!key) return [];
+  const on = (list: Filter[]) => list.filter((f) => f.field === key);
+  // `withDefaultScope` adds the default only when neither the page nor its base
+  // already says something about that dimension; the base's own filters apply too.
+  return [...on(base), ...on(withDefaultScope(filters, base, scope))];
 }
 
 /**

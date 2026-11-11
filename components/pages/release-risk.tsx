@@ -8,6 +8,7 @@ import { PRESETS } from "@/lib/client/presets";
 import { releaseRisk } from "@/lib/client/risk";
 import { isUnauthorized } from "@/lib/client/session";
 import type { ClientIssue, ClientRelease } from "@/lib/client/types";
+import type { Filter } from "@/lib/views/view";
 import { useOpenIssue } from "../app/open-issue";
 import { useAppData } from "../app/provider";
 import { Icon } from "../icons";
@@ -65,20 +66,20 @@ function Group({ id, title, hint, issues, href }: { id: string; title: string; h
   );
 }
 
-export function ReleaseRisk({ release }: { release: ClientRelease }) {
+export function ReleaseRisk({ release, issues, filters = [] }: { release: ClientRelease; issues: ClientIssue[]; filters?: Filter[] }) {
   const { data } = useAppData();
   const scope = useScopeAdded(release);
   const risk = useMemo(
     () =>
       releaseRisk({
-        issues: data.issues,
+        issues,
         release,
         meta: data.meta,
         scopeAddedIds: scope.ids,
       }),
-    [data.issues, data.meta, release, scope.ids],
+    [issues, data.meta, release, scope.ids],
   );
-  const base = [{ field: "release" as const, op: "in" as const, values: [release.id] }, { field: "state" as const, op: "in" as const, values: ["open" as const] }];
+  const base = [...filters, { field: "release" as const, op: "in" as const, values: [release.id] }, { field: "state" as const, op: "in" as const, values: ["open" as const] }];
   const top = risk.topPriorityId ? [{ field: "priority" as const, op: "in" as const, values: [risk.topPriorityId] }] : [];
   const count = risk.noOwner.length + risk.scopeAdded.length;
 
@@ -104,7 +105,7 @@ export function ReleaseRisk({ release }: { release: ClientRelease }) {
           title="Added after the start"
           hint={scope.loaded ? "Issues put into this Release once it had started." : "Loading…"}
           issues={risk.scopeAdded}
-          href={explorer([{ field: "release", op: "in", values: [release.id] }])}
+          href={explorer([...filters, { field: "release", op: "in", values: [release.id] }])}
         />
       </div>
     </details>
