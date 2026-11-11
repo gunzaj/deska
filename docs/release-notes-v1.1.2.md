@@ -1,22 +1,25 @@
-# Deska 1.1.1
+# Deska 1.1.2
 
 A macOS app for working with GitHub Issues and a GitHub Project: filtering, fast triage, parent issue progress, a sprint view, and personal tasks that stay on your Mac.
 
 **Writes are now possible, and off until you turn them on.** Deska stays read-only until your token has write permissions and you switch on Settings → GitHub writes.
 
-## What's new in 1.1.1
+## What's new in 1.1.2
 
-A small update to 1.1.0 with fixes:
+An update to 1.1.0 (1.1.1 was never released; its fixes are here):
 
+- **App icon:** a new icon, Coral, and Settings → Desktop → App icon to pick one of eight colours for the Dock and the app switcher. Finder always shows Coral.
+- **Inbox:** shows only tasks without a project. Once a task has a project it leaves the Inbox; Today and Upcoming show tasks from every project by date.
 - **Release page:** the summary at the top (progress, counts, Risk) can be hidden with "Hide summary", so the board gets more room. It shrinks to one line and Deska remembers your choice.
-- **Global shortcut:** the quick add window now opens on top of Deska instead of hiding or minimizing the main window.
-- **Quick add:** a token followed by a sentence-ending period (for example a date or project at the end of a sentence) is now recognised.
+- **Grouping by release:** the oldest release comes first, so the current release is at the top.
+- **Global shortcut:** the quick add window opens on top of Deska instead of hiding or minimizing the main window.
+- **Quick add:** a date, project or other token followed by a full stop ("call mom today.") is now recognised.
 
 Everything from 1.1.0 is still included; see its notes for the full list.
 
 ## Install
 
-1. Download `Deska-1.1.1-universal.dmg` (Apple silicon and Intel) and drag Deska to Applications (replace the old version; your data stays).
+1. Download `Deska-1.1.2-universal.dmg` (Apple silicon and Intel) and drag Deska to Applications (replace the old version; your data stays).
 2. Open it. See below: the app is not signed yet.
 3. Connect GitHub with a fine-grained personal access token or your GitHub CLI login, pick your repository and project, and map the fields. [`docs/handoff.md`](https://github.com/gunzaj/deska/blob/main/docs/handoff.md) lists the exact permissions, for read-only use and for writes.
 

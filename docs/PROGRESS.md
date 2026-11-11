@@ -29,6 +29,7 @@
 | AI4 | done | [#34](https://github.com/gunzaj/deska/pull/34) | Ask: an issue-panel question and "Ask about this list" on every Explorer list, answered from the triage material or the first 200 rows, kept per subject with provider/model/time, references opening inside Deska; no migration |
 
 ## Decisions to review
+- v1.1.2: app icon picker (Settings → Desktop; Coral is the packaged icon, the pick sets the Dock icon at run time only, so a future signature stays intact), Inbox = tasks without a project, plus the unreleased 1.1.1 fixes. The icon pack's two ids that named real brands were renamed `green` and `orange` (§0.2).
 - v1.1.0: at the maintainer's request the release workflow builds with `DESKA_WRITES=on` (SPEC §3.4 part 3). Writes still need a token with write permissions and Settings → GitHub writes on (off by default). Version 1.1.0 (minor: writes, GitHub CLI login and AI assist since 1.0.2).
 - D0: Fictional dataset values: Status `📋 To do` / `🚧 In progress` / `✅ Done` (+ review, QA, blocked in the demo), Priority `Low` / `Medium` / `High`, Team `Core 🧱`, `Checkout 🛒` and more, iterations `Sprint 20`–`Sprint 27` on the "Release" field, project number 7. Option IDs are made-up 8-hex values (`a0000001`…).
 - D0: Fictional node IDs (`PVT_acme_widgets_roadmap`, `PVTSSF_acme_status`, `IT_acme_bug`, …) are listed in `tests/repo/node-ids.test.ts`, which fails on any other `PVT_`/`PVTF_`/`PVTSSF_`/`PVTIF_`/`IT_` token in the repo.
