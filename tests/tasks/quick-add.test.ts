@@ -49,6 +49,17 @@ describe("due dates (§12.4 row 1)", () => {
     expect(p("Bump to 2.5").dueDate).toBeNull();
   });
 
+  it("accepts a sentence-ending period after a token", () => {
+    const r = p("tasks =Specs today.");
+    expect(r.dueDate).toBe("2026-10-12");
+    expect(r.project).toBe("Specs");
+    expect(r.title).toBe("tasks.");
+    expect(p("Call mom fri. then email").dueDate).toBe("2026-10-16");
+    expect(p("Call at 3. ok").dueTime).toBe("03:00");
+    expect(p("Call at 3.30").dueTime).toBeNull();
+    expect(p("Release v2.5.").dueDate).toBeNull();
+  });
+
   it("only matches whole words", () => {
     expect(p("Update todays digest").dueDate).toBeNull();
     expect(p("Fix monitor layout").dueDate).toBeNull();
