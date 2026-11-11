@@ -50,9 +50,9 @@ describe("Claude Code provider", () => {
   });
 
   it("calls `claude -p` with the SPEC arguments, the prompt on stdin, and returns structured_output and cost", async () => {
-    fake.reply(claudeOk({ ok: true }, 0.037));
+    fake.reply({ ...claudeOk({ ok: true }, 0.037), duration_ms: 4_200, duration_api_ms: 3_100 });
     const res = await callClaude({ model: "sonnet", system: "SYSTEM TEXT", user: "USER TEXT", schema: SCHEMA, timeoutMs: 10_000 });
-    expect(res).toEqual({ ok: true, output: { ok: true }, costUsd: 0.037 });
+    expect(res).toEqual({ ok: true, output: { ok: true }, costUsd: 0.037, timings: { durationMs: 4_200, apiMs: 3_100 } });
     const [run] = fake.runs();
     expect(run!.args).toEqual(claudeArgs({ schema: SCHEMA, system: "SYSTEM TEXT", model: "sonnet" }));
     expect(run!.args).toEqual(["-p", "--output-format", "json", "--json-schema", JSON.stringify(SCHEMA), "--system-prompt", "SYSTEM TEXT", "--tools", "", "--strict-mcp-config", "--setting-sources", "", "--no-session-persistence", "--model", "sonnet"]);

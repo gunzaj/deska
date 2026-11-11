@@ -9,9 +9,10 @@ import { localToken } from "../github/local-token";
 import { githubTarget } from "../github/url";
 import { cachedBody } from "../server/bodies";
 import { duplicatesOf } from "../server/duplicates";
-import { demoDetail, fetchIssueDetail } from "../server/issue-detail";
+import { demoDetail, fetchIssueComments } from "../server/issue-detail";
 import { linkRepo, readAiSettings } from "../settings";
 import { getStore } from "../store";
+import { mapBounded } from "./bounded";
 import { inputHash } from "./prompt";
 import { startJob, startJobs, type Job } from "./runner";
 import { aiStatus, type AiStatus } from "./status";
@@ -38,7 +39,8 @@ export type TriageSuggestionView = {
 /**
  * Comments for the suggestion's input: the live thread when GitHub answers, the
  * cached description without a token. Newest first (SPEC §4.9). A failure keeps
- * the suggestion possible: the cached description still goes.
+ * the suggestion possible: the cached description still goes. Only the comments
+ * are read: the issue body is already in the cache.
  */
 async function commentsFor(store: ReadModel, issue: { number: number; nodeId: string; url: string }): Promise<{ author: string; body: string; createdAt: string }[]> {
   try {
@@ -47,7 +49,7 @@ async function commentsFor(store: ReadModel, issue: { number: number; nodeId: st
     if (token) {
       // The item the cache stored, in the stored repository (not GITHUB_REPO, which the desktop app never sets).
       const target = githubTarget(issue.url, issue.number, await linkRepo());
-      return (await fetchIssueDetail(target.number, token, target.repo)).comments;
+      return (await fetchIssueComments(target.number, token, target.repo)).comments;
     }
   } catch {
     // GitHub unreachable: the cached description is still useful.
@@ -125,20 +127,20 @@ export async function startIssueTriage(number: number): Promise<Job | null> {
   return input ? startJob(triageTask(input)) : null;
 }
 
+/** How many triage inputs a batch builds at once (item 6): parallel, but bounded. */
+export const TRIAGE_INPUT_CONCURRENCY = 4;
+
 /**
  * Asks for one suggestion per issue of a queue (SPEC §4.9 batch): one job each,
  * sharing a batch id, run one at a time by the runner. All numbers are checked
- * before the first job starts, so a stale queue starts nothing.
+ * before the first job starts, so a stale queue starts nothing. The inputs are
+ * built in bounded parallel: one live read per issue is slow enough on its own.
  */
 export async function startQueueTriage(numbers: number[]): Promise<{ batchId: string | null; jobs: Job[]; missing: number[] }> {
-  const inputs: TriageIssueInput[] = [];
-  const missing: number[] = [];
-  for (const n of numbers) {
-    const input = await triageInput(n);
-    if (input) inputs.push(input);
-    else missing.push(n);
-  }
+  const built = await mapBounded(numbers, TRIAGE_INPUT_CONCURRENCY, async (n) => ({ n, input: await triageInput(n) }));
+  const missing = built.filter((b) => !b.input).map((b) => b.n);
   if (missing.length) return { batchId: null, jobs: [], missing };
+  const inputs = built.map((b) => b.input!) as TriageIssueInput[];
   const batchId = randomUUID();
   const jobs = await startJobs(inputs.map((input) => triageTask(input)), { batchId });
   return { batchId, jobs, missing: [] };

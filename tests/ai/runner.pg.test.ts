@@ -198,9 +198,12 @@ describe("settings route", () => {
 describe("jobs: validation, retry, fallback, cancel, order", () => {
   it("Claude Code: stores a valid answer with provider, model, duration and cost", async () => {
     await configure({ provider: "claude-code", model: "haiku" });
-    fake.reply(claudeOk(GOOD, 0.0123));
+    fake.reply({ ...claudeOk(GOOD, 0.0123), duration_ms: 4_200, duration_api_ms: 3_100 });
     const job = await finish((await startJob(task())).id);
-    expect(job).toMatchObject({ state: "done", result: GOOD, error: null });
+    expect(job).toMatchObject({ state: "done", result: GOOD, error: null, providerMs: 4_200, providerApiMs: 3_100 });
+    expect(job.startedAt).toBeTruthy();
+    expect(job.queueMs).toBeGreaterThanOrEqual(0);
+    expect(job.durationMs).toBeGreaterThanOrEqual(0);
     expect(job.resultId).toBeTruthy();
     const stored = await latestResult("issue-triage", "42", inputHash(task(), ""));
     expect(stored?.fresh).toBe(true);
@@ -292,13 +295,21 @@ describe("jobs: validation, retry, fallback, cancel, order", () => {
     expect((await jobGet(new Request("http://127.0.0.1:3000/x"), { params: Promise.resolve({ id: "00000000-0000-4000-8000-000000000000" }) })).status).toBe(404);
   });
 
-  it("runs jobs one at a time, in order", async () => {
+  it("runs jobs one at a time, in order, and measures the queue wait", async () => {
     await configure({ provider: "claude-code" });
+    fake.slow(120);
     fake.reply(claudeOk(GOOD));
     const ids = [(await startJob(task({ subject: "1" }))).id, (await startJob(task({ subject: "2" }))).id, (await startJob(task({ subject: "3" }))).id];
     await idle();
     expect(ids.map((id) => getJob(id)!.state)).toEqual(["done", "done", "done"]);
     expect(fake.runs().map((r) => r.stdin)).toHaveLength(3);
+    // The second job waited for the first: its queue time covers the first run.
+    const first = getJob(ids[0]!)!;
+    const second = getJob(ids[1]!)!;
+    expect(first.queueMs).toBeGreaterThanOrEqual(0);
+    expect(second.queueMs).toBeGreaterThanOrEqual(100);
+    expect(Date.parse(second.startedAt!)).toBeGreaterThanOrEqual(Date.parse(first.finishedAt!));
+    expect(second.durationMs).toBeGreaterThanOrEqual(100);
   });
 });
 

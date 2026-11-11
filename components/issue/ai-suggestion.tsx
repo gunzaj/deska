@@ -12,6 +12,7 @@ import type { TriageFlag, TriageSuggestion } from "@/lib/ai/triage";
 import { EDITING_OFF } from "@/lib/client/edit";
 import { longAgo, plainName } from "@/lib/client/format";
 import { usePoll } from "@/lib/client/poll";
+import { Elapsed } from "../ai/elapsed";
 import { useAppData } from "../app/provider";
 import { useOpenIssue } from "../app/open-issue";
 import { Icon } from "../icons";
@@ -230,6 +231,7 @@ export function IssueAiSuggestion({ number }: { number: number }) {
         <div className="flex items-center gap-2 text-[12.5px] text-muted" role="status">
           <span className="size-3 animate-spin rounded-full border-2 border-line border-t-brand" aria-label="Asking the model" />
           Asking the model…
+          <Elapsed since={job?.createdAt ?? null} />
           <button type="button" onClick={() => void cancel()} className={btn.ghost}>
             Cancel
           </button>

@@ -11,6 +11,7 @@ import { normalizeTaskSuggestion, tidyPatch, type TaskAssistSuggestion } from "@
 import type { TaskSuggestionView, TidyInboxView } from "@/lib/ai/task-assist-service";
 import { usePoll } from "@/lib/client/poll";
 import type { PatchTaskInput, Task, TaskLabel } from "@/lib/tasks/model";
+import { Elapsed } from "../ai/elapsed";
 import { useAppData } from "../app/provider";
 import { Icon } from "../icons";
 import { Dialog } from "../ui/dialog";
@@ -426,6 +427,7 @@ export function TidyInbox() {
             <div className="space-y-2">
               <p role="status" className="text-[12.5px] text-muted" data-ai-tidy-progress>
                 {batchList.filter(ended).length} of {batchList.length} done · one at a time
+                {batchList[0] ? <> · <Elapsed since={batchList[0].createdAt} /></> : null}
               </p>
               <button type="button" onClick={() => void cancel()} className={btn.outline} data-ai-tidy-cancel>
                 <Icon name="x" size={13} />

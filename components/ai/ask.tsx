@@ -12,6 +12,7 @@ import { longAgo, pluralize } from "@/lib/client/format";
 import { usePoll } from "@/lib/client/poll";
 import type { ClientIssue } from "@/lib/client/types";
 import { useAppData } from "../app/provider";
+import { Elapsed } from "./elapsed";
 import { useOpenIssue } from "../app/open-issue";
 import { Icon } from "../icons";
 import { Dialog } from "../ui/dialog";
@@ -358,6 +359,7 @@ function AskBody({
       <div className="flex items-center gap-2 text-[12.5px] text-muted" role="status">
         <span className="size-3 animate-spin rounded-full border-2 border-line border-t-brand" aria-label="Asking the model" />
         Asking the model…
+        <Elapsed since={job?.createdAt ?? null} />
         <button type="button" onClick={onCancel} className={btn.ghost} data-ask-cancel>
           Cancel
         </button>

@@ -129,7 +129,12 @@ export async function checkClaudeCli(): Promise<{ ok: true; file: string } | ({ 
   return { ok: true, file };
 }
 
-export type ModelAnswer = { ok: true; output: unknown; costUsd: number | null } | ({ ok: false } & AiFailure);
+export type ProviderTimings = { durationMs: number | null; apiMs: number | null };
+
+export type ModelAnswer = { ok: true; output: unknown; costUsd: number | null; timings: ProviderTimings } | ({ ok: false } & AiFailure);
+
+/** A number Claude Code reports, or null. */
+const reported = (v: unknown): number | null => (typeof v === "number" && Number.isFinite(v) && v >= 0 ? v : null);
 
 /** One call to `claude`: the parsed `structured_output`, or why there is none. */
 export async function callClaude(o: { model: string; effort?: string; system: string; user: string; schema: unknown; timeoutMs: number; signal?: AbortSignal }): Promise<ModelAnswer> {
@@ -158,7 +163,14 @@ export async function callClaude(o: { model: string; effort?: string; system: st
       return { ok: false, code: "failed", message: `Claude Code failed: ${short(detail) || (out.ok ? "no output" : short(out.message))}` };
     }
     if (json.structured_output === undefined || json.structured_output === null) return { ok: false, code: "invalid-output", message: "Claude Code returned no structured output." };
-    return { ok: true, output: json.structured_output, costUsd: typeof json.total_cost_usd === "number" ? json.total_cost_usd : null };
+    return {
+      ok: true,
+      output: json.structured_output,
+      costUsd: typeof json.total_cost_usd === "number" ? json.total_cost_usd : null,
+      // The CLI's own timings (item 6): its total run and the API time inside
+      // it. The job also measures the wall clock around this call.
+      timings: { durationMs: reported(json.duration_ms), apiMs: reported(json.duration_api_ms) },
+    };
   } finally {
     await rm(cwd, { recursive: true, force: true }).catch(() => undefined);
   }
