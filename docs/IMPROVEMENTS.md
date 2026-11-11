@@ -17,7 +17,7 @@ data only, no real names, no writes to a real GitHub repository.
 | 7 | Command+K switcher: Escape | done | 0cb5b3d | Escape closes the palette; navigation and selection still work |
 | 8 | Sidebar identity | done | 257653f | Project title primary, repository beneath, tooltip, truncation; fallback "Deska" + repo |
 | 9 | Triage button labels | done | 2887bd8 | Visible Back and Next; the same `go(-1)` / `go(1)` handlers; footer hints updated |
-| 10 | View watchlist: investigate notifications | todo | | |
+| 10 | View watchlist: investigate notifications | done | | Daily digest, lazily on the notification poll; view-digest test added; report below |
 | 11 | New issue: searchable label picker | todo | | |
 | 12 | Tasks: saved custom views | todo | | |
 | 13 | Tasks: voice-based creation with Ramble | todo | | |
@@ -122,6 +122,34 @@ Phase 2 plan, in order:
 
 At the end: the full `pnpm test`, `pnpm test:e2e`, `pnpm desktop:build` and
 `node scripts/leak-guard.mjs --all`, then the spec's Final handoff table.
+
+## Item 10 — view watchlist (report)
+
+**What a view watch is.** Watching a view stores one row per person and view
+(`kind: "view"`, the saved view's ID) with a last-seen time. It is a **daily
+digest**, not a notification per change: at most one `watch_digest` bell entry per
+person per calendar day in their own time zone, deduped by
+`watch:<login>:<day>`, titled "N watched items changed" where N counts watched
+items that have at least one field change since that item's last look. The digest is
+generated lazily when the client polls `/api/notifications` (every 30 s, the same
+poll that fires reminders), never by sync and never by a timer of its own. An issue
+watch is the same digest for one issue. A view watch covers the issues the saved
+view matches, recomputed on the server each time the digest fires.
+
+**What it is not.** No per-change bell entry, no push, no email. The bell is the
+only place it appears. Native macOS notifications are reminders only
+(`lib/desktop/reminders.ts` → `desktop/main.ts`); a watch digest never becomes
+one. Opening a watched issue or view (`markSeen`) moves its last-seen time and
+clears everything before it.
+
+**Test added.** `tests/watch/digest.test.ts` — "covers a watched view": one digest
+for two changes to an issue the view matches, not one per change, and the same
+daily dedupe as an issue watch.
+
+**Limitations.** The digest exists only while Deska runs and the client polls; the
+title counts changed watched items, not the number of changes; a view's coverage is
+evaluated when the digest fires, so an issue that left the view between polls is
+not reported.
 
 ## Manual checks for the maintainer
 

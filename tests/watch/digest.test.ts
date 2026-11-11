@@ -3,10 +3,12 @@ import { getStore } from "@/lib/store";
 import { notificationsFor, setPrefs } from "@/lib/tasks/service";
 import { __resetDigestChecks, fireWatchDigest } from "@/lib/watch/digest";
 import { addWatch, removeWatch } from "@/lib/watch/repo";
+import { saveView } from "@/lib/views/runtime";
 
 // F6: the daily digest in the bell, on the in-memory stores.
 
 const LOGIN = "digest-user";
+const VIEW_LOGIN = "digest-view-user";
 const issueNode = "I_bug";
 
 async function change(at: Date) {
@@ -18,6 +20,7 @@ describe("watch digest (F6)", () => {
     __resetDigestChecks();
     (await getStore()).fieldChanges.length = 0;
     await removeWatch(LOGIN, "issue", issueNode);
+    await removeWatch(VIEW_LOGIN, "view", "v-digest");
   });
 
   it("does nothing without watches, or when nothing changed", async () => {
@@ -55,6 +58,20 @@ describe("watch digest (F6)", () => {
     } finally {
       await setPrefs(LOGIN, { tz: null });
     }
+  });
+
+  it("covers a watched view: one digest for the changes on the issues it matches, not one per change", async () => {
+    await saveView({ id: "v-digest", name: "Everything", layout: "list", filters: [], sort: [] });
+    await addWatch(VIEW_LOGIN, "view", "v-digest", new Date("2026-10-25T08:00:00Z"));
+    await change(new Date("2026-10-25T09:00:00Z"));
+    expect(await fireWatchDigest(VIEW_LOGIN, new Date("2026-10-25T12:00:00Z"))).toBe(true);
+    const digests = (await notificationsFor(VIEW_LOGIN, new Date("2026-10-25T12:30:00Z"))).list.filter((n) => n.kind === "watch_digest");
+    expect(digests).toHaveLength(1);
+    expect(digests[0]).toMatchObject({ taskId: null, title: "1 watched item changed" });
+    // A second change the same day is covered by the same entry.
+    await change(new Date("2026-10-25T13:00:00Z"));
+    expect(await fireWatchDigest(VIEW_LOGIN, new Date("2026-10-25T14:00:00Z"))).toBe(false);
+    expect((await notificationsFor(VIEW_LOGIN, new Date("2026-10-25T14:30:00Z"))).list.filter((n) => n.kind === "watch_digest")).toHaveLength(1);
   });
 
   it("is not made for someone else's watches", async () => {
