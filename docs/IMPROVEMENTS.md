@@ -134,6 +134,6 @@ At the end: the full `pnpm test`, `pnpm test:e2e`, `pnpm desktop:build` and
 - **Item 14:** change the zone in Settings → General, restart the app, and check a
   due date/reminder still uses it.
 
-The full local e2e run passed 203 tests with one known timing flake in
-`ask.spec.ts` (it passes alone) and one test reported "did not run" after that
-flake; both `ask.spec.ts` and `a11y.spec.ts` pass on their own. CI retries once.
+The final full local e2e run passed **205 tests** (0 failures), and the desktop
+build produced `release/Deska-1.1.2-universal.dmg`. Two earlier full runs had a
+known `ask.spec.ts` timing flake under machine load (it passes alone).
