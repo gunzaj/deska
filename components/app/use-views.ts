@@ -13,7 +13,7 @@ export function useViews(initial: View[], initialTaskViews: TaskView[] = []) {
   // Network errors resolve to null/false like HTTP errors do: callers (the save
   // dialog's busy state among them) only handle a failed result, not a throw.
   const upsertView = useCallback(async (v: View) => {
-    const res = await fetch("/api/views", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ...v, kind: "tasks" }) }).catch(() => null);
+    const res = await fetch("/api/views", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(v) }).catch(() => null);
     if (isUnauthorized(res) || !res?.ok) return null;
     const saved = (await res.json()) as View;
     setViews((prev) => {
