@@ -175,14 +175,16 @@ body {
   color: var(--fg-muted);
 }
 
-/* While a side panel is open only titles open another item (PanelDismiss). */
-[data-panel-open] [data-peek-row] {
-  cursor: default;
-}
-[data-panel-open] [data-peek-title] {
+/* A title always looks openable, with or without a side panel (improvement 1). */
+[data-peek-row] [data-peek-title] {
   cursor: pointer;
 }
-[data-panel-open] [data-peek-title]:hover {
+[data-peek-row] [data-peek-title]:hover {
   text-decoration: underline;
   text-underline-offset: 2px;
+}
+/* The issue open in the side panel: a filled, outlined row the focus style can't be mistaken for. */
+[data-peeked] {
+  background: var(--brand-soft) !important;
+  box-shadow: inset 0 0 0 1px var(--brand-border) !important;
 }

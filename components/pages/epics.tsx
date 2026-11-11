@@ -1,5 +1,6 @@
 "use client";
 
+import { useSearchParams } from "next/navigation";
 import { useMemo, useState } from "react";
 import { pluralize } from "@/lib/client/format";
 import { PROGRESS_TOOLTIP, progressKey, progressText, subProgress } from "@/lib/client/progress";
@@ -13,12 +14,12 @@ import { EmptyHint } from "../props";
 
 type Sort = "progress" | "updated" | "size";
 
-function EpicRow({ e, onOpen }: { e: ClientIssue; onOpen: () => void }) {
+function EpicRow({ e, onOpen, peeked }: { e: ClientIssue; onOpen: () => void; peeked: boolean }) {
   const c = useCells();
   const p = subProgress(e);
   const pct = p.kind === "counted" ? p.pct : 0;
   return (
-    <button type="button" data-peek-row onClick={onOpen} className="flex h-14 w-full items-center gap-3 border-b border-line-soft px-4 text-left hover:bg-hover">
+    <button type="button" data-peek-row data-peeked={peeked ? "" : undefined} onClick={onOpen} className="flex h-14 w-full items-center gap-3 border-b border-line-soft px-4 text-left hover:bg-hover">
       {c.status(e)}
       <span className="w-14 shrink-0">{c.id(e)}</span>
       <span className="min-w-0 flex-1">
@@ -57,6 +58,8 @@ function EpicRow({ e, onOpen }: { e: ClientIssue; onOpen: () => void }) {
 export function EpicsPage() {
   const { data } = useAppData();
   const open = useOpenIssue();
+  const params = useSearchParams();
+  const peeked = Number(params.get("issue")) || null;
   const [state, setState] = useState<"open" | "closed" | "all">("open");
   const [sort, setSort] = useState<Sort>("progress");
   const epics = useMemo(() => {
@@ -101,7 +104,7 @@ export function EpicsPage() {
       {epics.length === 0 ? (
         <EmptyHint icon="epic" title="No epics" hint="Issues with sub-issues on GitHub appear here." />
       ) : (
-        epics.map((e) => <EpicRow key={e.nodeId} e={e} onOpen={() => open(e.number)} />)
+        epics.map((e) => <EpicRow key={e.nodeId} e={e} peeked={e.number === peeked} onOpen={() => open(e.number)} />)
       )}
     </Page>
   );
