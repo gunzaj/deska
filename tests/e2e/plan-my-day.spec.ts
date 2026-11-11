@@ -236,8 +236,8 @@ test('"Add to tasks" on a suggested issue creates a linked task', async ({ brows
     await row.locator("[data-ai-plan-add-task]").click();
     await expect.poll(() => posts.length).toBe(1);
     expect(posts[0]).toMatchObject({ title: ISSUE_TITLE, links: [ISSUE_NUMBER] });
-    const linked = await savedTask(page, ISSUE_TITLE);
-    expect(linked?.links.map((l) => l.number)).toEqual([ISSUE_NUMBER]);
+    // The POST was sent, not necessarily answered: wait for the saved task.
+    await expect.poll(async () => (await savedTask(page, ISSUE_TITLE))?.links.map((l) => l.number)).toEqual([ISSUE_NUMBER]);
     // A task now links the issue: the row offers no second one.
     await expect(row.locator("[data-ai-plan-add-task]")).toBeDisabled();
     await expect(row.locator("[data-ai-plan-add-task]")).toContainText("Already in tasks");
