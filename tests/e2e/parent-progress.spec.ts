@@ -11,7 +11,7 @@ const kid = (n: number, over: Record<string, unknown> = {}) => ({
 test("the Epics page shows GitHub's counts as 'pct · done/total'", async ({ browser }) => {
   const { context, page } = await as(browser);
   await page.goto("/epics");
-  await expect(page.locator("[data-epic-progress-text]").first()).toHaveText("0% · 0/1");
+  await expect(page.locator("[data-sub-progress]").first()).toHaveText("0% · 0/1");
   await context.close();
 });
 

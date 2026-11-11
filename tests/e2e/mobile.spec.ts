@@ -31,8 +31,8 @@ test("375px: release progress and epic progress are visible", async ({ browser }
   await expect(page.locator("[data-release-summary]")).toBeVisible();
   await expect(page.locator("[data-release-summary]")).toContainText("%");
   await page.goto("/epics");
-  await expect(page.locator("[data-epic-progress]").first()).toBeVisible();
-  await expect(page.locator("[data-epic-progress]").first()).toContainText("%");
+  await expect(page.locator("[data-sub-progress]").first()).toBeVisible();
+  await expect(page.locator("[data-sub-progress]").first()).toContainText("%");
   await context.close();
 });
 
