@@ -156,11 +156,12 @@ export function TriageRunPage() {
       actions={
         <>
           <DefaultScopeChip base={tab.base} fixed />
-          <button type="button" className={btn.icon} aria-label="Previous issue" disabled={index === 0} onClick={() => go(-1)}>
+          <button type="button" className={btn.ghost} aria-label="Back" disabled={index === 0} onClick={() => go(-1)}>
             <Icon name="chevronLeft" size={15} />
+            Back
           </button>
           <button type="button" className={btn.ghost} disabled={done} onClick={() => go(1)}>
-            Skip
+            Next
           </button>
           <button type="button" className={btn.ghost} disabled={!issue} onClick={() => setSnoozing(true)}>
             <Icon name="clock" size={13} />
@@ -195,7 +196,7 @@ export function TriageRunPage() {
               </span>
             )}
             <span><Kbd>A</Kbd> assign</span>
-            <span><Kbd>S</Kbd> / <Kbd>→</Kbd> skip</span>
+            <span><Kbd>S</Kbd> / <Kbd>→</Kbd> next</span>
             <span><Kbd>←</Kbd> back</span>
             <span><Kbd>I</Kbd> AI suggestion</span>
             <span><Kbd>Z</Kbd> snooze</span>

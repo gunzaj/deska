@@ -17,6 +17,8 @@ export function contentSecurityPolicy(nonce: string, dev = process.env.NODE_ENV 
     // The desktop app loads nothing from the network but GitHub (SPEC §2.2):
     // images in issue bodies and avatars come from GitHub's hosts.
     desktop ? "img-src 'self' data: https://github.com https://*.githubusercontent.com" : "img-src 'self' data: https:",
+    // Videos in issue descriptions (improvement 2), same hosts as images.
+    desktop ? "media-src 'self' data: https://github.com https://*.githubusercontent.com" : "media-src 'self' data: https:",
     "font-src 'self' data:",
     `connect-src 'self'${dev ? " ws: wss:" : ""}`,
     "object-src 'none'",

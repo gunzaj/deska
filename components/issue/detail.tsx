@@ -13,6 +13,7 @@ import { useCells } from "../explorer/cells";
 import { Icon } from "../icons";
 import { Avatar, EmptyHint, OptionDot } from "../props";
 import { LinkedTasks } from "../tasks/issue-tasks";
+import { Dialog } from "../ui/dialog";
 import { btn } from "../ui/popover";
 import { useIssueEdits } from "./edits";
 import { SeenOnOpen, WatchStar } from "../watch/star";
@@ -228,6 +229,8 @@ function Comment({ author, avatarUrl, createdAt, html, text, url }: { author: st
 
 export function IssueDetailView({ number, mode, onClose }: { number: number; mode: "peek" | "page"; onClose?: () => void }) {
   const { data, byNumber, byNodeId, avatarOf } = useAppData();
+  // A description image opens larger (improvement 2); the dialog closes on Esc.
+  const [lightbox, setLightbox] = useState<{ src: string; alt: string } | null>(null);
   const demo = data.meta.demo;
   const openIssue = useOpenIssue();
   const issue = byNumber.get(number);
@@ -332,12 +335,24 @@ export function IssueDetailView({ number, mode, onClose }: { number: number; mod
 
           <SubIssues issue={issue} />
 
-          <section>
+          <section data-issue-description className="rounded-xl border border-line bg-surface px-3 py-2.5 shadow-raised">
             <h3 className="mb-2 text-[12.5px] font-semibold text-muted">Description</h3>
             {loading && !detail ? (
               <Skeleton />
             ) : detail?.bodyHtml ? (
-              <div className="gh-markdown" dangerouslySetInnerHTML={{ __html: detail.bodyHtml }} />
+              <div
+                className="gh-markdown"
+                onClick={(e) => {
+                  const img = (e.target as Element).closest("img");
+                  if (!img) return;
+                  const src = img.getAttribute("src");
+                  if (!src) return;
+                  // GitHub wraps images in a link: the image opens, not the link.
+                  e.preventDefault();
+                  setLightbox({ src, alt: img.getAttribute("alt") ?? "" });
+                }}
+                dangerouslySetInnerHTML={{ __html: detail.bodyHtml }}
+              />
             ) : detail?.body ? (
               <p className="whitespace-pre-wrap text-[14px]">{detail.body}</p>
             ) : error ? (
@@ -346,6 +361,10 @@ export function IssueDetailView({ number, mode, onClose }: { number: number; mod
               <p className="text-faint">No description.</p>
             )}
           </section>
+
+          <Dialog open={lightbox != null} onClose={() => setLightbox(null)} label={lightbox?.alt ? `Image: ${lightbox.alt}` : "Image"} width={1100}>
+            {lightbox && <img src={lightbox.src} alt={lightbox.alt} className="max-h-[80vh] w-full bg-bg object-contain" />}
+          </Dialog>
 
           <section>
             <h3 className="mb-3 flex items-center gap-2 text-[12.5px] font-semibold text-muted">

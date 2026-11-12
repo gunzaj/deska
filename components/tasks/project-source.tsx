@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { DEFAULT_PROPS, encodeState } from "@/lib/client/explorer";
 import { narrowed, sourceRows } from "@/lib/client/project-source";
@@ -78,6 +79,8 @@ export function ProjectSourceSection({ project, tasks }: { project: TaskProject;
   const { data } = useAppData();
   const { updateProject } = useTasks();
   const openIssue = useOpenIssue();
+  const params = useSearchParams();
+  const peeked = Number(params.get("issue")) || null;
   const openByIssue = useCallback((i: { number: number }) => openIssue(i.number), [openIssue]);
   const [allIssues, setAllIssues] = useState(false);
   // Filter edits show at once; the saved project catches up after the PATCH.
@@ -124,7 +127,7 @@ export function ProjectSourceSection({ project, tasks }: { project: TaskProject;
         <div role="table" aria-label="Issues in this project">
           {issueRows.map((i) => (
             <div key={i.nodeId} className="group/gh relative h-11">
-              <IssueRow issue={i} props={DEFAULT_PROPS} focused={false} onOpen={openByIssue} onFocus={NOOP} />
+              <IssueRow issue={i} props={DEFAULT_PROPS} focused={false} peeked={i.number === peeked} onOpen={openByIssue} onFocus={NOOP} />
               <AddTaskButton number={i.number} projectId={project.id} />
             </div>
           ))}

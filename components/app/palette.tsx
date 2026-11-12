@@ -309,6 +309,7 @@ export function CommandPalette() {
             }
           }}
           role="combobox"
+          data-dialog-escape
           aria-expanded
           aria-controls={listboxId}
           aria-activedescendant={items[active] ? `${listboxId}-${active}` : undefined}

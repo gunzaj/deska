@@ -10,6 +10,10 @@ export type AiProvider = (typeof AI_PROVIDERS)[number];
 export const CLAUDE_MODELS = ["sonnet", "opus", "haiku"] as const;
 export const DEFAULT_CLAUDE_MODEL = "sonnet";
 
+/** `--effort` levels the Claude Code CLI takes. Empty = the CLI's own default. */
+export const AI_EFFORTS = ["", "low", "medium", "high", "xhigh", "max"] as const;
+export type AiEffort = (typeof AI_EFFORTS)[number];
+
 export const MIN_TIMEOUT_SEC = 10;
 export const MAX_TIMEOUT_SEC = 600;
 export const MAX_EXTRA_INSTRUCTIONS = 4000;
@@ -18,14 +22,29 @@ export type AiSettings = {
   provider: AiProvider;
   /** Claude Code: `sonnet`, `opus`, `haiku` or a typed model. OpenAI-compatible: the model name. */
   model: string;
+  /** Claude Code only: `--effort` level, `""` = the CLI's default. Never sent to an endpoint. */
+  effort: AiEffort;
   /** OpenAI-compatible only, without a trailing slash. */
   baseUrl: string;
+  /** Ramble's transcription endpoint (item 13), without a trailing slash. Empty = the chat endpoint. */
+  transcribeBaseUrl: string;
+  /** The transcription model; `whisper-1` when unset. */
+  transcribeModel: string;
   timeoutSec: number;
   /** Added to every prompt (team conventions, what labels mean). */
   extraInstructions: string;
 };
 
-export const DEFAULT_AI_SETTINGS: AiSettings = { provider: "off", model: DEFAULT_CLAUDE_MODEL, baseUrl: "", timeoutSec: 120, extraInstructions: "" };
+export const DEFAULT_AI_SETTINGS: AiSettings = {
+  provider: "off",
+  model: DEFAULT_CLAUDE_MODEL,
+  effort: "",
+  baseUrl: "",
+  transcribeBaseUrl: "",
+  transcribeModel: "whisper-1",
+  timeoutSec: 120,
+  extraInstructions: "",
+};
 
 /** A model name is one word: letters, digits and `. _ : / -` (covers `llama3.1:8b`, `org/model`, `claude-sonnet-5-5`). */
 const MODEL = /^[A-Za-z0-9][A-Za-z0-9._:/@+-]{0,199}$/;
@@ -36,12 +55,18 @@ export function parseAiSettings(raw: unknown): AiSettings {
   const d = DEFAULT_AI_SETTINGS;
   const provider = (AI_PROVIDERS as readonly unknown[]).includes(o.provider) ? (o.provider as AiProvider) : d.provider;
   const model = typeof o.model === "string" && MODEL.test(o.model) ? o.model : d.model;
+  const effort = (AI_EFFORTS as readonly unknown[]).includes(o.effort) ? (o.effort as AiEffort) : d.effort;
   const base = typeof o.baseUrl === "string" ? checkBaseUrl(o.baseUrl) : null;
+  const transcribeBase = typeof o.transcribeBaseUrl === "string" ? checkBaseUrl(o.transcribeBaseUrl) : null;
+  const transcribeModel = typeof o.transcribeModel === "string" && MODEL.test(o.transcribeModel) ? o.transcribeModel : d.transcribeModel;
   const timeout = typeof o.timeoutSec === "number" && Number.isFinite(o.timeoutSec) ? Math.round(o.timeoutSec) : d.timeoutSec;
   return {
     provider,
     model,
+    effort,
     baseUrl: base?.ok ? base.url : d.baseUrl,
+    transcribeBaseUrl: transcribeBase?.ok ? transcribeBase.url : d.transcribeBaseUrl,
+    transcribeModel,
     timeoutSec: Math.min(MAX_TIMEOUT_SEC, Math.max(MIN_TIMEOUT_SEC, timeout)),
     extraInstructions: typeof o.extraInstructions === "string" ? o.extraInstructions.slice(0, MAX_EXTRA_INSTRUCTIONS) : d.extraInstructions,
   };
@@ -52,7 +77,10 @@ export const aiSettingsBody = z
   .object({
     provider: z.enum(AI_PROVIDERS),
     model: z.string().trim().regex(MODEL, "That is not a model name."),
+    effort: z.enum(AI_EFFORTS),
     baseUrl: z.string().trim().max(500),
+    transcribeBaseUrl: z.string().trim().max(500),
+    transcribeModel: z.string().trim().regex(MODEL, "That is not a model name."),
     timeoutSec: z.number().int().min(MIN_TIMEOUT_SEC).max(MAX_TIMEOUT_SEC),
     extraInstructions: z.string().max(MAX_EXTRA_INSTRUCTIONS),
   })

@@ -1,16 +1,31 @@
 "use client";
 
-// Settings → AI (SPEC §4.9): provider, model, endpoint, API key, timeout, extra
-// instructions, what each feature sends, and Test connection. Off by default;
-// nothing leaves the Mac until the chosen provider passes the test.
+// Settings → AI (SPEC §4.9): provider, model, effort, endpoint, API key,
+// timeout, extra instructions, what each feature sends, and Test connection. Off
+// by default; nothing leaves the Mac until the chosen provider passes the test.
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { AiKeyStatus } from "../../desktop/bridge";
-import { AI_PROVIDERS, CLAUDE_MODELS, DEFAULT_AI_SETTINGS, DEFAULT_CLAUDE_MODEL, MAX_EXTRA_INSTRUCTIONS, MAX_TIMEOUT_SEC, MIN_TIMEOUT_SEC, type AiProvider, type AiSettings, type TestResult } from "@/lib/ai/types";
+import {
+  AI_EFFORTS,
+  AI_PROVIDERS,
+  CLAUDE_MODELS,
+  DEFAULT_AI_SETTINGS,
+  DEFAULT_CLAUDE_MODEL,
+  MAX_EXTRA_INSTRUCTIONS,
+  MAX_TIMEOUT_SEC,
+  MIN_TIMEOUT_SEC,
+  type AiEffort,
+  type AiProvider,
+  type AiSettings,
+  type TestResult,
+} from "@/lib/ai/types";
 
 type View = {
   settings: AiSettings;
   hasKey: boolean;
+  hasTranscribeKey: boolean;
   verified: boolean;
+  claude: { found: boolean; effort: boolean };
   features: { id: string; name: string; sends: string; milestone: string }[];
   neverSent: string;
   destinations: Record<"claude-code" | "openai", string>;
@@ -19,6 +34,7 @@ type View = {
 const PROVIDER_LABEL: Record<AiProvider, string> = { off: "Off", "claude-code": "Claude Code (your own Claude login)", openai: "OpenAI-compatible endpoint" };
 const field = "h-9 min-w-0 rounded-md border border-line bg-field px-2.5 text-[12.5px] outline-none hover:border-line-field focus:border-focus";
 const button = "inline-flex h-8 items-center gap-1.5 rounded-md border border-line px-3 font-medium hover:bg-hover disabled:opacity-60";
+const CUSTOM = "__custom";
 
 async function call(url: string, body?: unknown): Promise<Record<string, unknown>> {
   const res = await fetch(url, { method: body === undefined && !url.endsWith("/test") ? "GET" : "POST", headers: { "content-type": "application/json" }, body: body === undefined ? undefined : JSON.stringify(body) });
@@ -31,14 +47,40 @@ export function AiSettingsSection() {
   const [view, setView] = useState<View | null>(null);
   const [draft, setDraft] = useState<AiSettings>(DEFAULT_AI_SETTINGS);
   const [models, setModels] = useState<string[]>([]);
+  const [modelsError, setModelsError] = useState<string | null>(null);
+  const [modelsLoading, setModelsLoading] = useState(false);
+  // "Custom…" was picked for the model; a saved model that the list lacks is
+  // still shown as a normal, selected option.
+  const [customModel, setCustomModel] = useState(false);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<{ kind: "ok" | "error"; text: string } | null>(null);
   const [keyInput, setKeyInput] = useState("");
   const [keyStatus, setKeyStatus] = useState<AiKeyStatus | null>(null);
-  // The key is entered through the desktop shell's bridge, never over HTTP (SPEC §2.3).
+  const [transcribeKeyInput, setTranscribeKeyInput] = useState("");
+  const [transcribeKeyStatus, setTranscribeKeyStatus] = useState<AiKeyStatus | null>(null);
+  // The keys are entered through the desktop shell's bridge, never over HTTP (SPEC §2.3).
   const bridge = typeof window === "undefined" ? undefined : window.deska?.aiKey;
+  const transcribeBridge = typeof window === "undefined" ? undefined : window.deska?.transcribeKey;
 
   const loaded = useRef(false);
+
+  // The endpoint's models (item 5), loaded as soon as Settings opens rather than
+  // only after Test connection. It reads the saved settings, so it runs after a
+  // save (and on open), not on every keystroke in the Base URL field.
+  const loadModels = useCallback(async () => {
+    setModelsLoading(true);
+    try {
+      const r = (await call("/api/ai/models")) as unknown as { models?: string[]; error?: string | null };
+      setModels(Array.isArray(r.models) ? r.models : []);
+      setModelsError(typeof r.error === "string" ? r.error : null);
+    } catch (e) {
+      setModels([]);
+      setModelsError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setModelsLoading(false);
+    }
+  }, []);
+
   const load = useCallback(async () => {
     try {
       const v = (await call("/api/ai/settings")) as unknown as View;
@@ -49,11 +91,14 @@ export function AiSettingsSection() {
         loaded.current = true;
         setDraft(v.settings);
       }
+      if (v.settings.provider === "openai") void loadModels();
+      else setModels([]);
     } catch (e) {
       setMessage({ kind: "error", text: e instanceof Error ? e.message : String(e) });
     }
     setKeyStatus((await bridge?.status().catch(() => null)) ?? null);
-  }, [bridge]);
+    setTranscribeKeyStatus((await transcribeBridge?.status().catch(() => null)) ?? null);
+  }, [bridge, loadModels, transcribeBridge]);
   useEffect(() => void load(), [load]);
 
   const dirty = !!view && JSON.stringify(view.settings) !== JSON.stringify(draft);
@@ -75,6 +120,8 @@ export function AiSettingsSection() {
     const v = (await call("/api/ai/settings", draft)) as unknown as View;
     setView(v);
     setDraft(v.settings);
+    setCustomModel(false);
+    if (v.settings.provider === "openai") void loadModels();
     return v;
   };
 
@@ -82,6 +129,8 @@ export function AiSettingsSection() {
     // Each provider has its own kind of model name.
     setDraft((d) => ({ ...d, provider, model: provider === "claude-code" ? DEFAULT_CLAUDE_MODEL : provider === "openai" ? "" : d.model }));
     setModels([]);
+    setModelsError(null);
+    setCustomModel(false);
   }
 
   async function test() {
@@ -105,7 +154,24 @@ export function AiSettingsSection() {
     });
   }
 
+  async function transcribeKeyAction(action: "set" | "clear") {
+    if (!transcribeBridge) return;
+    await run(async () => {
+      setTranscribeKeyStatus(action === "set" ? await transcribeBridge.set(transcribeKeyInput) : await transcribeBridge.clear());
+      setTranscribeKeyInput("");
+      await load();
+      return action === "set" ? "Transcription key saved in the keychain." : "Transcription key removed.";
+    });
+  }
+
   const provider = draft.provider;
+  const isClaude = provider === "claude-code";
+  const savedModel = view?.settings.model ?? "";
+  const listed = isClaude ? [...CLAUDE_MODELS] : models;
+  // A saved model the list does not offer stays selectable (item 5): an endpoint
+  // with no /models still shows what is stored.
+  const options = Array.from(new Set([...listed, ...(savedModel && !listed.includes(savedModel) ? [savedModel] : [])]));
+  const custom = customModel || !draft.model || !options.includes(draft.model);
   return (
     <section id="ai" aria-labelledby="ai-settings" className="space-y-5 border-t border-line pt-6">
       <h2 id="ai-settings" className="text-[15px] font-semibold">
@@ -133,7 +199,7 @@ export function AiSettingsSection() {
           ))}
         </select>
         {provider !== "off" && view && <p className="text-[11.5px] text-faint">{view.destinations[provider]}</p>}
-        {provider === "claude-code" && <p className="text-[11.5px] text-faint">Needs the Claude Code CLI (claude) installed and signed in; the Claude desktop app alone is not enough. Deska stores no Anthropic key.</p>}
+        {isClaude && <p className="text-[11.5px] text-faint">Needs the Claude Code CLI (claude) installed and signed in; the Claude desktop app alone is not enough. Deska stores no Anthropic key.</p>}
       </div>
 
       {provider !== "off" && (
@@ -152,23 +218,75 @@ export function AiSettingsSection() {
             <label htmlFor="ai-model" className="block text-[12.5px] font-medium">
               Model
             </label>
-            <input
+            <select
               id="ai-model"
-              list="ai-model-options"
-              value={draft.model}
-              onChange={(e) => setDraft({ ...draft, model: e.target.value.trim() })}
-              spellCheck={false}
-              autoCapitalize="off"
-              placeholder={provider === "openai" ? "model name" : DEFAULT_CLAUDE_MODEL}
+              value={custom ? CUSTOM : draft.model}
+              disabled={!view}
+              onChange={(e) => {
+                const v = e.target.value;
+                if (v === CUSTOM) {
+                  setCustomModel(true);
+                  return;
+                }
+                setCustomModel(false);
+                setDraft({ ...draft, model: v });
+              }}
               className={`${field} w-full max-w-sm font-mono`}
-            />
-            <datalist id="ai-model-options">
-              {(provider === "claude-code" ? [...CLAUDE_MODELS] : models).map((m) => (
-                <option key={m} value={m} />
+            >
+              {options.map((m) => (
+                <option key={m} value={m}>
+                  {m === savedModel && !listed.includes(m) ? `${m} (saved)` : m}
+                </option>
               ))}
-            </datalist>
-            {provider === "openai" && models.length > 0 && <p className="text-[11.5px] text-faint">{models.length} models listed by the endpoint. You can also type one.</p>}
+              <option value={CUSTOM}>Custom…</option>
+            </select>
+            {custom && (
+              <input
+                aria-label="Model name"
+                value={draft.model}
+                onChange={(e) => setDraft({ ...draft, model: e.target.value.trim() })}
+                spellCheck={false}
+                autoCapitalize="off"
+                placeholder={isClaude ? "claude-sonnet-5-5" : "model name"}
+                className={`${field} w-full max-w-sm font-mono`}
+              />
+            )}
+            {isClaude ? (
+              <p className="text-[11.5px] text-faint">sonnet, opus and haiku are aliases the CLI resolves to the current model of that kind. A custom name is passed as it is.</p>
+            ) : modelsLoading ? (
+              <p className="text-[11.5px] text-faint">Loading the endpoint's model list…</p>
+            ) : modelsError ? (
+              <p className="text-[11.5px] text-faint">Could not list models: {modelsError} You can still type one.</p>
+            ) : models.length > 0 ? (
+              <p className="text-[11.5px] text-faint">{models.length} models listed by the endpoint. You can also type one.</p>
+            ) : (
+              <p className="text-[11.5px] text-faint">The endpoint lists no models. Type the model name.</p>
+            )}
           </div>
+
+          {isClaude ? (
+            view && !view.claude.found ? (
+              <p className="text-[11.5px] text-faint">Claude Code is not installed, so there is no effort to choose. Install it, then test the connection.</p>
+            ) : view?.claude.effort ? (
+              <div className="space-y-1.5">
+                <label htmlFor="ai-effort" className="block text-[12.5px] font-medium">
+                  Effort
+                </label>
+                <select id="ai-effort" value={draft.effort} onChange={(e) => setDraft({ ...draft, effort: e.target.value as AiEffort })} className={`${field} w-40`}>
+                  {AI_EFFORTS.map((e) => (
+                    <option key={e || "default"} value={e}>
+                      {e || "Default"}
+                    </option>
+                  ))}
+                </select>
+                <p className="text-[11.5px] text-faint">Passed to Claude Code as --effort. Default lets the CLI decide.</p>
+              </div>
+            ) : (
+              view && <p className="text-[11.5px] text-faint">This Claude Code version has no --effort option. Update Claude Code to choose an effort.</p>
+            )
+          ) : (
+            <p className="text-[11.5px] text-faint">Effort is not available for this provider.</p>
+          )}
 
           {provider === "openai" && (
             <div className="space-y-1.5" data-ai-key>
@@ -221,6 +339,75 @@ export function AiSettingsSection() {
 
         </>
       )}
+
+      <div className="space-y-3 border-t border-line-soft pt-4" data-ai-transcription>
+        <h3 className="text-[13px] font-semibold">Transcription (Ramble)</h3>
+        <p className="text-[12.5px] text-muted">
+          A voice note is turned into text here, then the provider above turns the text into tasks. Leave the base URL empty to use the OpenAI-compatible chat endpoint
+          {provider === "openai" && draft.baseUrl ? ` (${draft.baseUrl})` : ""}. Claude Code has no audio input, so set an endpoint here.
+        </p>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <label className="block text-[12.5px] font-medium">
+            Transcription base URL
+            <input
+              id="ai-transcribe-url"
+              aria-label="Transcription base URL"
+              value={draft.transcribeBaseUrl}
+              onChange={(e) => setDraft({ ...draft, transcribeBaseUrl: e.target.value })}
+              placeholder={provider === "openai" && draft.baseUrl ? draft.baseUrl : "https://api.example.test/v1"}
+              spellCheck={false}
+              autoCapitalize="off"
+              className={`mt-1 ${field} w-full font-mono`}
+            />
+          </label>
+          <label className="block text-[12.5px] font-medium">
+            Transcription model
+            <input
+              id="ai-transcribe-model"
+              aria-label="Transcription model"
+              value={draft.transcribeModel}
+              onChange={(e) => setDraft({ ...draft, transcribeModel: e.target.value.trim() })}
+              placeholder="whisper-1"
+              spellCheck={false}
+              autoCapitalize="off"
+              className={`mt-1 ${field} w-full font-mono`}
+            />
+          </label>
+        </div>
+        <div className="space-y-1.5" data-ai-transcribe-key>
+          <label htmlFor="ai-transcribe-key" className="block text-[12.5px] font-medium">
+            Transcription API key (optional)
+          </label>
+          {transcribeBridge ? (
+            <>
+              <div className="flex max-w-md gap-2">
+                <input
+                  id="ai-transcribe-key"
+                  type="password"
+                  autoComplete="off"
+                  spellCheck={false}
+                  autoCapitalize="off"
+                  value={transcribeKeyInput}
+                  onChange={(e) => setTranscribeKeyInput(e.target.value)}
+                  placeholder={transcribeKeyStatus?.stored ? "A key is saved" : "none"}
+                  className={`${field} flex-1 font-mono`}
+                />
+                <button type="button" disabled={busy || !transcribeKeyInput.trim()} onClick={() => void transcribeKeyAction("set")} className={button}>
+                  Save key
+                </button>
+                {transcribeKeyStatus?.stored && (
+                  <button type="button" disabled={busy} onClick={() => void transcribeKeyAction("clear")} className={button}>
+                    Remove key
+                  </button>
+                )}
+              </div>
+              <p className="text-[11.5px] text-faint">Stored encrypted with your macOS keychain. It goes only to this endpoint.</p>
+            </>
+          ) : (
+            <p className="text-[12.5px] text-muted">Keys can be entered in the desktop app only.</p>
+          )}
+        </div>
+      </div>
 
       <div className="flex flex-wrap items-center gap-2">
         <button type="button" disabled={busy || !dirty} onClick={() => void run(async () => (await save(), provider === "off" ? "Saved. AI assist is off." : "Saved. Run Test connection."))} className={button}>

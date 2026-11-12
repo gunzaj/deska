@@ -1,4 +1,5 @@
-import { aiKey } from "@/lib/ai/key";
+import { aiKey, transcribeKey } from "@/lib/ai/key";
+import { claudeCapabilities } from "@/lib/ai/claude";
 import { AI_DESTINATIONS, AI_FEATURES, AI_NEVER_SENT } from "@/lib/ai/features";
 import { aiSettingsBody, verifyId } from "@/lib/ai/types";
 import { checkBaseUrl } from "@/lib/ai/url";
@@ -13,8 +14,13 @@ async function view() {
     settings,
     // Whether the API key is set: never the key (SPEC §2.3).
     hasKey: aiKey() !== null,
+    hasTranscribeKey: transcribeKey() !== null,
     // "Test connection" passed for exactly these settings; nothing leaves the Mac before.
     verified: settings.provider !== "off" && (await readAiVerified()) === verifyId(settings),
+    // What the installed Claude Code CLI offers (item 5): `effort` hides the
+    // effort picker on a CLI without `--effort`. Re-read on every Settings load
+    // so an update is noticed without a relaunch.
+    claude: await claudeCapabilities({ refresh: true }),
     features: AI_FEATURES,
     neverSent: AI_NEVER_SENT,
     destinations: AI_DESTINATIONS,
@@ -35,7 +41,13 @@ export const POST = route({ auth: "public", body: aiSettingsBody, invalid: "Thos
     if (!checked.ok) throw new HttpError(400, checked.error);
     baseUrl = checked.url;
   }
-  const next = { ...body, baseUrl };
+  let transcribeBaseUrl = "";
+  if (body.transcribeBaseUrl) {
+    const checked = checkBaseUrl(body.transcribeBaseUrl);
+    if (!checked.ok) throw new HttpError(400, checked.error);
+    transcribeBaseUrl = checked.url;
+  }
+  const next = { ...body, baseUrl, transcribeBaseUrl };
   const before = await readAiSettings();
   await saveAiSettings(next);
   if (verifyId(before) !== verifyId(next)) await saveAiVerified(null);

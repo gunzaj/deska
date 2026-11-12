@@ -116,6 +116,8 @@ export function Explorer({
   const { openCompose } = useTasks();
   const router = useRouter();
   const params = useSearchParams();
+  // The issue open in the side panel (improvement 1): the row stays highlighted.
+  const peeked = Number(params.get("issue")) || null;
   const openIssue = useOpenIssue();
   const saved = useMemo<ExplorerState>(() => (view ? stateOf(view) : defaults), [view, defaults]);
   const [state, setState] = useUrlExplorerState<ExplorerState>({
@@ -434,7 +436,7 @@ export function Explorer({
             />
           </div>
         ) : layout === "board" ? (
-          <BoardLayout rows={rows} field={state.boardColumnsField ?? "status"} props={props} focusedKey={focusedKey} onFocus={setFocusedKey} onOpen={open} dropRelease={dropRelease} />
+          <BoardLayout rows={rows} field={state.boardColumnsField ?? "status"} props={props} focusedKey={focusedKey} onFocus={setFocusedKey} onOpen={open} dropRelease={dropRelease} peeked={peeked} />
         ) : layout === "table" ? (
           <TableLayout
             rows={order}
@@ -445,6 +447,7 @@ export function Explorer({
             onFocus={setFocusedKey}
             onOpen={open}
             scrollRef={scrollRef}
+            peeked={peeked}
             selection={
               selection && {
                 ...selection,
@@ -454,7 +457,7 @@ export function Explorer({
             }
           />
         ) : (
-          <ListLayout groups={groups} collapsed={collapsed} onToggleGroup={onToggleGroup} props={props} focusedKey={focusedKey} onFocus={setFocusedKey} onOpen={open} scrollRef={scrollRef} selection={selection} />
+          <ListLayout groups={groups} collapsed={collapsed} onToggleGroup={onToggleGroup} props={props} focusedKey={focusedKey} onFocus={setFocusedKey} onOpen={open} scrollRef={scrollRef} selection={selection} peeked={peeked} />
         )}
       </div>
       {selectable && selectedIssues.length > 0 && (

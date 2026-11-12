@@ -169,8 +169,8 @@ export async function getTask(me: string, id: string): Promise<Result<Task>> {
   return t ? { ok: true, value: await viewOne(repo, me, t) } : notFound;
 }
 
-export async function createTask(me: string, input: CreateTaskInput, resolve: Resolve = noResolve): Promise<Result<Task>> {
-  const repo = taskRepo();
+/** Validate one create input and build its task, before anything is written. */
+async function prepareTask(repo: TaskRepo, me: string, input: CreateTaskInput, resolve: Resolve): Promise<Result<StoredTask>> {
   const { links, missing } = resolveLinks(input.links, resolve);
   if (missing.length) return bad(`unknown issue: #${missing.join(", #")}`);
   if (input.parentId) {
@@ -189,38 +189,76 @@ export async function createTask(me: string, input: CreateTaskInput, resolve: Re
 
   const now = new Date().toISOString();
   const dueTz = input.dueDate ? (input.tz ?? (await repo.prefs(me)).tz ?? "UTC") : null;
-  const task: StoredTask = {
-    id: randomUUID(),
-    creator: me,
-    parentId: input.parentId,
-    sectionId: input.sectionId,
-    title,
-    description: input.description,
-    priority: input.priority,
-    dueDate: input.dueDate,
-    dueTime: input.dueDate ? input.dueTime : null,
-    dueTz,
-    recurrence: input.recurrence && input.dueDate ? pinMonthDay(input.recurrence, input.dueDate) : null,
-    reminders: withIds(input.reminders),
-    completedAt: null,
-    completedBy: null,
-    links,
-    createdAt: now,
-    updatedAt: now,
-    deletedAt: null,
+  return {
+    ok: true,
+    value: {
+      id: randomUUID(),
+      creator: me,
+      parentId: input.parentId,
+      sectionId: input.sectionId,
+      title,
+      description: input.description,
+      priority: input.priority,
+      dueDate: input.dueDate,
+      dueTime: input.dueDate ? input.dueTime : null,
+      dueTz,
+      recurrence: input.recurrence && input.dueDate ? pinMonthDay(input.recurrence, input.dueDate) : null,
+      reminders: withIds(input.reminders),
+      completedAt: null,
+      completedBy: null,
+      links,
+      createdAt: now,
+      updatedAt: now,
+      deletedAt: null,
+    },
   };
+}
+
+/** The task, its placement and its labels, inside the caller's transaction. */
+async function insertTask(repo: TaskRepo, me: string, task: StoredTask, input: CreateTaskInput): Promise<void> {
+  await repo.insert(task);
+  if (input.projectId || !input.parentId) {
+    await repo.setPlacement(task.id, me, { projectId: input.projectId, position: (await repo.maxPosition(me, input.projectId)) + 1 });
+  }
+  if (input.labels.length) await repo.setLabelLinks(task.id, me, await ensureLabels(repo, me, input.labels));
+}
+
+export async function createTask(me: string, input: CreateTaskInput, resolve: Resolve = noResolve): Promise<Result<Task>> {
+  const repo = taskRepo();
+  const prepared = await prepareTask(repo, me, input, resolve);
+  if (!prepared.ok) return prepared;
+  const task = prepared.value;
   // One transaction (v5 1.7): a failure after the insert (ensureLabels, say)
   // used to return 500 with the task already saved, and the client's retry
   // made a duplicate.
   await repo.locked(task.id, async () => {
-    await repo.insert(task);
-    if (input.projectId || !input.parentId) {
-      await repo.setPlacement(task.id, me, { projectId: input.projectId, position: (await repo.maxPosition(me, input.projectId)) + 1 });
-    }
-    if (input.labels.length) await repo.setLabelLinks(task.id, me, await ensureLabels(repo, me, input.labels));
+    await insertTask(repo, me, task, input);
   });
   tasksChanged();
   return { ok: true, value: await viewOne(repo, me, task) };
+}
+
+/**
+ * Create several tasks in one transaction (item 13): every input is validated
+ * first, then the tasks, placements and labels are written together, so a batch
+ * that fails part-way leaves none of them behind.
+ */
+export async function createTasks(me: string, inputs: CreateTaskInput[], resolve: Resolve = noResolve): Promise<Result<Task[]>> {
+  const repo = taskRepo();
+  const prepared: StoredTask[] = [];
+  for (const input of inputs) {
+    const r = await prepareTask(repo, me, input, resolve);
+    if (!r.ok) return r;
+    prepared.push(r.value);
+  }
+  // A random id only opens the transaction; no row is locked.
+  const r = await repo.locked<Result<true>>(randomUUID(), async () => {
+    for (let i = 0; i < prepared.length; i++) await insertTask(repo, me, prepared[i]!, inputs[i]!);
+    return { ok: true, value: true };
+  });
+  if (!r.ok) return r;
+  tasksChanged();
+  return { ok: true, value: await Promise.all(prepared.map((t) => viewOne(repo, me, t))) };
 }
 
 // Filing changes (project, position, labels) are never refused for a stale task.
@@ -323,7 +361,7 @@ async function applyUpdate(repo: TaskRepo, me: string, id: string, patch: PatchT
     if (next.recurrence) next.recurrence = pinMonthDay(next.recurrence, dueDate);
     // The user moved the date: a day of the month taken from the old date
     // follows it (an explicitly chosen one stays).
-    else if (patch.dueDate !== undefined && patch.dueDate !== prev.dueDate && patch.undoOccurrence === undefined && prev.recurrence) {
+    else if (patch.dueDate !== undefined && patch.dueDate !== prev.dueDate && patch.undoOccurrence === undefined && next.recurrence === undefined && prev.recurrence) {
       const r = repinMonthDay(prev.recurrence, dueDate);
       if (r !== prev.recurrence) next.recurrence = r;
     }

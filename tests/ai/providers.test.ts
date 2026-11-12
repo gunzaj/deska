@@ -3,12 +3,22 @@
 // failure modes; the base-URL rule. Nothing real is called.
 import { existsSync } from "node:fs";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { checkClaudeCli, callClaude, claudeArgs, claudeEnv } from "@/lib/ai/claude";
+import { checkClaudeCli, callClaude, claudeArgs, claudeCapabilities, claudeEnv } from "@/lib/ai/claude";
 import { callOpenAi, listModels } from "@/lib/ai/openai";
 import { checkBaseUrl, isLocalNetworkHost } from "@/lib/ai/url";
+import { DEFAULT_AI_SETTINGS, parseAiSettings } from "@/lib/ai/types";
 import { claudeError, claudeOk, chatOk, fakeClaude, mockEndpoint, type FakeClaude, type MockEndpoint } from "./helpers";
 
 const SCHEMA = { type: "object", properties: { ok: { type: "boolean" } }, required: ["ok"], additionalProperties: false };
+
+describe("AI settings (§4.9)", () => {
+  it("keeps a known effort and drops an unknown one", () => {
+    expect(parseAiSettings({ ...DEFAULT_AI_SETTINGS, effort: "xhigh" }).effort).toBe("xhigh");
+    expect(parseAiSettings({ ...DEFAULT_AI_SETTINGS, effort: "turbo" }).effort).toBe("");
+    expect(parseAiSettings({ ...DEFAULT_AI_SETTINGS, effort: 3 }).effort).toBe("");
+    expect(parseAiSettings(undefined)).toEqual(DEFAULT_AI_SETTINGS);
+  });
+});
 
 describe("base URL (§4.9)", () => {
   it("allows https anywhere and plain http only on this machine or the user's network", () => {
@@ -40,13 +50,49 @@ describe("Claude Code provider", () => {
   });
 
   it("calls `claude -p` with the SPEC arguments, the prompt on stdin, and returns structured_output and cost", async () => {
-    fake.reply(claudeOk({ ok: true }, 0.037));
+    fake.reply({ ...claudeOk({ ok: true }, 0.037), duration_ms: 4_200, duration_api_ms: 3_100 });
     const res = await callClaude({ model: "sonnet", system: "SYSTEM TEXT", user: "USER TEXT", schema: SCHEMA, timeoutMs: 10_000 });
-    expect(res).toEqual({ ok: true, output: { ok: true }, costUsd: 0.037 });
+    expect(res).toEqual({ ok: true, output: { ok: true }, costUsd: 0.037, timings: { durationMs: 4_200, apiMs: 3_100 } });
     const [run] = fake.runs();
     expect(run!.args).toEqual(claudeArgs({ schema: SCHEMA, system: "SYSTEM TEXT", model: "sonnet" }));
     expect(run!.args).toEqual(["-p", "--output-format", "json", "--json-schema", JSON.stringify(SCHEMA), "--system-prompt", "SYSTEM TEXT", "--tools", "", "--strict-mcp-config", "--setting-sources", "", "--no-session-persistence", "--model", "sonnet"]);
     expect(run!.stdin).toBe("USER TEXT");
+  });
+
+  it("passes --effort only when one is set and this CLI has the flag", async () => {
+    fake.reply(claudeOk({ ok: true }));
+    expect(claudeArgs({ schema: SCHEMA, system: "s", model: "opus", effort: "high" })).toEqual([
+      "-p",
+      "--output-format",
+      "json",
+      "--json-schema",
+      JSON.stringify(SCHEMA),
+      "--system-prompt",
+      "s",
+      "--tools",
+      "",
+      "--strict-mcp-config",
+      "--setting-sources",
+      "",
+      "--no-session-persistence",
+      "--model",
+      "opus",
+      "--effort",
+      "high",
+    ]);
+    expect(claudeArgs({ schema: SCHEMA, system: "s", model: "opus" })).not.toContain("--effort");
+
+    expect(await claudeCapabilities()).toEqual({ found: true, effort: true });
+    await callClaude({ model: "sonnet", effort: "high", system: "s", user: "u", schema: SCHEMA, timeoutMs: 10_000 });
+    expect(fake.runs().at(-1)!.args.slice(-2)).toEqual(["--effort", "high"]);
+
+    // An older CLI without --effort still passes Test connection; the stored
+    // effort is left out of the call instead of failing on an unknown option.
+    fake.withoutFlag("--effort");
+    expect(await checkClaudeCli()).toMatchObject({ ok: true });
+    expect(await claudeCapabilities()).toEqual({ found: true, effort: false });
+    await callClaude({ model: "sonnet", effort: "high", system: "s", user: "u", schema: SCHEMA, timeoutMs: 10_000 });
+    expect(fake.runs().at(-1)!.args).not.toContain("--effort");
   });
 
   it("runs in an empty temp folder that is removed afterwards", async () => {

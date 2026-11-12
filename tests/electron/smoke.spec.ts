@@ -358,7 +358,7 @@ test.describe("desktop shell", () => {
       // The renderer has no Node, only the typed bridge.
       expect(await win.evaluate(() => typeof (globalThis as { require?: unknown }).require)).toBe("undefined");
       expect(await win.evaluate(() => typeof (globalThis as { process?: unknown }).process)).toBe("undefined");
-      expect(await win.evaluate(() => Object.keys(window.deska ?? {}).sort())).toEqual(["aiKey", "appInfo", "desktop", "github", "notify", "onOpenTask", "openExternal", "quickAdd", "token"]);
+      expect(await win.evaluate(() => Object.keys(window.deska ?? {}).sort())).toEqual(["aiKey", "appInfo", "desktop", "github", "notify", "onOpenTask", "openExternal", "quickAdd", "token", "transcribeKey"]);
       expect(await win.evaluate(() => window.deska!.appInfo())).toMatchObject({ name: "Deska", platform: "darwin" });
       // main refuses anything that is not a GitHub PAT, with its own words.
       expect(await win.evaluate(() => window.deska!.token.set("ghp_classic").then(() => "stored", (e: Error) => e.message))).toContain("GitHub personal access token");

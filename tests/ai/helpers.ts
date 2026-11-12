@@ -18,6 +18,7 @@ export const HELP_TEXT = [
   "  --setting-sources <sources>    Setting sources to load",
   "  --no-session-persistence       Do not save sessions",
   "  --model <model>                Model",
+  "  --effort <level>               Effort level (low, medium, high, xhigh, max)",
 ].join("\n");
 
 export type FakeClaude = {

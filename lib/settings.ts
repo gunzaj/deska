@@ -215,7 +215,7 @@ function envTarget(): GithubTarget | null {
   }
 }
 
-export type ResolvedTarget = GithubTarget & { projectId: string | null; source: "settings" | "env" };
+export type ResolvedTarget = GithubTarget & { projectId: string | null; projectTitle: string; source: "settings" | "env" };
 
 /** The target, or a ConfigError when neither settings nor env name one (sync and writes need it). */
 export async function requireTarget(): Promise<ResolvedTarget> {
@@ -233,10 +233,10 @@ export async function currentTarget(): Promise<ResolvedTarget | null> {
   const stored = await readTarget();
   if (stored) {
     const [owner, repo] = stored.repo.split("/") as [string, string];
-    return { repoFull: stored.repo, owner, repo, org: stored.org, projectNumber: stored.projectNumber, projectId: stored.projectId, source: "settings" };
+    return { repoFull: stored.repo, owner, repo, org: stored.org, projectNumber: stored.projectNumber, projectId: stored.projectId, projectTitle: stored.projectTitle, source: "settings" };
   }
   const env = envTarget();
-  return env ? { ...env, projectId: process.env.GITHUB_PROJECT_ID?.trim() || null, source: "env" } : null;
+  return env ? { ...env, projectId: process.env.GITHUB_PROJECT_ID?.trim() || null, projectTitle: "", source: "env" } : null;
 }
 
 /**

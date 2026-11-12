@@ -10,6 +10,8 @@ import { Icon, Logo, type IconName } from "../icons";
 import { Kbd, OptionDot } from "../props";
 import { useTriageCount } from "../triage/queues";
 import { useTasks } from "../tasks/store";
+import { RambleDialog } from "../tasks/ramble";
+import { SaveTaskViewDialog } from "../tasks/task-views";
 import { useTaskDrop } from "../tasks/drop";
 import type { DropTarget } from "@/lib/client/task-drop";
 import { useWatchlist } from "../watch/store";
@@ -117,7 +119,7 @@ const GITHUB_SECTIONS: SidebarSection[] = ["workspace", "views", "teams"];
 export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
   const tasksOnly = useTasksOnly();
   const { data, viewer } = useAppData();
-  const { views } = useAppViews();
+  const { views, taskViews } = useAppViews();
   const { sync, syncNow } = useAppSync();
   const { meta, issues } = data;
   const { scope } = useDefaultScope();
@@ -144,6 +146,8 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
   const { tasks, projects, labels, openCompose } = useTasks();
   const { today } = useToday();
   const [newProject, setNewProject] = useState(false);
+  const [saveView, setSaveView] = useState(false);
+  const [ramble, setRamble] = useState(false);
   const { sections } = useSidebarLayout();
   const [customize, setCustomize] = useState(false);
   const inDrawer = Boolean(onNavigate);
@@ -173,6 +177,8 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
     { href: "/tasks/today", label: "Today", icon: "star", count: taskCounts.due, drop: { kind: "today" } },
     { href: "/tasks/upcoming", label: "Upcoming", icon: "calendar", drop: { kind: "upcoming" } },
     { href: "/tasks/completed", label: "Completed", icon: "circleCheck" },
+    // Saved task views (item 12) come after the four built-in lists.
+    ...taskViews.map((v) => ({ href: `/tasks/views/${v.id}`, label: v.name, icon: "sliders" as IconName })),
   ];
 
   const current = meta.releases.find((r) => r.id === meta.currentReleaseId);
@@ -203,9 +209,17 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
         key="tasks"
         title="Tasks"
         action={
-          <button type="button" onClick={() => openCompose()} title="New task" aria-label="New task" className="grid size-5 place-items-center rounded text-faint hover:bg-hover hover:text-fg">
-            <Icon name="plus" size={13} />
-          </button>
+          <>
+            <button type="button" onClick={() => setRamble(true)} title="Ramble: speak your tasks" aria-label="Ramble" className="grid size-5 place-items-center rounded text-faint hover:bg-hover hover:text-fg">
+              <Icon name="mic" size={13} />
+            </button>
+            <button type="button" onClick={() => setSaveView(true)} title="Save view" aria-label="Save view" className="grid size-5 place-items-center rounded text-faint hover:bg-hover hover:text-fg">
+              <Icon name="sliders" size={13} />
+            </button>
+            <button type="button" onClick={() => openCompose()} title="New task" aria-label="New task" className="grid size-5 place-items-center rounded text-faint hover:bg-hover hover:text-fg">
+              <Icon name="plus" size={13} />
+            </button>
+          </>
         }
       >
         {taskNav.map((n) => (
@@ -305,8 +319,12 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
       <div className="flex items-center gap-2 px-1.5">
         <Logo size={22} />
         <div className="min-w-0 flex-1 leading-tight">
-          <p className="text-[13.5px] font-semibold tracking-tight">Deska</p>
-          <p className="truncate text-[11px] text-faint">{tasksOnly ? "Tasks" : meta.repo}</p>
+          <p className="truncate text-[13.5px] font-semibold tracking-tight" title={tasksOnly ? "Deska" : meta.projectTitle || "Deska"}>
+            {tasksOnly ? "Deska" : meta.projectTitle || "Deska"}
+          </p>
+          <p className="truncate text-[11px] text-faint" title={tasksOnly ? "Tasks" : meta.repo}>
+            {tasksOnly ? "Tasks" : meta.repo}
+          </p>
         </div>
         {!tasksOnly && (
           <button
@@ -342,6 +360,8 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
 
         {sections.filter((x) => !x.hidden && !(tasksOnly && GITHUB_SECTIONS.includes(x.id))).map((x) => blocks[x.id])}
         <ProjectDialog open={newProject} onClose={() => setNewProject(false)} />
+        <SaveTaskViewDialog open={saveView} onClose={() => setSaveView(false)} />
+        <RambleDialog open={ramble} onClose={() => setRamble(false)} />
         <CustomizeSidebarDialog open={customize} onClose={() => setCustomize(false)} />
       </nav>
 

@@ -16,6 +16,9 @@ export const REQUIRED_FLAGS = ["--print", "--output-format", "--json-schema", "-
 
 const MAX_OUTPUT = 8 * 1024 * 1024;
 
+/** `claude --help` per executable, kept for this process: main resolves the PATH once per launch. */
+const helpByFile = new Map<string, string>();
+
 /** Environment variables that never reach the `claude` child: Deska's own, GitHub's and the local server's. */
 const BLOCKED = /^(DESKA_|GITHUB_|GH_|ELECTRON_|NEXT_|__NEXT|NODE_OPTIONS$|NODE_ENV$|PORT$|HOSTNAME$)/;
 
@@ -28,8 +31,10 @@ export function claudeEnv(env: NodeJS.ProcessEnv = process.env, pathValue: strin
 }
 
 /** The arguments of one call (SPEC §4.9). The prompt itself goes on stdin, not here. */
-export function claudeArgs(o: { schema: unknown; system: string; model: string }): string[] {
-  return ["-p", "--output-format", "json", "--json-schema", JSON.stringify(o.schema), "--system-prompt", o.system, "--tools", "", "--strict-mcp-config", "--setting-sources", "", "--no-session-persistence", "--model", o.model];
+export function claudeArgs(o: { schema: unknown; system: string; model: string; effort?: string }): string[] {
+  const args = ["-p", "--output-format", "json", "--json-schema", JSON.stringify(o.schema), "--system-prompt", o.system, "--tools", "", "--strict-mcp-config", "--setting-sources", "", "--no-session-persistence", "--model", o.model];
+  if (o.effort) args.push("--effort", o.effort);
+  return args;
 }
 
 type RunResult = { ok: true; stdout: string; stderr: string } | { ok: false; reason: "timeout" | "cancelled" | "spawn" | "exit"; stdout: string; stderr: string; message: string };
@@ -80,32 +85,67 @@ const LOGIN_HINT = /not logged in|please run \/login|\/login|invalid api key|aut
 
 const short = (s: string) => redactSecrets(s.replace(/\s+/g, " ").trim()).slice(0, 300);
 
-/** `claude --help` and what it lacks. */
-export async function checkClaudeCli(): Promise<{ ok: true; file: string } | ({ ok: false } & AiFailure)> {
-  const file = findOnPath("claude");
-  if (!file) return { ok: false, code: "cli-missing", message: "Deska could not find the Claude Code CLI (claude). Install Claude Code, then try again. The Claude desktop app alone is not enough." };
+/** `claude --help`, from a temp folder. */
+async function readHelp(file: string): Promise<{ ok: true; text: string } | ({ ok: false } & AiFailure)> {
   const cwd = await mkdtemp(path.join(os.tmpdir(), "deska-ai-"));
   try {
     const out = await run(file, ["--help"], "", { cwd, timeoutMs: 15_000, env: claudeEnv() });
     const help = out.stdout + out.stderr;
     if (!out.ok && !help) return { ok: false, code: "failed", message: `claude --help failed: ${short(out.message)}` };
-    const missing = REQUIRED_FLAGS.filter((f) => !help.includes(f));
-    if (missing.length) return { ok: false, code: "cli-flag-missing", message: `This version of Claude Code lacks ${missing.join(", ")}, which Deska needs. Update Claude Code (claude update) and try again.` };
-    return { ok: true, file };
+    return { ok: true, text: help };
   } finally {
     await rm(cwd, { recursive: true, force: true }).catch(() => undefined);
   }
 }
 
-export type ModelAnswer = { ok: true; output: unknown; costUsd: number | null } | ({ ok: false } & AiFailure);
+/**
+ * What the installed CLI offers (SPEC §4.9). The help text is read once per
+ * executable, because the PATH is resolved once per launch; `refresh` re-reads it
+ * after an update or for "Test connection". `found` only says the executable is
+ * on the PATH, not that it has every flag Deska needs.
+ */
+export async function claudeCapabilities(o: { refresh?: boolean } = {}): Promise<{ found: boolean; effort: boolean }> {
+  const file = findOnPath("claude");
+  if (!file) return { found: false, effort: false };
+  let text = o.refresh ? undefined : helpByFile.get(file);
+  if (text === undefined) {
+    const help = await readHelp(file);
+    if (!help.ok) return { found: true, effort: false };
+    text = help.text;
+    helpByFile.set(file, text);
+  }
+  return { found: true, effort: /--effort\b/.test(text) };
+}
+
+/** `claude --help` and what it lacks. Always reads it fresh: this is the state "Test connection" reports. */
+export async function checkClaudeCli(): Promise<{ ok: true; file: string } | ({ ok: false } & AiFailure)> {
+  const file = findOnPath("claude");
+  if (!file) return { ok: false, code: "cli-missing", message: "Deska could not find the Claude Code CLI (claude). Install Claude Code, then try again. The Claude desktop app alone is not enough." };
+  const out = await readHelp(file);
+  if (!out.ok) return out;
+  helpByFile.set(file, out.text);
+  const missing = REQUIRED_FLAGS.filter((f) => !out.text.includes(f));
+  if (missing.length) return { ok: false, code: "cli-flag-missing", message: `This version of Claude Code lacks ${missing.join(", ")}, which Deska needs. Update Claude Code (claude update) and try again.` };
+  return { ok: true, file };
+}
+
+export type ProviderTimings = { durationMs: number | null; apiMs: number | null };
+
+export type ModelAnswer = { ok: true; output: unknown; costUsd: number | null; timings: ProviderTimings } | ({ ok: false } & AiFailure);
+
+/** A number Claude Code reports, or null. */
+const reported = (v: unknown): number | null => (typeof v === "number" && Number.isFinite(v) && v >= 0 ? v : null);
 
 /** One call to `claude`: the parsed `structured_output`, or why there is none. */
-export async function callClaude(o: { model: string; system: string; user: string; schema: unknown; timeoutMs: number; signal?: AbortSignal }): Promise<ModelAnswer> {
+export async function callClaude(o: { model: string; effort?: string; system: string; user: string; schema: unknown; timeoutMs: number; signal?: AbortSignal }): Promise<ModelAnswer> {
   const file = findOnPath("claude");
   if (!file) return { ok: false, code: "cli-missing", message: "Deska could not find the Claude Code CLI (claude)." };
+  // A stored effort is passed only when this CLI has `--effort`; an older CLI
+  // would exit with "unknown option" instead of answering.
+  const effort = o.effort && (await claudeCapabilities()).effort ? o.effort : undefined;
   const cwd = await mkdtemp(path.join(os.tmpdir(), "deska-ai-"));
   try {
-    const out = await run(file, claudeArgs({ schema: o.schema, system: o.system, model: o.model }), o.user, { cwd, timeoutMs: o.timeoutMs, signal: o.signal, env: claudeEnv() });
+    const out = await run(file, claudeArgs({ schema: o.schema, system: o.system, model: o.model, effort }), o.user, { cwd, timeoutMs: o.timeoutMs, signal: o.signal, env: claudeEnv() });
     if (!out.ok && out.reason === "timeout") return { ok: false, code: "timeout", message: `Claude Code did not answer within ${Math.round(o.timeoutMs / 1000)} seconds.` };
     if (!out.ok && out.reason === "cancelled") return { ok: false, code: "cancelled", message: "Cancelled." };
     if (!out.ok && out.reason === "spawn") return { ok: false, code: "failed", message: `Claude Code could not start: ${short(out.message)}` };
@@ -123,7 +163,14 @@ export async function callClaude(o: { model: string; system: string; user: strin
       return { ok: false, code: "failed", message: `Claude Code failed: ${short(detail) || (out.ok ? "no output" : short(out.message))}` };
     }
     if (json.structured_output === undefined || json.structured_output === null) return { ok: false, code: "invalid-output", message: "Claude Code returned no structured output." };
-    return { ok: true, output: json.structured_output, costUsd: typeof json.total_cost_usd === "number" ? json.total_cost_usd : null };
+    return {
+      ok: true,
+      output: json.structured_output,
+      costUsd: typeof json.total_cost_usd === "number" ? json.total_cost_usd : null,
+      // The CLI's own timings (item 6): its total run and the API time inside
+      // it. The job also measures the wall clock around this call.
+      timings: { durationMs: reported(json.duration_ms), apiMs: reported(json.duration_api_ms) },
+    };
   } finally {
     await rm(cwd, { recursive: true, force: true }).catch(() => undefined);
   }

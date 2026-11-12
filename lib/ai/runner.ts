@@ -32,6 +32,15 @@ export type Job = {
   /** The provider and model this job was started with (null while off). */
   provider: string | null;
   model: string | null;
+  /** When the job left the queue (null while queued). */
+  startedAt: string | null;
+  /** `createdAt` → run start, the time the user waited in the queue. */
+  queueMs: number | null;
+  /** Run start → finish, including a retry. */
+  durationMs: number | null;
+  /** Claude Code's own `duration_ms` and `duration_api_ms`, when it reports them. */
+  providerMs: number | null;
+  providerApiMs: number | null;
 };
 
 type Store = { jobs: Map<string, Job>; controllers: Map<string, AbortController>; tail: Promise<void> };
@@ -103,6 +112,8 @@ function describeIssues(issues: { path: PropertyKey[]; message: string }[]): str
 
 async function execute(job: Job, task: AiTask, settings: AiSettings, signal: AbortSignal): Promise<void> {
   const started = Date.now();
+  job.startedAt = now();
+  job.queueMs = Math.max(0, started - Date.parse(job.createdAt));
   const schema = jsonSchemaOf(task);
   let retryError: string | undefined;
   let cost: number | null = null;
@@ -129,6 +140,8 @@ async function execute(job: Job, task: AiTask, settings: AiSettings, signal: Abo
       continue;
     }
     if (answer.costUsd !== null) cost = (cost ?? 0) + answer.costUsd;
+    job.providerMs = answer.timings.durationMs;
+    job.providerApiMs = answer.timings.apiMs;
     const parsed = task.schema.safeParse(answer.output);
     if (parsed.success) {
       job.result = parsed.data;
@@ -178,7 +191,25 @@ export async function startJobs(tasks: AiTask[], opts: { batchId?: string } = {}
 
 function enqueue(task: AiTask, { settings, failure }: Awaited<ReturnType<typeof aiNotReady>>, opts: { batchId?: string }): Job {
   const s = store();
-  const job: Job = { id: randomUUID(), feature: task.feature, subject: task.subject, state: "queued", createdAt: now(), finishedAt: null, error: null, resultId: null, result: null, batchId: opts.batchId ?? null, provider: null, model: null };
+  const job: Job = {
+    id: randomUUID(),
+    feature: task.feature,
+    subject: task.subject,
+    state: "queued",
+    createdAt: now(),
+    finishedAt: null,
+    error: null,
+    resultId: null,
+    result: null,
+    batchId: opts.batchId ?? null,
+    provider: null,
+    model: null,
+    startedAt: null,
+    queueMs: null,
+    durationMs: null,
+    providerMs: null,
+    providerApiMs: null,
+  };
   s.jobs.set(job.id, job);
   if (failure) {
     job.state = "error";
@@ -200,11 +231,22 @@ function enqueue(task: AiTask, { settings, failure }: Awaited<ReturnType<typeof 
       job.error = { code: "failed", message: e instanceof Error ? e.message : String(e) };
     } finally {
       job.finishedAt ??= now();
+      if (job.startedAt) job.durationMs ??= Math.max(0, Date.parse(job.finishedAt) - Date.parse(job.startedAt));
+      logJob(job);
       s.controllers.delete(job.id);
       prune(s);
     }
   });
   return snapshot(job);
+}
+
+/** One line per job that ran, with the queue and provider timings (item 6). Redacted. */
+function logJob(job: Job): void {
+  if (!job.startedAt) return;
+  const parts = [`queued ${job.queueMs ?? 0} ms`, `ran ${job.durationMs ?? 0} ms`];
+  if (job.providerMs != null) parts.push(`provider ${job.providerMs} ms`);
+  if (job.providerApiMs != null) parts.push(`API ${job.providerApiMs} ms`);
+  console.info(redactSecrets(`deska: AI ${job.feature} ${job.subject} ${job.state} — ${parts.join(", ")}${job.error ? ` (${job.error.code})` : ""}`));
 }
 
 /** Tests only: forget every job. */

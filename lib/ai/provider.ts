@@ -20,7 +20,7 @@ export async function askModel(settings: AiSettings, ask: Ask): Promise<ModelAns
   const timeoutMs = settings.timeoutSec * 1000;
   if (settings.provider === "claude-code") {
     const p = ask.prompt({ schemaInPrompt: false });
-    return callClaude({ model: settings.model, system: p.system, user: p.user, schema: ask.schema, timeoutMs, signal: ask.signal });
+    return callClaude({ model: settings.model, effort: settings.effort || undefined, system: p.system, user: p.user, schema: ask.schema, timeoutMs, signal: ask.signal });
   }
   if (settings.provider === "openai") {
     const modes = await readEndpointModes();
@@ -28,7 +28,7 @@ export async function askModel(settings: AiSettings, ask: Ask): Promise<ModelAns
     for (;;) {
       const p = ask.prompt({ schemaInPrompt: mode === "json_object" });
       const res = await callOpenAi({ baseUrl: settings.baseUrl, key: aiKey(), model: settings.model, system: p.system, user: p.user, schemaName: ask.schemaName, schema: ask.schema, mode, timeoutMs, signal: ask.signal });
-      if (res.ok) return { ok: true, output: res.output, costUsd: null };
+      if (res.ok) return { ok: true, output: res.output, costUsd: null, timings: { durationMs: null, apiMs: null } };
       if (res.schemaRefused && mode === "json_schema") {
         // This endpoint does not do json_schema: ask once more for json_object, and remember that.
         mode = "json_object";

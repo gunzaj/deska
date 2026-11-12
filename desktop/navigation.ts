@@ -16,12 +16,13 @@ export function classifyUrl(url: string, appOrigin: string): NavDecision {
   return "blocked";
 }
 
-/** Hosts the window may load images from: GitHub avatars and issue attachments. */
-const GITHUB_IMAGE_HOST = /^(github\.com|[a-z0-9-]+\.githubusercontent\.com)$/;
+/** Hosts the window may load images and videos from: GitHub avatars and issue attachments. */
+const GITHUB_ASSET_HOST = /^(github\.com|[a-z0-9-]+\.githubusercontent\.com)$/;
 
 /**
  * Whether the window may make a request at all. Its own origin, in-page
- * schemes and DevTools; GitHub images. Nothing else reaches the network.
+ * schemes and DevTools; GitHub images and videos. Nothing else reaches the
+ * network.
  */
 export function requestAllowed(url: string, resourceType: string, appOrigin: string): boolean {
   let u: URL;
@@ -32,5 +33,5 @@ export function requestAllowed(url: string, resourceType: string, appOrigin: str
   }
   if (u.origin === appOrigin) return true;
   if (u.protocol === "data:" || u.protocol === "blob:" || u.protocol === "devtools:") return true;
-  return resourceType === "image" && u.protocol === "https:" && GITHUB_IMAGE_HOST.test(u.hostname);
+  return (resourceType === "image" || resourceType === "media") && u.protocol === "https:" && GITHUB_ASSET_HOST.test(u.hostname);
 }

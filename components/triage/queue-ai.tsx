@@ -7,6 +7,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Job } from "@/lib/ai/runner";
 import { usePoll } from "@/lib/client/poll";
+import { Elapsed } from "../ai/elapsed";
 import { Icon } from "../icons";
 import { Dialog } from "../ui/dialog";
 import { btn } from "../ui/popover";
@@ -163,6 +164,7 @@ export function QueueAi({ label, numbers }: { label: string; numbers: number[] }
               <p role="status" className="text-[12.5px] text-muted" data-ai-queue-progress>
                 {done + failed + cancelled} of {numbers.length} done
                 {active.length > 0 ? " · one at a time" : ""}
+                {list[0] ? <> · <Elapsed since={list[0].createdAt} /></> : null}
               </p>
               <button type="button" onClick={() => void cancel()} className={btn.outline} data-ai-queue-cancel>
                 <Icon name="x" size={13} />

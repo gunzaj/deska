@@ -291,8 +291,17 @@ function aiKeyStatus(): AiKeyStatus {
   return { stored: existsSync(aiKeyFile()), encryptionAvailable: safeStorage.isEncryptionAvailable() };
 }
 
+const transcribeKeyFile = () => path.join(app.getPath("userData"), "transcribe-key.bin");
+
+function transcribeKeyStatus(): AiKeyStatus {
+  return { stored: existsSync(transcribeKeyFile()), encryptionAvailable: safeStorage.isEncryptionAvailable() };
+}
+
 let aiKeyMessageId = 0;
 const aiKeyAcks = new Map<number, () => void>();
+
+let transcribeKeyMessageId = 0;
+const transcribeKeyAcks = new Map<number, () => void>();
 
 /** Hands the AI key (or its removal) to the server and waits until it holds it. */
 function sendAiKey(s: Server, key: string | null): Promise<void> {
@@ -316,6 +325,32 @@ function readStoredAiKey(): string | null {
     return safeStorage.decryptString(readFileSync(aiKeyFile()));
   } catch {
     log("the stored AI key could not be decrypted");
+    return null;
+  }
+}
+
+/** Hands Ramble's transcription key (or its removal) to the server and waits until it holds it. */
+function sendTranscribeKey(s: Server, key: string | null): Promise<void> {
+  const id = ++transcribeKeyMessageId;
+  return new Promise<void>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      transcribeKeyAcks.delete(id);
+      reject(new Error("The local server did not take the transcription key."));
+    }, 10_000);
+    transcribeKeyAcks.set(id, () => {
+      clearTimeout(timer);
+      resolve();
+    });
+    s.send({ type: "transcribe-key", key, id });
+  });
+}
+
+function readStoredTranscribeKey(): string | null {
+  if (!existsSync(transcribeKeyFile()) || !safeStorage.isEncryptionAvailable()) return null;
+  try {
+    return safeStorage.decryptString(readFileSync(transcribeKeyFile()));
+  } catch {
+    log("the stored transcription key could not be decrypted");
     return null;
   }
 }
@@ -660,6 +695,22 @@ function registerIpc() {
     return aiKeyStatus();
   });
   ipcMain.handle(CHANNELS.aiKeyStatus, (e) => (fromApp(e) ? aiKeyStatus() : null));
+  ipcMain.handle(CHANNELS.transcribeKeySet, async (e, key: unknown) => {
+    if (!fromApp(e) || !server) return transcribeKeyStatus();
+    const value = typeof key === "string" ? key.trim() : "";
+    if (!AI_KEY.test(value)) throw new Error("That does not look like an API key (8–512 characters, no spaces).");
+    if (!safeStorage.isEncryptionAvailable()) throw new Error("The system keychain is not available.");
+    writeFileSync(transcribeKeyFile(), safeStorage.encryptString(value), { mode: 0o600 });
+    await sendTranscribeKey(server, value);
+    return transcribeKeyStatus();
+  });
+  ipcMain.handle(CHANNELS.transcribeKeyClear, async (e) => {
+    if (!fromApp(e) || !server) return transcribeKeyStatus();
+    rmSync(transcribeKeyFile(), { force: true });
+    await sendTranscribeKey(server, null);
+    return transcribeKeyStatus();
+  });
+  ipcMain.handle(CHANNELS.transcribeKeyStatus, (e) => (fromApp(e) ? transcribeKeyStatus() : null));
   ipcMain.handle(CHANNELS.githubStatus, (e) => (fromApp(e) ? githubAuthStatus() : null));
   ipcMain.handle(CHANNELS.githubUseCli, async (e) => {
     if (!fromApp(e) || !server) return null;
@@ -718,6 +769,12 @@ function registerIpc() {
   ipcMain.handle(CHANNELS.quickAddClose, (e) => {
     if (fromApp(e) && quickWindow && !quickWindow.isDestroyed() && e.sender === quickWindow.webContents) quickWindow.close();
   });
+  ipcMain.handle(CHANNELS.quickAddResize, (e, height: unknown) => {
+    if (!fromApp(e) || !quickWindow || quickWindow.isDestroyed() || e.sender !== quickWindow.webContents) return;
+    if (typeof height !== "number" || !Number.isFinite(height)) return;
+    const [w] = quickWindow.getContentSize();
+    quickWindow.setContentSize(w ?? 600, Math.round(Math.min(Math.max(height, 190), 480)));
+  });
 }
 
 async function boot() {
@@ -749,6 +806,11 @@ async function boot() {
       aiKeyAcks.delete(m.id);
       return;
     }
+    if (m?.type === "transcribe-key-ack") {
+      transcribeKeyAcks.get(m.id)?.();
+      transcribeKeyAcks.delete(m.id);
+      return;
+    }
     if (m?.type === "token-ack") tokenAcks.get(m.id)?.();
     tokenAcks.delete((m as { id?: number } | undefined)?.id as number);
   });
@@ -767,12 +829,21 @@ async function boot() {
     .then((stored) => (stored ? sendAiKey(s, stored) : undefined))
     .catch(logError);
 
+  // Ramble's transcription key (item 13), if one is stored.
+  const transcribeKeyReady = Promise.resolve(readStoredTranscribeKey())
+    .then((stored) => (stored ? sendTranscribeKey(s, stored) : undefined))
+    .catch(logError);
+
   const ses = session.defaultSession;
   // Nothing reaches the network from the window but the app and GitHub images.
   ses.webRequest.onBeforeRequest((details, cb) => cb({ cancel: !requestAllowed(details.url, details.resourceType, s.origin) }));
+  // Ramble records audio (item 13): the microphone is the one media permission.
   const allowedPermissions = new Set(["notifications", "clipboard-sanitized-write"]);
-  ses.setPermissionRequestHandler((_wc, permission, cb) => cb(allowedPermissions.has(permission)));
-  ses.setPermissionCheckHandler((_wc, permission) => allowedPermissions.has(permission));
+  // The microphone is the one media permission: audio only, never a camera.
+  const allowed = (permission: string, mediaTypes?: string[]) =>
+    permission === "media" ? mediaTypes?.length === 1 && mediaTypes[0] === "audio" : allowedPermissions.has(permission);
+  ses.setPermissionRequestHandler((_wc, permission, cb, details) => cb(allowed(permission, "mediaTypes" in details ? details.mediaTypes : undefined)));
+  ses.setPermissionCheckHandler((_wc, permission, _origin, details) => (permission === "media" ? details.mediaType === "audio" : allowedPermissions.has(permission)));
   // A session cookie (no expiry): HttpOnly keeps it from page scripts,
   // SameSite=Strict from any other site.
   await ses.cookies.set({ url: s.origin, name: LAUNCH_COOKIE, value: secret, httpOnly: true, sameSite: "strict", secure: false });
@@ -780,6 +851,7 @@ async function boot() {
   await waitForServer(s.origin, secret, DEV ? 180_000 : 60_000);
   await tokenReady;
   await aiKeyReady;
+  await transcribeKeyReady;
   await offerRecovery(s.origin, secret);
   // Opened by "launch at login": stay in the background; the Dock icon opens a window.
   if (!app.getLoginItemSettings().wasOpenedAtLogin) createWindow(s.origin);

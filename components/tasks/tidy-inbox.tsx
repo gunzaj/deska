@@ -8,9 +8,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Job } from "@/lib/ai/runner";
 import { normalizeTaskSuggestion, tidyPatch, type TaskAssistSuggestion } from "@/lib/ai/task-assist";
+import { undoPatchOf } from "@/lib/tasks/undo";
 import type { TaskSuggestionView, TidyInboxView } from "@/lib/ai/task-assist-service";
 import { usePoll } from "@/lib/client/poll";
-import type { PatchTaskInput, Task, TaskLabel } from "@/lib/tasks/model";
+import type { PatchTaskInput, Task } from "@/lib/tasks/model";
+import { Elapsed } from "../ai/elapsed";
 import { useAppData } from "../app/provider";
 import { Icon } from "../icons";
 import { Dialog } from "../ui/dialog";
@@ -56,27 +58,6 @@ function currentOf(task: Task) {
     recurrence: task.recurrence,
     links: task.links.map((l) => l.number),
   };
-}
-
-/** The patch that undoes a Tidy Inbox edit: only the fields the patch touched. */
-function undoPatchOf(task: Task, patch: PatchTaskInput, labels: TaskLabel[]): PatchTaskInput {
-  const undo: PatchTaskInput = {};
-  if (patch.title !== undefined) undo.title = task.title;
-  if (patch.dueDate !== undefined) {
-    undo.dueDate = task.dueDate;
-    undo.dueTime = task.dueTime;
-  }
-  if (patch.recurrence !== undefined) undo.recurrence = task.recurrence;
-  if (patch.priority !== undefined) undo.priority = task.priority;
-  if (patch.projectId !== undefined) {
-    undo.projectId = task.projectId;
-    undo.sectionId = task.sectionId;
-  } else if (patch.sectionId !== undefined) {
-    undo.sectionId = task.sectionId;
-  }
-  if (patch.labels !== undefined) undo.labels = task.labels.flatMap((id) => labels.find((l) => l.id === id)?.name ?? []);
-  if (patch.links !== undefined) undo.links = task.links.map((l) => l.number);
-  return undo;
 }
 
 /**
@@ -426,6 +407,7 @@ export function TidyInbox() {
             <div className="space-y-2">
               <p role="status" className="text-[12.5px] text-muted" data-ai-tidy-progress>
                 {batchList.filter(ended).length} of {batchList.length} done · one at a time
+                {batchList[0] ? <> · <Elapsed since={batchList[0].createdAt} /></> : null}
               </p>
               <button type="button" onClick={() => void cancel()} className={btn.outline} data-ai-tidy-cancel>
                 <Icon name="x" size={13} />

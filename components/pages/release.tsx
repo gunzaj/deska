@@ -1,19 +1,20 @@
 "use client";
 
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { EDITING_OFF } from "@/lib/client/edit";
-import type { ExplorerState } from "@/lib/client/explorer";
+import { decodeState, runExplorer, type ExplorerState } from "@/lib/client/explorer";
 import { keyboardBusy } from "@/lib/client/keyboard";
 import { formatDate } from "@/lib/client/format";
 import { PRESETS } from "@/lib/client/presets";
-import type { Filter } from "@/lib/views/view";
+import { viewSchema, type Filter } from "@/lib/views/view";
 import { connectionProblem, problemHint, useConnection } from "../app/connection";
 import { useAppData } from "../app/provider";
 import { Page } from "../app/shell";
+import { useDefaultScope } from "../app/team-scope";
 import { Explorer } from "../explorer/explorer";
 import { Icon } from "../icons";
-import { neighbour, sprintStats, sprintTiming } from "@/lib/client/sprint";
+import { neighbour, releaseTeamFilters, sprintStats, sprintTiming } from "@/lib/client/sprint";
 import type { ClientIssue, ClientRelease } from "@/lib/client/types";
 import { ReleaseNotesButton } from "./release-notes";
 import { ReleaseRisk } from "./release-risk";
@@ -27,7 +28,7 @@ const SPRINT_DEFAULTS: ExplorerState = { ...PRESETS.release, groupBy: "sprintSta
 const SUMMARY_KEY = "deska.release.summaryCollapsed";
 
 /** The header and Risk section, collapsible so the board gets the room. The choice is remembered per browser. */
-function ReleaseSummary({ sprint, all, rows, filtered, filters }: { sprint: ClientRelease; all: ClientIssue[]; rows: ClientIssue[]; filtered: boolean; filters: Filter[] }) {
+function ReleaseSummary({ sprint, all, scopeFilters, rows, filtered, filters }: { sprint: ClientRelease; all: ClientIssue[]; scopeFilters: Filter[]; rows: ClientIssue[]; filtered: boolean; filters: Filter[] }) {
   const { data } = useAppData();
   const [collapsed, setCollapsed] = useState(false);
   useEffect(() => {
@@ -70,7 +71,7 @@ function ReleaseSummary({ sprint, all, rows, filtered, filters }: { sprint: Clie
   return (
     <div id="release-summary" className="relative shrink-0">
       <SprintHeader sprint={sprint} all={all} rows={rows} filtered={filtered} filters={filters} />
-      <ReleaseRisk release={sprint} />
+      <ReleaseRisk release={sprint} issues={all} filters={scopeFilters} />
       <div className="absolute right-4 top-2.5">{toggleBtn}</div>
     </div>
   );
@@ -132,9 +133,20 @@ function ReleasePicker({ currentId }: { currentId: string }) {
 export function ReleasePage({ id }: { id: string }) {
   const { data, release } = useAppData();
   const { status: connection } = useConnection();
+  const params = useSearchParams();
+  const teamScope = useDefaultScope();
   const r = release(id);
   const base = useMemo<Filter[]>(() => [{ field: "release", op: "in", values: [id] }], [id]);
   const inSprint = useMemo(() => data.issues.filter((i) => i.releaseId === id), [data.issues, id]);
+  // The lower Explorer writes its filters to `s`; the overview reads the same
+  // team filter from there so both sections agree when a filter changes.
+  const urlFilters = useMemo(() => {
+    const parsed = viewSchema.pick({ filters: true }).safeParse(decodeState(params?.get("s")));
+    return parsed.success ? parsed.data.filters : [];
+  }, [params]);
+  const teamFilters = useMemo(() => releaseTeamFilters(urlFilters, base, teamScope.defaultScope, teamScope.scope), [urlFilters, base, teamScope.defaultScope, teamScope.scope]);
+  // Only the team filter narrows the overview: search and Status narrow the list, not the totals it is measured against.
+  const scopedInSprint = useMemo(() => (teamFilters.length ? runExplorer(inSprint, teamFilters, [], data.meta) : inSprint), [inSprint, teamFilters, data.meta]);
   if (!r) {
     return (
       <Page title="Release not found">
@@ -169,7 +181,7 @@ export function ReleasePage({ id }: { id: string }) {
         </span>
       }
       summary={({ rows, filtered, filters }) => (
-        <ReleaseSummary sprint={r} all={inSprint} rows={rows} filtered={filtered} filters={filters} />
+        <ReleaseSummary sprint={r} all={scopedInSprint} scopeFilters={teamFilters} rows={rows} filtered={filtered} filters={filters} />
       )}
       icon={<Icon name="calendar" size={15} />}
       base={base}
@@ -184,7 +196,7 @@ export function ReleasePage({ id }: { id: string }) {
               <span className="text-faint">{data.meta.editOffReason ?? EDITING_OFF}</span>
             </button>
           )}
-          <ReleaseNotesButton release={r} />
+          <ReleaseNotesButton release={r} issues={scopedInSprint} />
           <ReleasePicker currentId={id} />
         </>
       }

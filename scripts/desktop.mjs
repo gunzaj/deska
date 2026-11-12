@@ -159,6 +159,8 @@ function build() {
       gatekeeperAssess: false,
       // The server folder is the same JavaScript in both architectures.
       x64ArchFiles: "Contents/Resources/server/**",
+      // Ramble records audio (item 13); macOS shows this line in the prompt.
+      extendInfo: { NSMicrophoneUsageDescription: "Deska records a short voice note to create tasks. The audio goes only to the transcription endpoint you set." },
     },
     dmg: { title: "Deska" },
     copyright: "MIT License",

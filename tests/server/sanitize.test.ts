@@ -19,6 +19,14 @@ describe("sanitizeHtml bypasses", () => {
     });
   }
 
+  it("makes a description video playable", () => {
+    const out = sanitizeHtml('<video src="https://github.com/acme/widgets/assets/1/clip.mp4"></video>');
+    expect(out).toContain("controls");
+    expect(out).toContain("playsinline");
+    expect(out).toContain('preload="metadata"');
+    expect(out).not.toMatch(/\son\w+=/);
+  });
+
   it("leaves ordinary markup and text alone", () => {
     expect(sanitizeHtml(`<p>Set onboarding=true</p>`)).toBe(`<p>Set onboarding=true</p>`);
     expect(sanitizeHtml(`<a href="https://x.dev/online=1">x</a>`)).toBe(

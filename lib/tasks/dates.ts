@@ -1,6 +1,15 @@
 // Due-date helpers for the browser. Dates are plain YYYY-MM-DD strings and are
 // compared as strings; "today" is the viewer's local calendar day (§12.5).
 
+/** The zones the time-zone picker offers, or just the current one when the browser has no list. */
+export function timeZoneOptions(current: string): string[] {
+  try {
+    return (Intl as unknown as { supportedValuesOf?: (k: string) => string[] }).supportedValuesOf?.("timeZone") ?? [current];
+  } catch {
+    return [current];
+  }
+}
+
 /** Today's date in the browser's time zone (or `tz`), as YYYY-MM-DD. */
 export function localToday(now = new Date(), tz?: string): string {
   // en-CA formats as YYYY-MM-DD.

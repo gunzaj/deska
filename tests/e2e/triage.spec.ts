@@ -24,7 +24,12 @@ test("start, skip twice, exit: the queue order is unchanged", async ({ browser }
   await start(page);
   const progress = page.locator("[data-triage-progress]");
   await expect(progress).toHaveText(`1 / ${before.length}`);
-  await page.getByRole("button", { name: "Skip" }).click();
+  await expect(page.getByRole("button", { name: "Back" })).toBeDisabled();
+  await page.getByRole("button", { name: "Next" }).click();
+  await expect(progress).toHaveText(`2 / ${before.length}`);
+  await page.getByRole("button", { name: "Back" }).click();
+  await expect(progress).toHaveText(`1 / ${before.length}`);
+  await page.getByRole("button", { name: "Next" }).click();
   await expect(progress).toHaveText(`2 / ${before.length}`);
   await page.keyboard.press("s");
   await expect(progress).toHaveText(`3 / ${before.length}`);

@@ -101,6 +101,7 @@ const BoardCard = memo(function BoardCard({
   navKey,
   props,
   focused,
+  peeked,
   canDrag,
   onOpen,
   onFocus,
@@ -114,6 +115,8 @@ const BoardCard = memo(function BoardCard({
   navKey: string;
   props: DisplayProp[];
   focused: boolean;
+  /** This issue is open in the side panel (improvement 1). */
+  peeked: boolean;
   canDrag: boolean;
   onOpen: (issue: ClientIssue) => void;
   onFocus: (navKey: string) => void;
@@ -138,6 +141,7 @@ const BoardCard = memo(function BoardCard({
       aria-label={`#${issue.number} ${issue.title}`}
       data-issue={issue.number}
       data-peek-row
+      data-peeked={peeked ? "" : undefined}
       onClick={() => onOpen(issue)}
       onMouseMove={() => onFocus(navKey)}
       onKeyDown={(e) => {
@@ -150,7 +154,7 @@ const BoardCard = memo(function BoardCard({
         e.preventDefault();
         onMoveMenu(ref.current, issue, colKey);
       }}
-      className={`${CARD} cursor-default outline-none focus-visible:ring-2 focus-visible:ring-focus ${isDragging ? "opacity-40" : ""} ${focused ? "border-line-field-hover" : "border-line hover:border-line-field"}`}
+      className={`${CARD} cursor-default outline-none focus-visible:ring-2 focus-visible:ring-focus ${isDragging ? "opacity-40" : ""} ${peeked ? "border-brand-border" : focused ? "border-line-field-hover" : "border-line hover:border-line-field"}`}
     >
       <CardBody issue={issue} field={field} props={props} />
     </div>
@@ -174,6 +178,7 @@ export function BoardLayout({
   onFocus,
   onOpen,
   dropRelease,
+  peeked,
 }: {
   rows: ClientIssue[];
   field: BoardField;
@@ -184,6 +189,8 @@ export function BoardLayout({
   onOpen: (i: ClientIssue) => void;
   /** The Release a backlog card dropped on this board gets (the Release page). */
   dropRelease?: string | null;
+  /** The issue open in the side panel (improvement 1). */
+  peeked?: number | null;
 }) {
   const { data, option } = useAppData();
   const { edit, disabledReason } = useIssueEdits();
@@ -260,7 +267,7 @@ export function BoardLayout({
               </h2>
               <div className="flex min-h-12 flex-1 flex-col gap-1.5 overflow-y-auto px-1.5 pb-2">
                 {backlog.slice(0, CARD_PAGE).map((i) => (
-                  <BoardCard key={i.nodeId} idPrefix="backlog:" issue={i} field={field} colKey={null} navKey={`backlog:${i.nodeId}`} props={props} focused={`backlog:${i.nodeId}` === focusedKey} canDrag onOpen={onOpen} onFocus={onFocus} />
+                  <BoardCard key={i.nodeId} idPrefix="backlog:" issue={i} field={field} colKey={null} navKey={`backlog:${i.nodeId}`} props={props} focused={`backlog:${i.nodeId}` === focusedKey} peeked={i.number === peeked} canDrag onOpen={onOpen} onFocus={onFocus} />
                 ))}
                 {backlog.length === 0 && <p className="px-2 py-3 text-center text-[12px] text-faint">Nothing unplanned</p>}
               </div>
@@ -285,6 +292,7 @@ export function BoardLayout({
                       navKey={rowKey(col.key, i.nodeId)}
                       props={props}
                       focused={rowKey(col.key, i.nodeId) === focusedKey}
+                      peeked={i.number === peeked}
                       canDrag={canDrag}
                       onOpen={onOpen}
                       onFocus={onFocus}

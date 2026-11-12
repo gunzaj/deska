@@ -14,6 +14,7 @@ import type { Job } from "@/lib/ai/runner";
 import { usePoll } from "@/lib/client/poll";
 import { dueLabel } from "@/lib/tasks/dates";
 import type { PatchTaskInput, Task } from "@/lib/tasks/model";
+import { Elapsed } from "../ai/elapsed";
 import { useAppData } from "../app/provider";
 import { Icon } from "../icons";
 import { Dialog } from "../ui/dialog";
@@ -380,6 +381,7 @@ export function PlanMyDay() {
               <p role="status" className="flex items-center gap-2 text-[12.5px] text-muted" data-ai-plan-progress>
                 <span className="size-3 animate-spin rounded-full border-2 border-line border-t-brand" aria-label="Asking the model" />
                 Asking the model for today&apos;s plan…
+                <Elapsed since={job?.createdAt ?? null} />
               </p>
               <button type="button" onClick={() => void cancel()} className={btn.outline} data-ai-plan-cancel>
                 <Icon name="x" size={13} />

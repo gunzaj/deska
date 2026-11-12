@@ -40,7 +40,8 @@ export async function loadClientData(now = new Date()): Promise<ClientDataResult
   })() : null;
   // The stored repository (links) and field mapping (§4.1) change without a
   // cache-generation bump: a remap must still reach the browser.
-  const repo = (await currentTarget())?.repoFull;
+  const target = await currentTarget();
+  const repo = target?.repoFull;
   // W3: create jobs GitHub has not confirmed yet show as pending rows in the lists.
   const pendingCreates = dbDir() ? await listPendingCreates().catch(() => []) : [];
   const pendingKey = pendingCreates.map((p) => `${p.id}${p.status === "sending" ? "s" : "p"}`).join(",");
@@ -48,7 +49,7 @@ export async function loadClientData(now = new Date()): Promise<ClientDataResult
   const key = `${generation}|${today}|${writeMode ? 1 : 0}|${variant}`;
   const build = () => {
     if (memo?.key !== key) {
-      const data = buildClientData(store, { viewer: "", writeMode, demo, now, repo });
+      const data = buildClientData(store, { viewer: "", writeMode, demo, now, repo, projectTitle: target?.projectTitle });
       data.meta.closeBlocked = closeBlocked;
       data.meta.pendingCreates = pendingCreates;
       if (!writeMode) data.meta.editOffReason = gate.reason ?? undefined;

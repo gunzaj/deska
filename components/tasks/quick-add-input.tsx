@@ -33,6 +33,7 @@ export function QuickAddInput({
   onRevert,
   onSubmit,
   suggest,
+  onSuggestCount,
   placeholder,
   label = "Task",
   autoFocus,
@@ -43,6 +44,8 @@ export function QuickAddInput({
   onRevert: (key: string) => void;
   onSubmit: () => void;
   suggest?: SuggestFn;
+  /** Called with how many suggestions are showing (0 when closed), so a host with a fixed size can make room. */
+  onSuggestCount?: (n: number) => void;
   placeholder?: string;
   label?: string;
   autoFocus?: boolean;
@@ -73,6 +76,7 @@ export function QuickAddInput({
   const current = Math.min(active, items.length - 1);
 
   useEffect(() => setActive(0), [trigger, query]);
+  useEffect(() => onSuggestCount?.(items.length), [items.length, onSuggestCount]);
 
   const pick = (s: Suggestion) => {
     const next = `${value.slice(0, wordStart)}${s.insert} ${value.slice(caret).replace(/^\S*/, "").trimStart()}`;

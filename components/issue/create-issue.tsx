@@ -5,12 +5,13 @@
 // "pending" until GitHub confirms it (the pending strip in the lists), and the
 // issue appears once after the job re-reads it. While writes are off the form is
 // visible with the reason and Create is disabled.
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { EDITING_OFF } from "@/lib/client/edit";
 import { plainName } from "@/lib/client/format";
 import { useAppData } from "../app/provider";
+import { Icon } from "../icons";
 import { Dialog } from "../ui/dialog";
-import { btn } from "../ui/popover";
+import { btn, PickList, Popover } from "../ui/popover";
 import { useToast } from "../ui/toast";
 
 /** Ask the shell to open the create dialog (the sidebar's + and the palette). */
@@ -40,6 +41,8 @@ export function CreateIssue() {
   const [form, setForm] = useState<Form>(empty);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [labelsOpen, setLabelsOpen] = useState(false);
+  const labelAnchor = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
     const onOpen = () => {
@@ -99,6 +102,20 @@ export function CreateIssue() {
       setSaving(false);
     }
   }
+
+  function toggleLabel(id: string) {
+    setForm((f) => {
+      const labelIds = new Set(f.labelIds);
+      if (labelIds.has(id)) labelIds.delete(id);
+      else labelIds.add(id);
+      return { ...f, labelIds };
+    });
+  }
+
+  const selectedLabels = [...form.labelIds].flatMap((id) => {
+    const label = meta.labels.find((l) => l.id === id);
+    return label ? [label] : [];
+  });
 
   const writesOff = !meta.writeMode;
   return (
@@ -173,12 +190,35 @@ export function CreateIssue() {
             ))}
           </div>
 
-          <CheckGroup
-            label="Labels"
-            options={meta.labels.map((l) => ({ id: l.id, name: l.name }))}
-            checked={form.labelIds}
-            onChange={(labelIds) => setForm({ ...form, labelIds })}
-          />
+          <div className="space-y-1.5">
+            <div className="flex flex-wrap items-center gap-1.5">
+              <button ref={labelAnchor} type="button" onClick={() => setLabelsOpen(true)} className={btn.outline} aria-label="Labels" data-create-labels>
+                <Icon name="tag" size={13} />
+                {form.labelIds.size ? `${form.labelIds.size} label${form.labelIds.size === 1 ? "" : "s"}` : "Labels"}
+              </button>
+              {selectedLabels.length > 0 && (
+                <div className="flex flex-wrap gap-1" data-create-label-chips>
+                  {selectedLabels.map((l) => (
+                    <span key={l.id} className="inline-flex h-6 items-center gap-1 rounded-md border border-line bg-surface px-1.5 text-[11.5px] font-medium">
+                      {l.name}
+                      <button type="button" aria-label={`Remove label ${l.name}`} onClick={() => toggleLabel(l.id)} className="text-faint hover:text-fg">
+                        <Icon name="x" size={11} />
+                      </button>
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
+            <Popover anchor={labelAnchor} open={labelsOpen} onClose={() => setLabelsOpen(false)} width={280}>
+              <PickList
+                multi
+                items={meta.labels.map((l) => ({ id: l.id, label: l.name, checked: form.labelIds.has(l.id) }))}
+                onPick={(id) => toggleLabel(id)}
+                placeholder="Search labels…"
+                emptyText={meta.labels.length ? "No labels match" : "This repository has no labels."}
+              />
+            </Popover>
+          </div>
           <CheckGroup
             label="Assignees"
             options={meta.users.map((u) => ({ id: u.login, name: u.login }))}

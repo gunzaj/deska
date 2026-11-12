@@ -4,21 +4,21 @@
 // shipped, to copy. Read-only.
 import { useMemo, useState } from "react";
 import { labelsInUse, releaseNotes, shippedIssues } from "@/lib/client/notes";
-import type { ClientRelease } from "@/lib/client/types";
+import type { ClientIssue, ClientRelease } from "@/lib/client/types";
 import { useAppData } from "../app/provider";
 import { Icon } from "../icons";
 import { Dialog } from "../ui/dialog";
 import { btn } from "../ui/popover";
 import { useToast } from "../ui/toast";
 
-export function ReleaseNotesButton({ release }: { release: ClientRelease }) {
+export function ReleaseNotesButton({ release, issues }: { release: ClientRelease; issues: ClientIssue[] }) {
   const { data } = useAppData();
   const { toast } = useToast();
   const [open, setOpen] = useState(false);
   const [labelSet, setLabelSet] = useState<string[]>([]);
-  const shipped = useMemo(() => shippedIssues(data.issues, release.id), [data.issues, release.id]);
+  const shipped = useMemo(() => shippedIssues(issues, release.id), [issues, release.id]);
   const labels = useMemo(() => labelsInUse(shipped, data.meta), [shipped, data.meta]);
-  const text = useMemo(() => releaseNotes({ release, issues: data.issues, meta: data.meta, labelSet }), [release, data.issues, data.meta, labelSet]);
+  const text = useMemo(() => releaseNotes({ release, issues, meta: data.meta, labelSet }), [release, issues, data.meta, labelSet]);
 
   const toggle = (id: string) => setLabelSet((s) => (s.includes(id) ? s.filter((x) => x !== id) : [...s, id]));
   const copy = async () => {

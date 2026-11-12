@@ -18,6 +18,21 @@ describe("AI key (desktop bridge)", () => {
     expect(preload).toContain('invoke("deska:ai-key-set", String(key))');
   });
 
+  it("gives Ramble's transcription key the same channels, bridge and no log", () => {
+    expect([CHANNELS.transcribeKeySet, CHANNELS.transcribeKeyClear, CHANNELS.transcribeKeyStatus]).toEqual([
+      "deska:transcribe-key-set",
+      "deska:transcribe-key-clear",
+      "deska:transcribe-key-status",
+    ]);
+    const preload = readFileSync(path.join(__dirname, "../../desktop/preload.ts"), "utf8");
+    expect(preload).toContain('transcribeKey: {');
+    expect(preload).toContain('invoke("deska:transcribe-key-set", String(key))');
+    const main = readFileSync(path.join(__dirname, "../../desktop/main.ts"), "utf8");
+    const handlers = main.slice(main.indexOf("CHANNELS.transcribeKeySet"), main.indexOf("CHANNELS.githubStatus"));
+    expect(handlers.match(/return transcribeKeyStatus\(\)/g)?.length).toBeGreaterThanOrEqual(3);
+    expect(handlers).not.toMatch(/log\(|console\./);
+  });
+
   it("main answers with a status only and never logs the key", () => {
     const main = readFileSync(path.join(__dirname, "../../desktop/main.ts"), "utf8");
     const handlers = main.slice(main.indexOf("CHANNELS.aiKeySet"), main.indexOf("CHANNELS.githubStatus"));

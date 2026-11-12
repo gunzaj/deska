@@ -58,3 +58,22 @@ test("⌘K finds a task by a word only in its description or in a comment", asyn
   await expect(page.getByRole("complementary", { name: "Task" }).getByLabel("Title")).toHaveValue(`Palette comment ${stamp}`);
   await context.close();
 });
+
+test("Escape closes the switcher without opening anything", async ({ browser }) => {
+  const { context, page } = await as(browser);
+  await page.goto("/my");
+  await expect(page.getByRole("heading", { name: "My issues" })).toBeVisible();
+  const input = await openPalette(page);
+  await input.fill("#102");
+  await expect(page.getByRole("option", { name: /Bug: crash on start/ })).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("dialog", { name: "Command palette" })).toHaveCount(0);
+  await expect(page).not.toHaveURL(/issue=/);
+  // The switcher still opens, moves and selects afterwards.
+  await page.keyboard.press("ControlOrMeta+k");
+  await expect(input).toBeVisible();
+  await page.keyboard.press("ArrowDown");
+  await page.keyboard.press("Enter");
+  await expect(page.getByRole("dialog", { name: "Command palette" })).toHaveCount(0);
+  await context.close();
+});

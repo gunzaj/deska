@@ -60,7 +60,16 @@ export function sanitizeHtml(html: string): string {
       }
       return `<${name}${kept.join("")}${/\/\s*$/.test(rest) ? " /" : ""}>`;
     })
-    .replace(/<a\s/gi, '<a target="_blank" rel="noreferrer noopener" ');
+    .replace(/<a\s/gi, '<a target="_blank" rel="noreferrer noopener" ')
+    // Videos in a description must be playable: GitHub sometimes leaves the
+    // attributes off, and Electron refuses a video without controls.
+    .replace(/<video\b([^>]*)>/gi, (_tag, attrs: string) => {
+      let out = `<video${attrs}>`;
+      for (const attr of ["controls", "playsinline", 'preload="metadata"']) {
+        if (!new RegExp(`\\b${attr.split("=")[0]}\\b`, "i").test(attrs)) out = out.replace(/>$/, ` ${attr}>`);
+      }
+      return out;
+    });
 }
 
 function esc(s: string): string {
@@ -71,6 +80,7 @@ function inline(s: string): string {
   return esc(s)
     .replace(/`([^`]+)`/g, "<code>$1</code>")
     .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
+    .replace(/!\[([^\]]*)\]\((https?:\/\/[^)\s]+)\)/g, '<img src="$2" alt="$1">')
     .replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g, '<a href="$2">$1</a>')
     .replace(/(^|\s)#(\d+)\b/g, '$1<a href="https://github.com/__REPO__/issues/$2">#$2</a>');
 }
@@ -143,15 +153,22 @@ type RestComment = {
   html_url: string;
 };
 
-export async function fetchIssueDetail(number: number, token: string, repoFull: string): Promise<IssueDetail> {
+/** Comments per issue, kept for a minute so the panel and a suggestion share one read. */
+const commentsCache = new Map<string, { at: number; comments: IssueComment[]; error: string | null }>();
+
+function pruneComments(now: number): void {
+  for (const [k, v] of commentsCache) if (now - v.at >= TTL_MS) commentsCache.delete(k);
+}
+
+/** The live comment thread (newest first is the caller's job). One request, no issue body. */
+export async function fetchIssueComments(number: number, token: string, repoFull: string): Promise<{ comments: IssueComment[]; error: string | null }> {
   const key = `${repoFull}#${number}`;
-  const hit = cache.get(key);
-  if (hit && Date.now() - hit.at < TTL_MS) return hit.detail;
+  const hit = commentsCache.get(key);
+  if (hit && Date.now() - hit.at < TTL_MS) return { comments: hit.comments, error: hit.error };
   const [owner, repo] = repoFull.split("/") as [string, string];
   const rest = restClient(token);
-  const issue = await rest.issues.get({ owner, repo, issue_number: number, mediaType: { format: "full" } });
   let comments: IssueComment[] = [];
-  let commentsError: string | null = null;
+  let error: string | null = null;
   try {
     const raw = (await rest.paginate(rest.issues.listComments, {
       owner,
@@ -170,15 +187,29 @@ export async function fetchIssueDetail(number: number, token: string, repoFull: 
       url: c.html_url,
     }));
   } catch (e) {
-    commentsError = e instanceof Error ? e.message : "could not load comments";
+    error = e instanceof Error ? e.message : "could not load comments";
   }
+  pruneComments(Date.now());
+  commentsCache.set(key, { at: Date.now(), comments, error });
+  return { comments, error };
+}
+
+export async function fetchIssueDetail(number: number, token: string, repoFull: string): Promise<IssueDetail> {
+  const key = `${repoFull}#${number}`;
+  const hit = cache.get(key);
+  if (hit && Date.now() - hit.at < TTL_MS) return hit.detail;
+  const [owner, repo] = repoFull.split("/") as [string, string];
+  const rest = restClient(token);
+  const issue = await rest.issues.get({ owner, repo, issue_number: number, mediaType: { format: "full" } });
+  // The thread is cached apart from the body: a suggestion needs only the comments.
+  const thread = await fetchIssueComments(number, token, repoFull);
   const data = issue.data as { body?: string | null; body_html?: string | null };
   const detail: IssueDetail = {
     number,
     body: data.body ?? "",
     bodyHtml: data.body_html ? sanitizeHtml(data.body_html) : null,
-    comments,
-    commentsError,
+    comments: thread.comments,
+    commentsError: thread.error,
     source: "github",
   };
   pruneCache(Date.now());

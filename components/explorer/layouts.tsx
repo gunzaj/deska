@@ -101,10 +101,13 @@ export const IssueRow = memo(function IssueRow({
   selection,
   tabbable,
   rowKey,
+  peeked = false,
 }: {
   issue: ClientIssue;
   props: DisplayProp[];
   focused: boolean;
+  /** This issue is open in the side panel (improvement 1). */
+  peeked?: boolean;
   onOpen: (issue: ClientIssue) => void;
   /** Gets `rowKey` (else the node ID). */
   onFocus: (key: string) => void;
@@ -126,13 +129,14 @@ export const IssueRow = memo(function IssueRow({
       data-row-id={issue.nodeId}
       data-row-key={key}
       data-peek-row
+      data-peeked={peeked ? "" : undefined}
       onClick={(e) => {
         if (selection?.click(issue, e, key)) return;
         onOpen(issue);
       }}
       onMouseMove={() => onFocus(key)}
       onFocus={() => onFocus(key)}
-      className={`group relative flex h-full cursor-default items-center gap-2.5 border-b border-line-soft px-4 text-[13px] outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-focus ${picked ? "bg-brand-soft" : focused ? "bg-hover" : ""}`}
+      className={`group relative flex h-full cursor-default items-center gap-2.5 border-b border-line-soft px-4 text-[13px] outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-focus ${peeked ? "" : picked ? "bg-brand-soft" : focused ? "bg-hover" : ""}`}
     >
       {focused && <span aria-hidden className="absolute inset-y-0 left-0 w-0.5 bg-brand" />}
       {selection && <SelectBox issue={issue} rowKey={key} selection={selection} />}
@@ -181,6 +185,7 @@ export function ListLayout({
   onOpen,
   scrollRef,
   selection,
+  peeked = null,
 }: {
   groups: Group[];
   /** Collapsed groups (`groupId`). The explorer owns them, so j/k, ⌘A and bulk edit skip hidden rows. */
@@ -193,6 +198,8 @@ export function ListLayout({
   onOpen: (i: ClientIssue) => void;
   scrollRef: React.RefObject<HTMLDivElement | null>;
   selection?: RowSelection;
+  /** The issue open in the side panel (improvement 1). */
+  peeked?: number | null;
 }) {
   const grouped = !(groups.length === 1 && groups[0]!.key === "all");
   const flat = useMemo<Flat[]>(() => {
@@ -273,6 +280,7 @@ export function ListLayout({
               onOpen={onOpen}
               onFocus={onFocus}
               selection={selection}
+              peeked={f.issue.number === peeked}
             />
           </div>
         );
@@ -310,6 +318,7 @@ export function TableLayout({
   onOpen,
   scrollRef,
   selection,
+  peeked = null,
 }: {
   rows: NavRow[];
   props?: DisplayProp[];
@@ -320,6 +329,8 @@ export function TableLayout({
   onOpen: (i: ClientIssue) => void;
   scrollRef: React.RefObject<HTMLDivElement | null>;
   selection?: RowSelection & { all: boolean; toggleAll: () => void };
+  /** The issue open in the side panel (improvement 1). */
+  peeked?: number | null;
 }) {
   const c = useCells();
   const { meta } = useAppData().data;
@@ -438,12 +449,13 @@ export function TableLayout({
               data-row-id={i.nodeId}
               data-row-key={key}
               data-peek-row
+              data-peeked={i.number === peeked ? "" : undefined}
               onClick={(e) => {
                 if (selection?.click(i, e, key)) return;
                 onOpen(i);
               }}
               onMouseMove={() => onFocus(key)}
-              className={`group absolute left-0 right-0 flex items-center border-b border-line-soft text-[12.5px] outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-focus ${picked ? "bg-brand-soft" : focused ? "bg-hover" : ""}`}
+              className={`group absolute left-0 right-0 flex items-center border-b border-line-soft text-[12.5px] outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-focus ${i.number === peeked ? "" : picked ? "bg-brand-soft" : focused ? "bg-hover" : ""}`}
               style={{ top: idx * ROW_H, height: ROW_H }}
             >
               {focused && <span aria-hidden className="absolute inset-y-0 left-0 w-0.5 bg-brand" />}

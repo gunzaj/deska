@@ -2,8 +2,10 @@ import { describe, expect, it } from "vitest";
 import { buildClientData } from "@/lib/client/build";
 import { groupIssues, groupOptions, runExplorer } from "@/lib/client/explorer";
 import { hydrate } from "@/lib/client/hydrate";
-import { filterSummary, neighbour, sprintBucket, sprintStats, sprintTiming } from "@/lib/client/sprint";
-import type { ClientIssue } from "@/lib/client/types";
+import { filterSummary, neighbour, releaseTeamFilters, sprintBucket, sprintStats, sprintTiming } from "@/lib/client/sprint";
+import { scopeFilter } from "@/lib/client/team-scope";
+import type { ClientDimension, ClientIssue } from "@/lib/client/types";
+import type { Filter } from "@/lib/views/view";
 import { importFull } from "@/lib/sync/import";
 import { MemoryStore } from "@/lib/sync/store-memory";
 import { fixtureSnapshot } from "../fixtures/github";
@@ -80,6 +82,40 @@ describe("sprint header numbers", () => {
     expect(rows.length).toBeLessThanOrEqual(sprint.length);
     // Saying so: the label names the value.
     expect(filterSummary([{ field: dim.key, op: "in", values: [opt.id] }], data.meta, data.issues)).toContain(opt.name.trim());
+  });
+});
+
+describe("release overview team scope", () => {
+  const dim: ClientDimension = {
+    id: "F_team",
+    key: "dim:F_team",
+    name: "Team",
+    missing: false,
+    options: [
+      { id: "t1", name: "Core", color: "", position: 0 },
+      { id: "t2", name: "Checkout", color: "", position: 1 },
+    ],
+  };
+  const defaultScope = { dimension: dim, optionId: "t1", name: "Core" };
+  const scope = { dimension: dim, optionId: "t1", name: "Core" };
+  const base: Filter[] = [{ field: "release", op: "in", values: ["e0000023"] }];
+  const open: Filter = { field: "state", op: "in", values: ["open"] };
+  const otherTeam: Filter = { field: dim.key, op: "in", values: ["t2"] };
+
+  it("follows the default team unless the page filters that dimension itself", () => {
+    expect(releaseTeamFilters([], base, defaultScope, scope)).toEqual([scopeFilter(scope)]);
+    expect(releaseTeamFilters([open], base, defaultScope, scope)).toEqual([scopeFilter(scope)]);
+    expect(releaseTeamFilters([otherTeam], base, defaultScope, scope)).toEqual([otherTeam]);
+  });
+
+  it("is off without a default or when the viewer turned it off", () => {
+    expect(releaseTeamFilters([], base, null, null)).toEqual([]);
+    expect(releaseTeamFilters([open], base, defaultScope, null)).toEqual([]);
+    expect(releaseTeamFilters([otherTeam], base, defaultScope, null)).toEqual([otherTeam]);
+  });
+
+  it("keeps a page filter that already pins the dimension", () => {
+    expect(releaseTeamFilters([], [otherTeam], defaultScope, scope)).toEqual([otherTeam]);
   });
 });
 

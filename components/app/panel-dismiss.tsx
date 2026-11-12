@@ -39,7 +39,10 @@ export function PanelDismiss() {
     let dismiss = false;
     const onDown = (e: PointerEvent) => {
       const el = e.target as Element | null;
-      dismiss = Boolean(el?.closest) && !el!.closest(`[${SIDE_PANEL}]`) && !document.querySelector('[role="dialog"]') && e.button === 0;
+      // A click on a row is ours even while a picker is open: it must never open
+      // the issue under the picker (improvement 1), only close the panel.
+      const inRow = Boolean(el?.closest?.(`[${PEEK_ROW}]`));
+      dismiss = Boolean(el?.closest) && !el!.closest(`[${SIDE_PANEL}]`) && e.button === 0 && (inRow || !document.querySelector('[role="dialog"]'));
     };
     const onClick = (e: MouseEvent) => {
       if (!dismiss) return;
@@ -48,8 +51,9 @@ export function PanelDismiss() {
       if (el.closest(`[${PEEK_TITLE}]`)) return;
       const row = el.closest(`[${PEEK_ROW}]`);
       const control = el.closest(CONTROL);
-      // Checkboxes, buttons and links do their own thing; the panel stays.
-      if (control && !(row && (control === row || control.contains(row)))) return;
+      // A row that is itself a button (epics, board cards) is row body, not a control.
+      // Checkboxes, links and other controls inside the row do their own thing.
+      if (control && control !== row) return;
       if (row) {
         e.preventDefault();
         e.stopPropagation();

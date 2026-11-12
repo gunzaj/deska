@@ -47,7 +47,12 @@ test("the form sends title, body, Type, labels, assignees, milestone and the map
   await dialog.getByLabel("Priority").selectOption("b0000003");
   await dialog.getByLabel("Release").selectOption("e0000023");
   await dialog.getByLabel("Team").selectOption("c0000002");
-  await dialog.getByRole("group", { name: "Labels" }).getByRole("checkbox", { name: "UI" }).check();
+  // Labels: a searchable picker (item 11), not a wall of checkboxes.
+  await dialog.getByRole("button", { name: "Labels" }).click();
+  await page.getByPlaceholder("Search labels…").fill("ui");
+  await page.getByRole("option", { name: "UI" }).click();
+  await page.keyboard.press("Escape");
+  await expect(dialog.locator("[data-create-label-chips]")).toContainText("UI");
   await dialog.getByRole("group", { name: "Assignees" }).getByRole("checkbox", { name: "alice" }).check();
   await dialog.getByRole("button", { name: "Create issue" }).click();
   await expect.poll(() => sent).toMatchObject({

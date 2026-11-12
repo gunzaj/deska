@@ -228,6 +228,8 @@ function sortKey(row: ViewRow, field: string): string | number | null {
       return row.parentNumber;
     case "progress":
       return progressKey(row);
+    case "size":
+      return row.subTotal;
     case "updated":
       return row.updatedAt;
     case "created":
