@@ -1,7 +1,7 @@
 "use client";
 
 import { fetchPreloaded } from "@/lib/client/preload";
-import { createContext, useCallback, useContext, useMemo, useRef, useState, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { isUnauthorized } from "@/lib/client/session";
 import { usePoll } from "@/lib/client/poll";
 import type { CreateTaskInput, PatchTaskInput, Task, TaskLabel, TaskProject, TaskSection } from "@/lib/tasks/model";
@@ -65,6 +65,8 @@ export function useTasks(): TasksCtx {
 }
 
 const REFRESH_MS = 60_000;
+/** Channel the quick-add window uses to tell the main window a task was saved. */
+export const TASKS_CHANGED = "deska:tasks-changed";
 
 async function errorOf(res: Response): Promise<string> {
   const body = await res.json().catch(() => null);
@@ -126,6 +128,15 @@ export function TasksProvider({ children }: { children: ReactNode }) {
   }, []);
 
   usePoll(reload, { every: 15_000, minGap: REFRESH_MS, lastRun: lastLoad });
+
+  // The floating quick-add window is another window with its own page: it says
+  // so when it saves, instead of leaving this one to find the task on the poll.
+  useEffect(() => {
+    if (typeof BroadcastChannel === "undefined") return;
+    const ch = new BroadcastChannel(TASKS_CHANGED);
+    ch.onmessage = () => void reload();
+    return () => ch.close();
+  }, [reload]);
 
   const settle = useCallback(() => {
     pending.current--;

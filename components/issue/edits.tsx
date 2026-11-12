@@ -47,6 +47,8 @@ export function useIssueEdits(): EditsCtx {
 
 const fieldKey = (nodeId: string, field: string) => `${nodeId}:${field}`;
 const POLL_MS = 10_000;
+/** Longest the UI waits on one edit request. */
+const EDIT_TIMEOUT_MS = 20_000;
 
 /** A value as people read it: option and iteration names, never IDs. */
 export function valueText(meta: ClientMeta, field: EditField, v: unknown): string {
@@ -169,9 +171,25 @@ export function EditsProvider({ children }: { children: ReactNode }) {
       bump(key, 1);
       const body = editRequest(issue, field, next, id);
       if (opts.base !== undefined) body.base = opts.base;
-      const res = await fetch(`/api/issues/${issue.number}/edit`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }).catch(() => null);
+      // Not endless: past this the request may still land, so the edit is
+      // treated as queued and the poll below settles it.
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), EDIT_TIMEOUT_MS);
+      let timedOut = false;
+      const res = await fetch(`/api/issues/${issue.number}/edit`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body), signal: ctrl.signal }).catch(() => {
+        timedOut = ctrl.signal.aborted;
+        return null;
+      });
       const out = (await res?.json().catch(() => null)) as { entry?: Entry; error?: string } | null;
+      clearTimeout(timer);
       bump(key, -1);
+      if (timedOut) {
+        const q = queuedOverlays.current.get(key);
+        queuedOverlays.current.set(key, { nodeId: issue.nodeId, ids: [...(q?.ids ?? []), id] });
+        setQueued((prev) => new Set(prev).add(key));
+        if (!opts.quiet) toast({ message: "GitHub is slow to answer. Still saving; Deska will update when it's done." });
+        return "pending";
+      }
       if (isUnauthorized(res)) {
         rollback(issue.nodeId, id);
         return "failed";

@@ -1,11 +1,12 @@
 // Glue between the durable outbox (store.ts), GitHub and the cache (W1).
+import { createHash } from "node:crypto";
 import { GitHubWriteClient } from "@/lib/github/write-client";
 import { localToken } from "@/lib/github/local-token";
 import { importFull } from "@/lib/sync/import";
 import type { ProjectFieldMap } from "@/lib/sync/field-map";
 import { currentFieldMap } from "@/lib/sync/runtime";
 import { readCloseDoneStatus, requireTarget } from "@/lib/settings";
-import { getStore } from "@/lib/store";
+import { getStore, invalidateReadCache } from "@/lib/store";
 import { GitHubSource } from "@/lib/sync/source-github";
 import type { ReadModel } from "@/lib/sync/read-model";
 import { PostgresStore } from "@/lib/sync/store-postgres";
@@ -50,11 +51,33 @@ export async function depsFor(token: string, doneStatusOptionId: string, fields:
   const target = await requireTarget();
   const gate = await writeGate();
   return {
-    client: new GitHubWriteClient(token, fields, target, gate),
+    client: writeClientFor(token, fields, target, gate),
     doneStatusOptionId,
-    refresh: (id) => refreshIssue(token, id),
+    refresh: async (id) => {
+      await refreshIssue(token, id);
+      invalidateReadCache();
+    },
     recordStep: (id, step, result) => saveStep(id, step, result),
+    background: true,
   };
+}
+
+/**
+ * One write client per token and project, kept for a few minutes: it holds the
+ * project's field metadata and the issue -> project item IDs, which a fresh
+ * client would fetch again on every edit. The gate is still checked on every
+ * call (a client is never handed out while writes are off), and the short life
+ * picks up renamed fields or options.
+ */
+const CLIENT_TTL_MS = 5 * 60_000;
+let kept: { key: string; at: number; client: GitHubWriteClient } | null = null;
+function writeClientFor(token: string, fields: ProjectFieldMap, target: Awaited<ReturnType<typeof requireTarget>>, gate: Awaited<ReturnType<typeof writeGate>>): GitHubWriteClient {
+  if (!gate.allowed) return new GitHubWriteClient(token, fields, target, gate); // throws, as before
+  const key = JSON.stringify([createHash("sha256").update(token).digest("hex"), target, fields]);
+  if (kept && kept.key === key && Date.now() - kept.at < CLIENT_TTL_MS) return kept.client;
+  const client = new GitHubWriteClient(token, fields, target, gate);
+  kept = { key, at: Date.now(), client };
+  return client;
 }
 
 /**

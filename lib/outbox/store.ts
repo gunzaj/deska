@@ -65,6 +65,11 @@ export type ProcessDeps = {
   refresh?: (issueNodeId: string) => Promise<void>;
   /** Persist a finished step of a multi-step job before the next one starts (W0). */
   recordStep?: (id: string, step: string, result?: unknown) => Promise<void>;
+  /**
+   * Answer the edit request as soon as GitHub has taken the write: the cache
+   * re-read and the queued followers run afterwards, off the request's clock.
+   */
+  background?: boolean;
 };
 
 type Raw = typeof outbox.$inferSelect;
@@ -294,8 +299,15 @@ export async function processEdit(id: string, deps: ProcessDeps): Promise<Outbox
   if (!claimed) return getEdit(id);
   const out = await runAttempt(claimed, deps);
   if (!out) return getEdit(id);
-  await afterDone(out, deps);
-  await processFollowers(out, deps);
+  const rest = async () => {
+    await afterDone(out, deps);
+    await processFollowers(out, deps);
+  };
+  if (deps.background) {
+    void rest().catch((e) => console.error(`outbox: background follow-up failed: ${e instanceof Error ? e.message : String(e)}`));
+    return out;
+  }
+  await rest();
   return out;
 }
 

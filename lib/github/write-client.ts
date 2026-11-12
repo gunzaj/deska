@@ -272,6 +272,36 @@ export class GitHubWriteClient implements WriteClient {
         : sortedNames(res.data.assignees ?? []);
     }
     const ref = this.refFor(field);
+    // One query for the item and its first page of values, the common case.
+    // A cached item ID, a second page of items or of values falls through to
+    // the paged lookups below.
+    if (!this.items.has(issueNodeId)) {
+      const meta = await this.loadMeta();
+      const res: any = await this.gql(
+        `query($id:ID!) { node(id:$id) { ... on Issue { projectItems(first:100) {
+          pageInfo { hasNextPage }
+          nodes { id project { id } fieldValues(first:50) {
+            pageInfo { hasNextPage }
+            nodes {
+              ... on ProjectV2ItemFieldSingleSelectValue { optionId field { ... on ProjectV2FieldCommon { id name } } }
+              ... on ProjectV2ItemFieldIterationValue { iterationId field { ... on ProjectV2FieldCommon { id name } } }
+            }
+          } } } } } }`,
+        { id: issueNodeId },
+      );
+      const conn = res.node?.projectItems;
+      const item = conn?.nodes?.find((n: { project: { id: string } }) => n.project.id === meta.projectId);
+      if (item) {
+        this.items.set(issueNodeId, item.id);
+        const values = item.fieldValues;
+        for (const fv of values?.nodes ?? []) {
+          if (fv?.field?.id === ref.id) return fv.optionId ?? fv.iterationId ?? null;
+        }
+        if (values && !values.pageInfo?.hasNextPage) return null;
+      } else if (conn && !conn.pageInfo?.hasNextPage) {
+        return null; // not in the project yet — nothing to read
+      }
+    }
     const itemId = await this.findItem(issueNodeId);
     if (!itemId) return null; // not in the project yet — nothing to read
     // Page through the item's field values until the mapped field turns up. A
