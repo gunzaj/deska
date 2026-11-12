@@ -1,7 +1,7 @@
 import { aiKey, transcribeKey } from "@/lib/ai/key";
 import { claudeCapabilities } from "@/lib/ai/claude";
 import { AI_DESTINATIONS, AI_FEATURES, AI_NEVER_SENT } from "@/lib/ai/features";
-import { aiSettingsBody, verifyId } from "@/lib/ai/types";
+import { aiSettingsBody, DEFAULT_LOCAL_TRANSCRIBE_URL, verifyId } from "@/lib/ai/types";
 import { checkBaseUrl } from "@/lib/ai/url";
 import { HttpError, route } from "@/lib/server/route";
 import { readAiSettings, readAiVerified, saveAiSettings, saveAiVerified } from "@/lib/settings";
@@ -47,7 +47,15 @@ export const POST = route({ auth: "public", body: aiSettingsBody, invalid: "Thos
     if (!checked.ok) throw new HttpError(400, checked.error);
     transcribeBaseUrl = checked.url;
   }
-  const next = { ...body, baseUrl, transcribeBaseUrl };
+  let transcribeLocalUrl = "";
+  if (body.transcribeLocalUrl) {
+    const checked = checkBaseUrl(body.transcribeLocalUrl);
+    if (!checked.ok) throw new HttpError(400, checked.error);
+    transcribeLocalUrl = checked.url;
+  } else if (body.transcribeApi === "local") {
+    transcribeLocalUrl = DEFAULT_LOCAL_TRANSCRIBE_URL;
+  }
+  const next = { ...body, baseUrl, transcribeBaseUrl, transcribeLocalUrl };
   const before = await readAiSettings();
   await saveAiSettings(next);
   if (verifyId(before) !== verifyId(next)) await saveAiVerified(null);

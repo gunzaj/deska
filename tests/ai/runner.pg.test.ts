@@ -171,6 +171,20 @@ describe("settings route", () => {
     expect((await bad.json()).error).toMatch(/Plain http/);
   });
 
+  it("defaults and normalises the local dictation server URL", async () => {
+    const res = await settingsPost(json("/api/ai/settings", { ...DEFAULT_AI_SETTINGS, provider: "claude-code", transcribeApi: "local" }));
+    const body = (await res.json()) as { settings: AiSettings };
+    expect(body.settings).toMatchObject({ transcribeApi: "local", transcribeLocalUrl: "http://127.0.0.1:8787" });
+    expect(body.settings.transcribeBaseUrl).toBe("");
+
+    const custom = await settingsPost(json("/api/ai/settings", { ...DEFAULT_AI_SETTINGS, provider: "claude-code", transcribeApi: "local", transcribeLocalUrl: "http://localhost:9999/" }));
+    expect(((await custom.json()) as { settings: AiSettings }).settings.transcribeLocalUrl).toBe("http://localhost:9999");
+
+    const bad = await settingsPost(json("/api/ai/settings", { ...DEFAULT_AI_SETTINGS, transcribeApi: "local", transcribeLocalUrl: "http://models.example.test/v1" }));
+    expect(bad.status).toBe(400);
+    expect((await bad.json()).error).toMatch(/Plain http/);
+  });
+
   it("rejects out-of-range and unknown fields", async () => {
     expect((await settingsPost(json("/api/ai/settings", { ...DEFAULT_AI_SETTINGS, timeoutSec: 5 }))).status).toBe(400);
     expect((await settingsPost(json("/api/ai/settings", { ...DEFAULT_AI_SETTINGS, apiKey: KEY }))).status).toBe(400);

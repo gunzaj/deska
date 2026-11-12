@@ -11,13 +11,16 @@ import {
   CLAUDE_MODELS,
   DEFAULT_AI_SETTINGS,
   DEFAULT_CLAUDE_MODEL,
+  DEFAULT_LOCAL_TRANSCRIBE_URL,
   MAX_EXTRA_INSTRUCTIONS,
   MAX_TIMEOUT_SEC,
   MIN_TIMEOUT_SEC,
+  TRANSCRIBE_APIS,
   type AiEffort,
   type AiProvider,
   type AiSettings,
   type TestResult,
+  type TranscribeApi,
 } from "@/lib/ai/types";
 
 type View = {
@@ -32,6 +35,7 @@ type View = {
 };
 
 const PROVIDER_LABEL: Record<AiProvider, string> = { off: "Off", "claude-code": "Claude Code (your own Claude login)", openai: "OpenAI-compatible endpoint" };
+const TRANSCRIBE_LABEL: Record<TranscribeApi, string> = { openai: "OpenAI-compatible endpoint", local: "Local dictation app" };
 const field = "h-9 min-w-0 rounded-md border border-line bg-field px-2.5 text-[12.5px] outline-none hover:border-line-field focus:border-focus";
 const button = "inline-flex h-8 items-center gap-1.5 rounded-md border border-line px-3 font-medium hover:bg-hover disabled:opacity-60";
 const CUSTOM = "__custom";
@@ -131,6 +135,24 @@ export function AiSettingsSection() {
     setModels([]);
     setModelsError(null);
     setCustomModel(false);
+  }
+
+  function pickTranscribeApi(api: TranscribeApi) {
+    setDraft((d) => ({
+      ...d,
+      transcribeApi: api,
+      // The local app's server has a usual port; fill it once so the field is
+      // not empty. A URL the user already typed is kept.
+      transcribeLocalUrl: api === "local" && !d.transcribeLocalUrl ? DEFAULT_LOCAL_TRANSCRIBE_URL : d.transcribeLocalUrl,
+    }));
+    setMessage(null);
+  }
+
+  async function checkTranscribe() {
+    await run(async () => {
+      const r = (await call("/api/ai/transcribe/check", { baseUrl: draft.transcribeLocalUrl })) as { version?: string | null };
+      return r.version ? `Local dictation server is running (version ${r.version}).` : "Local dictation server is running.";
+    });
   }
 
   async function test() {
@@ -343,70 +365,119 @@ export function AiSettingsSection() {
       <div className="space-y-3 border-t border-line-soft pt-4" data-ai-transcription>
         <h3 className="text-[13px] font-semibold">Transcription (Ramble)</h3>
         <p className="text-[12.5px] text-muted">
-          A voice note is turned into text here, then the provider above turns the text into tasks. Leave the base URL empty to use the OpenAI-compatible chat endpoint
-          {provider === "openai" && draft.baseUrl ? ` (${draft.baseUrl})` : ""}. Claude Code has no audio input, so set an endpoint here.
+          A voice note is turned into text here, then the provider above turns the text into tasks.
+          {draft.transcribeApi === "local"
+            ? " The local dictation app transcribes it on this Mac with the model you selected there."
+            : ` Leave the base URL empty to use the OpenAI-compatible chat endpoint${provider === "openai" && draft.baseUrl ? ` (${draft.baseUrl})` : ""}. Claude Code has no audio input, so set an endpoint here.`}
         </p>
-        <div className="grid gap-3 sm:grid-cols-2">
-          <label className="block text-[12.5px] font-medium">
-            Transcription base URL
-            <input
-              id="ai-transcribe-url"
-              aria-label="Transcription base URL"
-              value={draft.transcribeBaseUrl}
-              onChange={(e) => setDraft({ ...draft, transcribeBaseUrl: e.target.value })}
-              placeholder={provider === "openai" && draft.baseUrl ? draft.baseUrl : "https://api.example.test/v1"}
-              spellCheck={false}
-              autoCapitalize="off"
-              className={`mt-1 ${field} w-full font-mono`}
-            />
+        <div className="space-y-1.5">
+          <label htmlFor="ai-transcribe-api" className="block text-[12.5px] font-medium">
+            Transcription source
           </label>
-          <label className="block text-[12.5px] font-medium">
-            Transcription model
-            <input
-              id="ai-transcribe-model"
-              aria-label="Transcription model"
-              value={draft.transcribeModel}
-              onChange={(e) => setDraft({ ...draft, transcribeModel: e.target.value.trim() })}
-              placeholder="whisper-1"
-              spellCheck={false}
-              autoCapitalize="off"
-              className={`mt-1 ${field} w-full font-mono`}
-            />
-          </label>
+          <select
+            id="ai-transcribe-api"
+            aria-label="Transcription source"
+            value={draft.transcribeApi}
+            onChange={(e) => pickTranscribeApi(e.target.value as TranscribeApi)}
+            className={`${field} w-full max-w-sm`}
+          >
+            {TRANSCRIBE_APIS.map((api) => (
+              <option key={api} value={api}>
+                {TRANSCRIBE_LABEL[api]}
+              </option>
+            ))}
+          </select>
         </div>
-        <div className="space-y-1.5" data-ai-transcribe-key>
-          <label htmlFor="ai-transcribe-key" className="block text-[12.5px] font-medium">
-            Transcription API key (optional)
-          </label>
-          {transcribeBridge ? (
-            <>
-              <div className="flex max-w-md gap-2">
+
+        {draft.transcribeApi === "openai" ? (
+          <>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <label className="block text-[12.5px] font-medium">
+                Transcription base URL
                 <input
-                  id="ai-transcribe-key"
-                  type="password"
-                  autoComplete="off"
+                  id="ai-transcribe-url"
+                  aria-label="Transcription base URL"
+                  value={draft.transcribeBaseUrl}
+                  onChange={(e) => setDraft({ ...draft, transcribeBaseUrl: e.target.value })}
+                  placeholder={provider === "openai" && draft.baseUrl ? draft.baseUrl : "https://api.example.test/v1"}
                   spellCheck={false}
                   autoCapitalize="off"
-                  value={transcribeKeyInput}
-                  onChange={(e) => setTranscribeKeyInput(e.target.value)}
-                  placeholder={transcribeKeyStatus?.stored ? "A key is saved" : "none"}
-                  className={`${field} flex-1 font-mono`}
+                  className={`mt-1 ${field} w-full font-mono`}
                 />
-                <button type="button" disabled={busy || !transcribeKeyInput.trim()} onClick={() => void transcribeKeyAction("set")} className={button}>
-                  Save key
-                </button>
-                {transcribeKeyStatus?.stored && (
-                  <button type="button" disabled={busy} onClick={() => void transcribeKeyAction("clear")} className={button}>
-                    Remove key
-                  </button>
-                )}
-              </div>
-              <p className="text-[11.5px] text-faint">Stored encrypted with your macOS keychain. It goes only to this endpoint.</p>
-            </>
-          ) : (
-            <p className="text-[12.5px] text-muted">Keys can be entered in the desktop app only.</p>
-          )}
-        </div>
+              </label>
+              <label className="block text-[12.5px] font-medium">
+                Transcription model
+                <input
+                  id="ai-transcribe-model"
+                  aria-label="Transcription model"
+                  value={draft.transcribeModel}
+                  onChange={(e) => setDraft({ ...draft, transcribeModel: e.target.value.trim() })}
+                  placeholder="whisper-1"
+                  spellCheck={false}
+                  autoCapitalize="off"
+                  className={`mt-1 ${field} w-full font-mono`}
+                />
+              </label>
+            </div>
+            <div className="space-y-1.5" data-ai-transcribe-key>
+              <label htmlFor="ai-transcribe-key" className="block text-[12.5px] font-medium">
+                Transcription API key (optional)
+              </label>
+              {transcribeBridge ? (
+                <>
+                  <div className="flex max-w-md gap-2">
+                    <input
+                      id="ai-transcribe-key"
+                      type="password"
+                      autoComplete="off"
+                      spellCheck={false}
+                      autoCapitalize="off"
+                      value={transcribeKeyInput}
+                      onChange={(e) => setTranscribeKeyInput(e.target.value)}
+                      placeholder={transcribeKeyStatus?.stored ? "A key is saved" : "none"}
+                      className={`${field} flex-1 font-mono`}
+                    />
+                    <button type="button" disabled={busy || !transcribeKeyInput.trim()} onClick={() => void transcribeKeyAction("set")} className={button}>
+                      Save key
+                    </button>
+                    {transcribeKeyStatus?.stored && (
+                      <button type="button" disabled={busy} onClick={() => void transcribeKeyAction("clear")} className={button}>
+                        Remove key
+                      </button>
+                    )}
+                  </div>
+                  <p className="text-[11.5px] text-faint">Stored encrypted with your macOS keychain. It goes only to this endpoint.</p>
+                </>
+              ) : (
+                <p className="text-[12.5px] text-muted">Keys can be entered in the desktop app only.</p>
+              )}
+            </div>
+          </>
+        ) : (
+          <div className="space-y-1.5">
+            <label htmlFor="ai-transcribe-local-url" className="block text-[12.5px] font-medium">
+              Local server URL
+            </label>
+            <div className="flex max-w-md gap-2">
+              <input
+                id="ai-transcribe-local-url"
+                aria-label="Local transcription server URL"
+                value={draft.transcribeLocalUrl}
+                onChange={(e) => setDraft({ ...draft, transcribeLocalUrl: e.target.value })}
+                placeholder={DEFAULT_LOCAL_TRANSCRIBE_URL}
+                spellCheck={false}
+                autoCapitalize="off"
+                className={`${field} flex-1 font-mono`}
+              />
+              <button type="button" disabled={busy} onClick={() => void checkTranscribe()} className={button} data-ai-transcribe-check>
+                {busy ? "Working…" : "Check server"}
+              </button>
+            </div>
+            <p className="text-[11.5px] text-faint">
+              Start the dictation app and turn on its local server. Deska sends the recording only to this Mac; no key is needed and the model is not copied.
+            </p>
+          </div>
+        )}
       </div>
 
       <div className="flex flex-wrap items-center gap-2">

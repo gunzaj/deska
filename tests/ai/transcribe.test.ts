@@ -1,12 +1,13 @@
 // Item 13: the transcription endpoint, with fetch stubbed (nothing real is called).
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { setAiKey, setTranscribeKey } from "@/lib/ai/key";
-import { transcribe, transcribeBaseUrl, transcribeKeyFor } from "@/lib/ai/transcribe";
+import { checkLocalServer, localHealthUrl, localTranscribeUrl, transcribe, transcribeBaseUrl, transcribeKeyFor } from "@/lib/ai/transcribe";
 import { redactSecrets } from "@/lib/redact";
 import { DEFAULT_AI_SETTINGS, type AiSettings } from "@/lib/ai/types";
 
 const KEY = "sk-transcribe-0123456789abcdef";
 const settings = (over: Partial<AiSettings> = {}): AiSettings => ({ ...DEFAULT_AI_SETTINGS, provider: "openai", baseUrl: "http://127.0.0.1:11434/v1", ...over });
+const local = (over: Partial<AiSettings> = {}): AiSettings => settings({ transcribeApi: "local", transcribeLocalUrl: "http://127.0.0.1:8787", ...over });
 let seen: { url: string; init: RequestInit }[];
 
 beforeEach(() => {
@@ -65,6 +66,47 @@ describe("transcription (item 13)", () => {
     expect(await transcribe({ settings: settings({ transcribeBaseUrl: "http://127.0.0.1:8080/v1" }), audio: audio(), mime: "audio/webm", timeoutMs: 5_000 })).toEqual({ ok: true, text: "Hello" });
     expect(seen.at(-1)!.url).toBe("http://127.0.0.1:8080/v1/audio/transcriptions");
     expect(seen.at(-1)!.init.headers).toBeUndefined();
+  });
+
+  it("posts the raw recording to a local dictation app without a key", async () => {
+    stub(200, JSON.stringify({ text: " Buy milk ", confidence: 0.9, provider: "Local", sampleCount: 1 }));
+    expect(await transcribe({ settings: local(), audio: audio(), mime: "audio/mp4", timeoutMs: 5_000 })).toEqual({ ok: true, text: "Buy milk" });
+    expect(seen[0]!.url).toBe("http://127.0.0.1:8787/v1/transcribe");
+    expect(seen[0]!.init.method).toBe("POST");
+    expect(seen[0]!.init.body).toBeInstanceOf(ArrayBuffer);
+    expect(new TextDecoder().decode(seen[0]!.init.body as ArrayBuffer)).toBe("fake audio");
+    expect(seen[0]!.init.headers).toEqual({ "content-type": "audio/mp4" });
+    expect(seen[0]!.init.redirect).toBe("error");
+
+    expect(localTranscribeUrl("http://127.0.0.1:8787")).toBe("http://127.0.0.1:8787/v1/transcribe");
+    expect(localTranscribeUrl("http://127.0.0.1:8787/v1")).toBe("http://127.0.0.1:8787/v1/transcribe");
+    expect(localHealthUrl("http://127.0.0.1:8787/v1")).toBe("http://127.0.0.1:8787/v1/health");
+    expect(transcribeBaseUrl(local())).toBe("http://127.0.0.1:8787");
+    expect(transcribeBaseUrl(local({ transcribeLocalUrl: "" }))).toBe("http://127.0.0.1:8787");
+    expect(transcribeBaseUrl(local({ transcribeLocalUrl: "http://127.0.0.1:9999/v1" }))).toBe("http://127.0.0.1:9999/v1");
+    expect(transcribeKeyFor(local())).toBeNull();
+  });
+
+  it("turns a local server's error field and missing endpoint into a clear failure", async () => {
+    stub(200, JSON.stringify({ error: "The operation could not be completed." }));
+    expect(await transcribe({ settings: local(), audio: audio(), mime: "audio/mp4", timeoutMs: 5_000 })).toMatchObject({ ok: false, message: expect.stringContaining("could not transcribe") });
+
+    stub(404, JSON.stringify({ error: "not found" }));
+    expect(await transcribe({ settings: local(), audio: audio(), mime: "audio/mp4", timeoutMs: 5_000 })).toMatchObject({ ok: false, message: expect.stringContaining("no transcription endpoint") });
+
+    vi.stubGlobal("fetch", vi.fn(async () => { throw new TypeError("fetch failed"); }));
+    expect(await transcribe({ settings: local(), audio: audio(), mime: "audio/mp4", timeoutMs: 5_000 })).toMatchObject({ ok: false, code: "unreachable", message: expect.stringContaining("local dictation server") });
+  });
+
+  it("checks the local dictation app's health endpoint", async () => {
+    stub(200, JSON.stringify({ status: "ok", version: "1.2.3" }));
+    expect(await checkLocalServer("http://127.0.0.1:8787")).toEqual({ ok: true, version: "1.2.3" });
+    expect(seen[0]!.url).toBe("http://127.0.0.1:8787/v1/health");
+
+    stub(200, JSON.stringify({ status: "starting" }));
+    expect(await checkLocalServer("http://127.0.0.1:8787")).toMatchObject({ ok: false, code: "failed" });
+    stub(404, "not found");
+    expect(await checkLocalServer("http://127.0.0.1:8787")).toMatchObject({ ok: false, code: "failed" });
   });
 
   it("redacts its key wherever a string goes", () => {

@@ -16,6 +16,8 @@ describe("AI settings (§4.9)", () => {
     expect(parseAiSettings({ ...DEFAULT_AI_SETTINGS, effort: "xhigh" }).effort).toBe("xhigh");
     expect(parseAiSettings({ ...DEFAULT_AI_SETTINGS, effort: "turbo" }).effort).toBe("");
     expect(parseAiSettings({ ...DEFAULT_AI_SETTINGS, effort: 3 }).effort).toBe("");
+    expect(parseAiSettings({ ...DEFAULT_AI_SETTINGS, transcribeApi: "local" }).transcribeApi).toBe("local");
+    expect(parseAiSettings({ ...DEFAULT_AI_SETTINGS, transcribeApi: "nope" }).transcribeApi).toBe("openai");
     expect(parseAiSettings(undefined)).toEqual(DEFAULT_AI_SETTINGS);
   });
 });
