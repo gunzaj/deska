@@ -19,7 +19,7 @@ import { useDefaultScope } from "./team-scope";
 import { primaryDimension, sprintOn } from "@/lib/client/explorer";
 import { UserMenu } from "./user-menu";
 import { type SidebarSection } from "@/lib/tasks/model";
-import { ColorDot, ProjectDialog } from "../tasks/organize";
+import { ColorDot, NewLabelDialog, ProjectDialog } from "../tasks/organize";
 import { dueCount } from "@/lib/tasks/counts";
 import { NotificationBell, useToday } from "../tasks/notifications";
 import { PALETTE_EVENT } from "./palette";
@@ -146,6 +146,7 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
   const { tasks, projects, labels, openCompose } = useTasks();
   const { today } = useToday();
   const [newProject, setNewProject] = useState(false);
+  const [newLabel, setNewLabel] = useState(false);
   const [saveView, setSaveView] = useState(false);
   const [ramble, setRamble] = useState(false);
   const { sections } = useSidebarLayout();
@@ -163,14 +164,16 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
     const archived = new Set(projects.filter((p) => p.archived).map((p) => p.id));
     let inbox = 0;
     const perProject = new Map<string, number>();
+    const perLabel = new Map<string, number>();
     for (const t of tasks) {
       if (t.completedAt || (t.projectId && archived.has(t.projectId))) continue;
+      for (const id of t.labels) perLabel.set(id, (perLabel.get(id) ?? 0) + 1);
       if (t.projectId) perProject.set(t.projectId, (perProject.get(t.projectId) ?? 0) + 1);
       // Inbox is the tasks with no project, as on the Inbox page.
       if (!t.projectId && !t.parentId) inbox++;
     }
     const due = dueCount(tasks, projects, today);
-    return { inbox, due, perProject };
+    return { inbox, due, perProject, perLabel };
   }, [tasks, projects, today]);
   const taskNav: NavItem[] = [
     { href: "/tasks", label: "Inbox", icon: "inbox", count: taskCounts.inbox, match: (p) => p === "/tasks", drop: { kind: "inbox" } },
@@ -255,14 +258,22 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
         )}
       </Section>
     ),
-    labels:
-      labels.length > 0 ? (
-      <Section key="labels" title="Labels">
+    labels: (
+      <Section
+        key="labels"
+        title="Labels"
+        action={
+          <button type="button" onClick={() => setNewLabel(true)} title="New label" aria-label="New label" className="grid size-5 place-items-center rounded text-faint hover:bg-hover hover:text-fg">
+            <Icon name="plus" size={13} />
+          </button>
+        }
+      >
         {labels.map((l) => (
-          <ProjectLink key={l.id} href={`/tasks/l/${l.id}`} label={l.name} color={l.color} shape="tag" onNavigate={onNavigate} drop={{ kind: "label", name: l.name }} />
+          <ProjectLink key={l.id} href={`/tasks/l/${l.id}`} label={l.name} color={l.color} shape="tag" count={taskCounts.perLabel.get(l.id)} onNavigate={onNavigate} drop={{ kind: "label", name: l.name }} />
         ))}
+        {labels.length === 0 && <p className="px-2 py-1 text-[12px] text-faint">No labels yet</p>}
       </Section>
-      ) : null,
+    ),
     workspace: (
       <Section key="workspace" title="Workspace">
         {workspace.map((n) => (
@@ -360,6 +371,7 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
 
         {sections.filter((x) => !x.hidden && !(tasksOnly && GITHUB_SECTIONS.includes(x.id))).map((x) => blocks[x.id])}
         <ProjectDialog open={newProject} onClose={() => setNewProject(false)} />
+        <NewLabelDialog open={newLabel} onClose={() => setNewLabel(false)} />
         <SaveTaskViewDialog open={saveView} onClose={() => setSaveView(false)} />
         <RambleDialog open={ramble} onClose={() => setRamble(false)} />
         <CustomizeSidebarDialog open={customize} onClose={() => setCustomize(false)} />

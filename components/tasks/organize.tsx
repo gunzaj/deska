@@ -182,6 +182,67 @@ export function ProjectDialog({ open, onClose, project }: { open: boolean; onClo
   );
 }
 
+/** Create a label from the sidebar. */
+export function NewLabelDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
+  const { createLabel } = useTasks();
+  const [name, setName] = useState("");
+  const [color, setColor] = useState("blue");
+  useEffect(() => {
+    if (!open) return;
+    setName("");
+    setColor("blue");
+  }, [open]);
+  const save = async () => {
+    const n = name.trim();
+    if (n && (await createLabel(n, color))) onClose();
+  };
+  return (
+    <Dialog open={open} onClose={onClose} label="New label" width={400}>
+      <form
+        className="p-4"
+        onSubmit={(e) => {
+          e.preventDefault();
+          void save();
+        }}
+      >
+        <p className="text-[14px] font-semibold">New label</p>
+        <input
+          autoFocus
+          aria-label="Label name"
+          value={name}
+          maxLength={60}
+          onChange={(e) => setName(e.target.value)}
+          placeholder="e.g. waiting"
+          className="mt-3 h-9 w-full rounded-lg border border-line-field bg-field px-3 text-[14px] outline-none focus:border-focus"
+        />
+        <div className="mt-3 flex flex-wrap gap-1.5" role="radiogroup" aria-label="Colour">
+          {TASK_COLORS.map((c) => (
+            <button
+              key={c}
+              type="button"
+              role="radio"
+              aria-checked={color === c}
+              aria-label={c}
+              onClick={() => setColor(c)}
+              className={`grid size-7 place-items-center rounded-md ${color === c ? "bg-active" : "hover:bg-hover"}`}
+            >
+              <ColorDot color={c} size={12} />
+            </button>
+          ))}
+        </div>
+        <div className="mt-4 flex justify-end gap-1.5">
+          <button type="button" onClick={onClose} className={btn.outline}>
+            Cancel
+          </button>
+          <button type="submit" disabled={!name.trim()} className={btn.primary}>
+            Create label
+          </button>
+        </div>
+      </form>
+    </Dialog>
+  );
+}
+
 /** Rename, recolour or delete one of my labels. */
 export function LabelDialog({ open, onClose, label, onDeleted }: { open: boolean; onClose: () => void; label: TaskLabel; onDeleted: () => void }) {
   const { updateLabel, deleteLabel } = useTasks();

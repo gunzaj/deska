@@ -39,6 +39,7 @@ type TasksCtx = {
   updateSection: (id: string, patch: Partial<Pick<TaskSection, "name" | "position" | "collapsed">>) => Promise<boolean>;
   /** Its tasks stay in the project, without a section. */
   deleteSection: (id: string) => Promise<boolean>;
+  createLabel: (name: string, color: string) => Promise<TaskLabel | null>;
   updateLabel: (id: string, patch: Partial<Omit<TaskLabel, "id">>) => Promise<boolean>;
   deleteLabel: (id: string) => Promise<boolean>;
   /** Both are stable; the compose dialog's own state is in `useComposeState` so opening it re-renders no task list. */
@@ -432,6 +433,15 @@ export function TasksProvider({ children }: { children: ReactNode }) {
     [send],
   );
 
+  const createLabel = useCallback(
+    async (name: string, color: string) => {
+      const l = await send<TaskLabel>("/api/task-labels", json("POST", { name, color }), "create label");
+      if (l) setLabels((prev) => [...prev, l].sort((a, b) => a.name.localeCompare(b.name)));
+      return l;
+    },
+    [send],
+  );
+
   const updateLabel = useCallback(
     async (id: string, patch: Partial<Omit<TaskLabel, "id">>) => {
       const l = await send<TaskLabel>(`/api/task-labels/${id}`, json("PATCH", patch), "update label");
@@ -479,12 +489,13 @@ export function TasksProvider({ children }: { children: ReactNode }) {
       createSection,
       updateSection,
       deleteSection,
+      createLabel,
       updateLabel,
       deleteLabel,
       openCompose,
       closeCompose,
     }),
-    [tasks, projects, labels, sections, loaded, error, clearError, create, update, toggleComplete, remove, reload, createProject, updateProject, createSection, updateSection, deleteSection, updateLabel, deleteLabel, openCompose, closeCompose],
+    [tasks, projects, labels, sections, loaded, error, clearError, create, update, toggleComplete, remove, reload, createProject, updateProject, createSection, updateSection, deleteSection, createLabel, updateLabel, deleteLabel, openCompose, closeCompose],
   );
   const composeValue = useMemo<ComposeState>(() => ({ composeOpen, composePrefill }), [composeOpen, composePrefill]);
 
