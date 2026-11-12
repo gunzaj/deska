@@ -378,8 +378,10 @@ export class GitHubWriteClient implements WriteClient {
       return;
     }
     const valueKey = def.dataType === "ITERATION" ? "iterationId" : "singleSelectOptionId";
+    // GitHub types both `singleSelectOptionId` and `iterationId` as String, not
+    // ID: declaring `$value:ID!` makes GitHub refuse every project field write.
     await this.mutate(
-      `mutation($project:ID!, $item:ID!, $field:ID!, $value:ID!) {
+      `mutation($project:ID!, $item:ID!, $field:ID!, $value:String!) {
         updateProjectV2ItemFieldValue(input:{projectId:$project, itemId:$item, fieldId:$field, value:{${valueKey}:$value}}) { clientMutationId }
       }`,
       { project: meta.projectId, item: itemId, field: def.id, value: next },

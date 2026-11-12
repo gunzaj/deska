@@ -43,6 +43,12 @@ export class NonRetryableError extends Error {
 
 export function isRetryable(e: unknown): boolean {
   if (e instanceof NonRetryableError) return false;
+  // GraphQL errors arrive as HTTP 200 with an `errors` list and no status. Only
+  // a rate limit there is transient; a validation, permission or not-found
+  // error fails the same way every time, and retrying it only kept the edit
+  // spinning for a minute before it failed anyway.
+  const gqlErrors = (e as { errors?: { type?: string }[] } | null)?.errors;
+  if (Array.isArray(gqlErrors) && gqlErrors.length) return gqlErrors.some((x) => x?.type === "RATE_LIMITED");
   const status = (e as { status?: number })?.status ?? 0;
   if (status >= 500 || status === 429) return true;
   // No HTTP status at all: a connection reset, DNS failure or timeout. Those

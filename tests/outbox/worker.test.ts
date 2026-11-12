@@ -132,6 +132,19 @@ describe("write-back hardening (regression)", () => {
     expect(isRetryable(Object.assign(new Error("bad"), { status: 422 }))).toBe(false);
   });
 
+  it("does not retry a GraphQL error, unless it is a rate limit", () => {
+    // Regression: a GraphQL error has no HTTP status, so it read as a network
+    // blip and a type mismatch was retried three times before failing.
+    const gql = (type?: string) =>
+      Object.assign(new Error("Request failed due to following response errors"), { name: "GraphqlResponseError", errors: [{ type, message: "x" }] });
+    expect(isRetryable(gql())).toBe(false);
+    expect(isRetryable(gql("NOT_FOUND"))).toBe(false);
+    expect(isRetryable(gql("FORBIDDEN"))).toBe(false);
+    expect(isRetryable(gql("RATE_LIMITED"))).toBe(true);
+    // A connection reset still has no status and no GraphQL errors: retried.
+    expect(isRetryable(new Error("socket hang up"))).toBe(true);
+  });
+
   it("refuses to close when the issue state changed underneath", async () => {
     const client = fakeClient({ "I_1:state": "closed", "I_1:status": "a0000002" });
     const audit: AuditRecord[] = [];

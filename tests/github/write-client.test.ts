@@ -152,6 +152,8 @@ describe("GitHubWriteClient", () => {
     expect(mutations).toHaveLength(1);
     expect(mutations[0]!.query).toContain("updateProjectV2ItemFieldValue");
     expect(mutations[0]!.query).toContain(`${key}:$value`);
+    // GitHub types both value keys as String; `$value:ID!` was refused on every write.
+    expect(mutations[0]!.query).toContain("$value:String!");
     expect(mutations[0]!.variables).toEqual({ project: PROJECT, item: "PVTI_existing", field: fieldId, value });
   });
 
