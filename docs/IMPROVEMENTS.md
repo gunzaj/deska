@@ -290,8 +290,9 @@ opened. These bugs were found and fixed, each with a test where the code is pure
 - **A saved Inbox task view** listed sub-tasks (their own project is null) while
   the Inbox page and badge kept them out; the Inbox view now hides them.
 - **A batch-create retry** that overlapped the first request could create two
-  batches (the key was only remembered after commit); the second now waits for the
-  first.
+  batches (the key was only remembered after commit, and the first request's link
+  resolver could still be running); the batch is registered before the resolver is
+  awaited, so the second waits for the first.
 - **Clearing a recurrence while moving the date** in one PATCH brought the
   recurrence back; the day-of-month repin only runs when the patch did not name a
   recurrence.
