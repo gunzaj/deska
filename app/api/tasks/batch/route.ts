@@ -34,10 +34,13 @@ export const POST = route({ auth: "viewer", body: batchBody, invalid: "invalid t
     if (!r.ok) return await fail(r);
     return NextResponse.json({ tasks: r.value }, { status: 201 });
   }
-  const p = createTasks(owner, body.tasks, body.tasks.some((t) => t.links.length) ? await resolver() : undefined).then((r) => {
+  // Registered before the resolver is awaited: it may wait for the store on the
+  // first request, and a retry that arrives meanwhile must wait for this batch.
+  const p = (async () => {
+    const r = await createTasks(owner, body.tasks, body.tasks.some((t) => t.links.length) ? await resolver() : undefined);
     if (r.ok) rememberBatch(body.idempotencyKey, r.value.map((t) => t.id));
     return r;
-  });
+  })();
   beginBatch(body.idempotencyKey, p);
   const r = await p;
   if (!r.ok) return await fail(r);
