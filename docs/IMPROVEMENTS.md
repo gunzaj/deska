@@ -80,6 +80,7 @@ listed for the maintainer at the end.
   targeted Playwright specs `ai-settings`, `ramble` and `task-views` pass one at a time.
 - **Final:** `pnpm typecheck`, `pnpm lint`, `pnpm test` (169 files, 1221 tests),
   `pnpm test:e2e` (211 tests, one worker, one retry allowed and none used),
+  `pnpm test:desktop` (16 smoke tests against the staged build),
   `pnpm desktop:build` (`release/Deska-1.1.2-universal.dmg`) and
   `node scripts/leak-guard.mjs --all` all pass. The full e2e run also caught an
   issue-view save that sent the task-view `kind`; the client no longer does, and the
