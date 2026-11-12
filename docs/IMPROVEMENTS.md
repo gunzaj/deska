@@ -301,3 +301,5 @@ opened. These bugs were found and fixed, each with a test where the code is pure
   only an audio-only request is allowed.
 - **Settings → AI** told a user without Claude Code to update it; it now says the CLI
   is not installed.
+- **The desktop smoke test's bridge list** still listed the keys from before Ramble;
+  it now expects `transcribeKey`, as `desktop/preload.ts` exposes it.
