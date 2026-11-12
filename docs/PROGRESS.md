@@ -29,6 +29,7 @@
 | AI4 | done | [#34](https://github.com/gunzaj/deska/pull/34) | Ask: an issue-panel question and "Ask about this list" on every Explorer list, answered from the triage material or the first 200 rows, kept per subject with provider/model/time, references opening inside Deska; no migration |
 
 ## Decisions to review
+- v1.2.1: patch release for faster issue edits (reply once GitHub takes the write, background re-read, kept write client, one-query stale check, 20 s UI wait) and the quick-add window refreshing the main window at once. No migration. Notes in `docs/release-notes-v1.2.1.md`.
 - v1.2.0: the 14 product improvements (`docs/IMPROVEMENTS.md`), minor version because of new features (Ramble, saved task views, AI model/effort) and migration 0009. Notes in `docs/release-notes-v1.2.0.md`.
 - v1.1.2: app icon picker (Settings → Desktop; Coral is the packaged icon, the pick sets the Dock icon at run time only, so a future signature stays intact), Inbox = tasks without a project, plus the unreleased 1.1.1 fixes. The icon pack's two ids that named real brands were renamed `green` and `orange` (§0.2).
 - v1.1.0: at the maintainer's request the release workflow builds with `DESKA_WRITES=on` (SPEC §3.4 part 3). Writes still need a token with write permissions and Settings → GitHub writes on (off by default). Version 1.1.0 (minor: writes, GitHub CLI login and AI assist since 1.0.2).
