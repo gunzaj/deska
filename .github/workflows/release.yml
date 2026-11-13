@@ -13,11 +13,6 @@ jobs:
   dmg:
     runs-on: macos-latest
     timeout-minutes: 40
-    env:
-      # From v1.1.0 the build allows GitHub writes (SPEC §3.4 part 3). The
-      # token's permissions and Settings → GitHub writes (off by default)
-      # still have to allow them.
-      DESKA_WRITES: "on"
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -32,10 +27,20 @@ jobs:
       # Unit and database tests run before the dmg is built, and the desktop
       # smoke runs against the writes-on build that ships (it reads the build's
       # write switch, so the same spec covers CI's writes-off build).
+      # DESKA_WRITES is set on the build and smoke steps only: the unit tests
+      # run on the fixture store, which refuses to start with writes on.
       - run: pnpm typecheck
       - run: pnpm test
       - run: pnpm desktop:build
+        env:
+          # From v1.1.0 the build allows GitHub writes (SPEC §3.4 part 3). The
+          # token's permissions and Settings → GitHub writes (off by default)
+          # still have to allow them.
+          DESKA_WRITES: "on"
       - run: pnpm test:desktop
+        env:
+          # Lets the smoke check that the packaged app really is the writes-on build.
+          DESKA_WRITES: "on"
       - name: Draft release with the .dmg
         env:
           GH_TOKEN: ${{ github.token }}
