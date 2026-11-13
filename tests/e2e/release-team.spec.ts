@@ -1,5 +1,9 @@
 import { expect, test, type Page } from "@playwright/test";
-import { as } from "./helpers";
+import { as, resetSharedSettings } from "./helpers";
+
+// Shared server settings start and end at their defaults (issue #6).
+test.beforeEach(({ request }) => resetSharedSettings(request));
+test.afterEach(({ request }) => resetSharedSettings(request));
 
 // IMPROVEMENTS 4: the viewer's default Team scopes a Release page's overview
 // (header, Risk and notes) and its lower issue list alike. Fixture Release

@@ -1,5 +1,9 @@
 import { expect, test, type Page } from "@playwright/test";
-import { as } from "./helpers";
+import { as, resetSharedSettings } from "./helpers";
+
+// Shared server settings start and end at their defaults (issue #6).
+test.beforeEach(({ request }) => resetSharedSettings(request));
+test.afterEach(({ request }) => resetSharedSettings(request));
 
 // The user menu: theme and "My default", a default value of a mapped dimension
 // (here the fixtures' Team field) that lists and Insights filter by (§4.1, §4.2).

@@ -1,14 +1,19 @@
-import { expect, test, type Browser } from "@playwright/test";
+import { expect, test } from "@playwright/test";
+import { as } from "./helpers";
 
 // Item 12: saved task views. The store lives for the whole dev server, so every
 // test uses a unique view and task title.
 
-async function as(browser: Browser) {
-  const context = await browser.newContext({ extraHTTPHeaders: { "x-e2e-login": "alice" } });
-  return { context, page: await context.newPage() };
-}
-
 const unique = (s: string) => `${s} ${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+
+// A test that fails before its own Delete would leave its view in every later
+// spec's sidebar (a stray "Urgent today …" link, issue #6): remove them all.
+test.afterEach(async ({ request }) => {
+  const headers = { "x-e2e-login": "alice" };
+  const body = await (await request.get("/api/views?kind=tasks", { headers })).json();
+  const views = (Array.isArray(body) ? body : (body.views ?? [])) as { id: string; name: string }[];
+  for (const v of views) await request.delete(`/api/views?kind=tasks&id=${encodeURIComponent(v.id)}`, { headers });
+});
 
 test("saving a task view puts it after Completed and opens it with its filters", async ({ browser }) => {
   const { context, page } = await as(browser);

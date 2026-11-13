@@ -1,11 +1,8 @@
-import { expect, test, type Browser } from "@playwright/test";
+import { expect, test } from "@playwright/test";
+import { as } from "./helpers";
 
 // U1: toasts and undo for task delete and complete, announced in a live region.
 
-async function as(browser: Browser, login = "alice") {
-  const context = await browser.newContext({ extraHTTPHeaders: { "x-e2e-login": login } });
-  return { context, page: await context.newPage() };
-}
 
 const unique = (s: string) => `${s} ${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
 

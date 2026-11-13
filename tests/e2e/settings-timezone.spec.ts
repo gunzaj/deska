@@ -1,5 +1,9 @@
 import { expect, test } from "@playwright/test";
-import { as } from "./helpers";
+import { as, resetSharedSettings } from "./helpers";
+
+// Shared server settings start and end at their defaults (issue #6).
+test.beforeEach(({ request }) => resetSharedSettings(request));
+test.afterEach(({ request }) => resetSharedSettings(request));
 
 // Improvement 14: the time zone moved from the bell to app settings, keeps its
 // value across a reload, and is no longer under the bell.

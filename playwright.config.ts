@@ -15,6 +15,13 @@ const e2eEnv = {
 // (instrumentation-node.ts), so every run starts from the same data.
 const DB_PORT = 3101;
 
+// Specs that change settings the whole server shares ("My default" scope, time
+// zone, AI settings, theme) get their own server and run one at a time
+// (issue #6). On the shared server, the files run in parallel workers, and one
+// spec's "My default" emptied another spec's issue list mid-test.
+const SETTINGS_PORT = 3102;
+const SHARED_SETTINGS = /(ai-settings|user-menu|filters|release-team|settings-timezone)\.spec\.ts/;
+
 export default defineConfig({
   testDir: "tests/e2e",
   globalSetup: "./tests/e2e/warmup.ts",
@@ -30,7 +37,8 @@ export default defineConfig({
   use: { trace: "on-first-retry" },
   projects: [
     // local-data needs a database: it runs in e2e-db only.
-    { name: "mocks", testIgnore: /local-data\.spec\.ts/, use: { baseURL: "http://localhost:3100" } },
+    { name: "mocks", testIgnore: [/local-data\.spec\.ts/, SHARED_SETTINGS], use: { baseURL: "http://localhost:3100" } },
+    { name: "mocks-settings", testMatch: SHARED_SETTINGS, workers: 1, use: { baseURL: `http://localhost:${SETTINGS_PORT}` } },
     {
       name: "e2e-db",
       testMatch: /(smoke|tasks|local-data)\.spec\.ts/,
@@ -58,6 +66,13 @@ export default defineConfig({
       timeout: 180_000,
       reuseExistingServer: !process.env.CI,
       env: { ...e2eEnv, PORT: String(DB_PORT), DESKA_DB_DIR: "memory://", DESKA_DEMO_SEED: "fixtures", NEXT_DIST_DIR: ".next-e2e" },
+    },
+    {
+      command: `pnpm dev --port ${SETTINGS_PORT}`,
+      url: `http://localhost:${SETTINGS_PORT}/onboarding`,
+      timeout: 180_000,
+      reuseExistingServer: !process.env.CI,
+      env: { ...e2eEnv, PORT: String(SETTINGS_PORT), DESKA_DB_DIR: "", NEXT_DIST_DIR: ".next-e2e-settings" },
     },
   ],
 });

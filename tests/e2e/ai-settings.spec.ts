@@ -1,5 +1,9 @@
 import { expect, test } from "@playwright/test";
-import { as } from "./helpers";
+import { as, resetSharedSettings } from "./helpers";
+
+// Shared server settings start and end at their defaults (issue #6).
+test.beforeEach(({ request }) => resetSharedSettings(request));
+test.afterEach(({ request }) => resetSharedSettings(request));
 
 // Settings → AI (AI0, SPEC §4.9): off by default, the per-feature list of what
 // is sent, and no model call until a provider is chosen and tested. The server
@@ -11,6 +15,9 @@ test("AI assist is off by default and lists what each feature sends", async ({ b
   page.on("request", (r) => /\/api\/ai\/(test|jobs)/.test(r.url()) && modelCalls.push(r.url()));
   await page.goto("/settings");
   await expect(page.getByRole("heading", { name: "AI assist" })).toBeVisible();
+  // The form fills from the saved settings once (the GET asks the local Claude
+  // Code CLI what it supports, which can be slow): wait for it, as the others do.
+  await expect(page.getByLabel("Provider")).toBeEnabled({ timeout: 30_000 });
   await expect(page.getByLabel("Provider")).toHaveValue("off");
   await expect(page.getByRole("button", { name: "Test connection" })).toHaveCount(0);
   const sends = page.locator("[data-ai-sends]");
