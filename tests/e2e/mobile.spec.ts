@@ -88,3 +88,32 @@ test("375px: the menu drawer moves focus in, traps Tab, closes on Escape and res
   await expect(opener).toBeFocused();
   await context.close();
 });
+
+// UI-PASS §8 gates at 390 px (issue #7 part 1): asserted, so a padding change
+// can't quietly take them under the floor.
+test("390px: a task's complete checkbox is a 24×24 touch target", async ({ browser }) => {
+  const { context, page } = await as(browser);
+  await page.setViewportSize({ width: 390, height: 844 });
+  const title = `Touch target ${Date.now().toString(36)}`;
+  await page.request.post("/api/tasks", { data: { title } });
+  await page.goto("/tasks");
+  const box = (await page.getByRole("checkbox", { name: `Complete "${title}"` }).boundingBox())!;
+  expect(box.width).toBeGreaterThanOrEqual(24);
+  expect(box.height).toBeGreaterThanOrEqual(24);
+  await context.close();
+});
+
+test("390px: issue titles keep at least 150 px and the search field is at least 32 px tall", async ({ browser }) => {
+  const { context, page } = await as(browser);
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto("/issues");
+  const title = page.locator("[data-peek-title]").filter({ hasText: "Bug: crash on start" }).first();
+  await expect(title).toBeVisible();
+  // The cell the title gets (it truncates inside it), not the text's own width.
+  expect((await title.locator("..").boundingBox())!.width).toBeGreaterThanOrEqual(150);
+  // The search field is the bordered box around the input; a tap anywhere in it focuses the input.
+  const search = page.getByLabel("Search issues").locator("..");
+  await expect(search).toBeVisible();
+  expect((await search.boundingBox())!.height).toBeGreaterThanOrEqual(32);
+  await context.close();
+});
