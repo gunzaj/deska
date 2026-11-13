@@ -133,7 +133,12 @@ export function resolveRelease(
   const t = new Date(todayIso).getTime();
   const endOf = (s: string, d: number) => new Date(s).getTime() + d * 86400_000;
   const idx = iters.findIndex((it) => new Date(it.start).getTime() <= t && t < endOf(it.start, it.duration));
-  if (idx === -1) return null;
+  // On a day outside every iteration there is no current one; next and previous go by date (§4.1).
+  if (idx === -1) {
+    if (which === "current") return null;
+    if (which === "next") return iters.find((it) => new Date(it.start).getTime() > t)?.id ?? null;
+    return [...iters].reverse().find((it) => endOf(it.start, it.duration) <= t)?.id ?? null;
+  }
   if (which === "current") return iters[idx]!.id;
   if (which === "next") return iters[idx + 1]?.id ?? null;
   return iters[idx - 1]?.id ?? null;

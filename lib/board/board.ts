@@ -42,25 +42,3 @@ export function buildBoard(
   if (byId.has(null)) cols.push({ optionId: null, name: "No value", cards: byId.get(null)! });
   return cols;
 }
-
-export type MoveDescriptor =
-  | { field: BoardSelectField; next: string }
-  | { field: "release"; next: string };
-
-/**
- * Dragging a card onto a column sets that field; dragging a backlog card
- * (no release) onto the board sets its Release — all through the outbox.
- */
-export function moveCard(
-  row: ViewRow,
-  target: { columnOptionId: string | null; boardField: BoardSelectField },
-  releaseId: string | null,
-): MoveDescriptor | null {
-  if (row.releaseId == null && releaseId) {
-    return { field: "release", next: releaseId };
-  }
-  if (target.columnOptionId == null) return null;
-  const current = valueOf(row, target.boardField);
-  if (current === target.columnOptionId) return null;
-  return { field: target.boardField, next: target.columnOptionId };
-}

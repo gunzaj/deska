@@ -1,6 +1,6 @@
 "use client";
 
-import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { groupId, rowKey, type NavRow } from "@/lib/client/list-nav";
 import { DEFAULT_PROPS, dimensionLabel, type DisplayProp, type Group } from "@/lib/client/explorer";
 import { isDimKey } from "@/lib/sync/field-map";
@@ -17,9 +17,10 @@ type Flat = { kind: "group"; group: Group; collapsed: boolean } | { kind: "issue
 
 function useViewport(ref: React.RefObject<HTMLElement | null>) {
   const [vp, setVp] = useState({ top: 0, height: 800 });
-  useLayoutEffect(() => {
+  const stop = useRef<(() => void) | null>(null);
+  const watch = useCallback(() => {
     const el = ref.current;
-    if (!el) return;
+    if (!el) return null;
     const update = () => setVp({ top: el.scrollTop, height: el.clientHeight });
     update();
     el.addEventListener("scroll", update, { passive: true });
@@ -30,6 +31,21 @@ function useViewport(ref: React.RefObject<HTMLElement | null>) {
       ro.disconnect();
     };
   }, [ref]);
+  // Before paint, so the first frame shows the right rows.
+  useLayoutEffect(() => {
+    stop.current = watch();
+    return () => {
+      stop.current?.();
+      stop.current = null;
+    };
+  }, [watch]);
+  // The scroller is an ancestor: when React re-runs effects (development's
+  // double mount), its ref is attached again only after this component's layout
+  // effect, which then found no element and never listened. The window of
+  // rendered rows stayed at the top and a scrolled list was blank.
+  useEffect(() => {
+    if (!stop.current) stop.current = watch();
+  }, [watch]);
   return vp;
 }
 
@@ -166,6 +182,9 @@ export const IssueRow = memo(function IssueRow({
  * Keep DOM focus on the focused row while focus is inside the list, so j/k
  * (which move the focused row) move the keyboard focus too (U2).
  */
+/** A request to scroll a row into view: made by a keyboard move or the side panel, never by the mouse. */
+export type Reveal = { key: string; n: number };
+
 function useRovingFocus(container: React.RefObject<HTMLElement | null>, focusedKey: string | null) {
   useEffect(() => {
     const root = container.current;
@@ -186,6 +205,7 @@ export function ListLayout({
   scrollRef,
   selection,
   peeked = null,
+  reveal = null,
 }: {
   groups: Group[];
   /** Collapsed groups (`groupId`). The explorer owns them, so j/k, ⌘A and bulk edit skip hidden rows. */
@@ -200,6 +220,8 @@ export function ListLayout({
   selection?: RowSelection;
   /** The issue open in the side panel (improvement 1). */
   peeked?: number | null;
+  /** The row to bring into view; a new object asks again. */
+  reveal?: Reveal | null;
 }) {
   const grouped = !(groups.length === 1 && groups[0]!.key === "all");
   const flat = useMemo<Flat[]>(() => {
@@ -244,17 +266,24 @@ export function ListLayout({
   while (end < flat.length && tops[end]! < vp.top + vp.height) end++;
   end = Math.min(flat.length, end + 8);
 
-  // Keep the keyboard-focused row in view.
+  // Bring a row into view when the explorer asks (a j/k move, the issue opened
+  // in the side panel), and only then. Run on every focus or data change, this
+  // scrolled the list under the mouse: hovering a row near the top edge pulled
+  // the list up a row per mouse move, and each refresh jumped back to the row
+  // last hovered.
+  const shown = useRef({ flat, tops });
+  shown.current = { flat, tops };
   useEffect(() => {
-    if (!focusedKey) return;
-    const idx = flat.findIndex((f) => f.kind === "issue" && f.key === focusedKey);
+    if (!reveal) return;
+    const { flat, tops } = shown.current;
+    const idx = flat.findIndex((f) => f.kind === "issue" && f.key === reveal.key);
     const el = scrollRef.current;
     if (idx < 0 || !el) return;
     const top = tops[idx]!;
     const bottom = top + ROW_H;
     if (top < el.scrollTop + GROUP_H) el.scrollTop = Math.max(0, top - GROUP_H);
     else if (bottom > el.scrollTop + el.clientHeight) el.scrollTop = bottom - el.clientHeight;
-  }, [focusedKey, flat, tops, scrollRef]);
+  }, [reveal, scrollRef]);
 
   return (
     <div ref={list} role="list" aria-label="Issues" style={{ height: total, position: "relative" }}>
@@ -319,6 +348,7 @@ export function TableLayout({
   scrollRef,
   selection,
   peeked = null,
+  reveal = null,
 }: {
   rows: NavRow[];
   props?: DisplayProp[];
@@ -331,6 +361,8 @@ export function TableLayout({
   selection?: RowSelection & { all: boolean; toggleAll: () => void };
   /** The issue open in the side panel (improvement 1). */
   peeked?: number | null;
+  /** The row to bring into view; a new object asks again. */
+  reveal?: Reveal | null;
 }) {
   const c = useCells();
   const { meta } = useAppData().data;
@@ -345,15 +377,18 @@ export function TableLayout({
   const tabId = rows.find((r) => r.key === focusedKey)?.key ?? rows[0]?.key ?? null;
   useRovingFocus(body, focusedKey);
 
+  // Only when the explorer asks (a j/k move, the side panel's issue): see ListLayout.
+  const shown = useRef(rows);
+  shown.current = rows;
   useEffect(() => {
-    if (!focusedKey) return;
-    const idx = rows.findIndex((r) => r.key === focusedKey);
+    if (!reveal) return;
+    const idx = shown.current.findIndex((r) => r.key === reveal.key);
     const el = scrollRef.current;
     if (idx < 0 || !el) return;
     const top = HEAD + idx * ROW_H;
     if (top < el.scrollTop + HEAD) el.scrollTop = top - HEAD;
     else if (top + ROW_H > el.scrollTop + el.clientHeight) el.scrollTop = top + ROW_H - el.clientHeight;
-  }, [focusedKey, rows, scrollRef]);
+  }, [reveal, scrollRef]);
 
   const cell = (p: DisplayProp, i: ClientIssue): ReactNode => {
     if (isDimKey(p)) return c.dim(p, i) ?? <span className="text-faint">—</span>;

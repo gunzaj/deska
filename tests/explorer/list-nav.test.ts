@@ -52,6 +52,13 @@ describe("j/k over a list where an issue shows in several groups", () => {
     expect(new Set(rows.map((r) => r.key)).size).toBe(3);
     expect(stepFocus(rows, rows[0]!.key, 1)!.key).toBe(rows[1]!.key);
   });
+
+  it("walks the cards each column shows: \"Show more\" in one column reaches its extra cards", () => {
+    const cols = [{ key: "todo", rows: [i1!, i2!, i3!] }, { key: "doing", rows: [i1!, i2!, i3!] }];
+    const limits: Record<string, number> = { todo: 3 };
+    const rows = boardNavRows(cols, (key) => limits[key] ?? 1);
+    expect(rows.map((r) => r.key.split("\u001f")[0])).toEqual(["todo", "todo", "todo", "doing"]);
+  });
 });
 
 describe("collapsed groups", () => {

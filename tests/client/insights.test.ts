@@ -55,3 +55,16 @@ describe("scoped Insights (F4)", () => {
     expect(scopeFilters({ kind: "view", id: "x" }, [])).toBeNull();
   });
 });
+
+describe("the age histogram", () => {
+  it("counts an issue made after the end of the viewer's date (evening, west of UTC) in the newest bucket", async () => {
+    const data = await demo();
+    const { meta } = data;
+    const open = data.issues.filter((i) => i.state === "open");
+    // Two hours past `today T23:59:59Z`: a negative age used to fall out of every bucket.
+    const late = new Date(Date.parse(`${meta.today}T23:59:59Z`) + 2 * 3600_000).toISOString();
+    const issues = [...open, { ...open[0]!, nodeId: "I_late", number: 99_999, createdAt: late, updatedAt: late }];
+    const stats = insightStats(issues, meta, []);
+    expect(stats.ages.reduce((n, b) => n + b.n, 0)).toBe(stats.open.length);
+  });
+});

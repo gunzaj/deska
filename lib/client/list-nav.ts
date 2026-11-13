@@ -41,9 +41,10 @@ export function listNavRows(groups: readonly Group[], collapsed: ReadonlySet<str
   return out;
 }
 
-/** The cards a board shows, down each column in turn (the first `limit` per column). */
-export function boardNavRows(cols: readonly { key: string; rows: ClientIssue[] }[], limit: number): NavRow[] {
-  return cols.flatMap((c) => c.rows.slice(0, limit).map((issue) => ({ key: rowKey(c.key, issue.nodeId), issue })));
+/** The cards a board shows, down each column in turn: the first `limit` per column, which "Show more" raises column by column. */
+export function boardNavRows(cols: readonly { key: string; rows: ClientIssue[] }[], limit: number | ((columnKey: string) => number)): NavRow[] {
+  const limitOf = typeof limit === "number" ? () => limit : limit;
+  return cols.flatMap((c) => c.rows.slice(0, limitOf(c.key)).map((issue) => ({ key: rowKey(c.key, issue.nodeId), issue })));
 }
 
 /** The focused row's position, or -1. */

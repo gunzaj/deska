@@ -47,7 +47,7 @@ const BoardLayout = dynamic(() => import("./board").then((m) => m.BoardLayout), 
   loading: () => <p role="status" className="p-6 text-muted">Loading board…</p>,
 });
 import { BulkBar } from "./bulk";
-import { ListLayout, TableLayout, type RowSelection } from "./layouts";
+import { ListLayout, TableLayout, type Reveal, type RowSelection } from "./layouts";
 import {
   boardNavRows,
   collapsedGroups,
@@ -164,17 +164,23 @@ export function Explorer({
   const [toggledGroups, setToggledGroups] = useState<Record<string, boolean>>({});
   const collapsed = useMemo(() => collapsedGroups(groups, toggledGroups), [groups, toggledGroups]);
   const onToggleGroup = useCallback((g: Group) => setToggledGroups((t) => toggleGroup(t, g, collapsed)), [collapsed]);
+  // Cards shown per board column once "Show more" was used.
+  const [boardLimits, setBoardLimits] = useState<Readonly<Record<string, number>>>({});
   // j/k walk rows as shown: down each board column in turn, or down the (grouped) list.
   // A row is a place (group + issue): grouped by Label or Assignee an issue shows more than once.
   const order = useMemo(
-    // The board renders CARD_PAGE cards per column: j/k must not land on one that is not there (v5 3.10).
-    () => (layout === "board" ? boardNavRows(boardColumns(rows, state.boardColumnsField ?? "status", data.meta), CARD_PAGE) : listNavRows(groups, collapsed)),
-    [layout, state.boardColumnsField, rows, groups, collapsed, data.meta],
+    // The board renders CARD_PAGE cards per column, more after "Show more": j/k walk exactly the cards shown (v5 3.10).
+    () => (layout === "board" ? boardNavRows(boardColumns(rows, state.boardColumnsField ?? "status", data.meta), (key) => boardLimits[key] ?? CARD_PAGE) : listNavRows(groups, collapsed)),
+    [layout, state.boardColumnsField, rows, groups, collapsed, data.meta, boardLimits],
   );
   const props = (state.columns ?? DEFAULT_PROPS) as DisplayProp[];
 
   const [focusedKey, setFocusedKey] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
+  // The row the list should scroll to: set by a keyboard move and by the side
+  // panel's issue, never by the mouse or a data refresh (the layouts scroll on this alone).
+  const [reveal, setReveal] = useState<Reveal | null>(null);
+  const revealRow = useCallback((key: string) => setReveal((r) => ({ key, n: (r?.n ?? 0) + 1 })), []);
 
   // Multi-select for bulk edit (W4): list and table, writes on.
   const selectable = data.meta.writeMode && layout !== "board";
@@ -229,6 +235,7 @@ export function Explorer({
     searchRef,
     // With the side panel open, j/k walk through issues in it.
     onMoved: (next) => {
+      revealRow(next.key);
       if (peekedIssue() != null) openIssue(next.issue.number);
     },
     // ⌘A / Ctrl+A selects the visible rows (W4), outside text fields.
@@ -276,12 +283,24 @@ export function Explorer({
 
   // Keep the list highlight on the issue shown in the side panel.
   const peek = params.get("issue");
+  // The peeked issue the list has already scrolled to: once per issue, when its
+  // row is there. Not again on each refresh, which pulled the list back to the
+  // open issue whenever any issue changed.
+  const revealedPeek = useRef<number | null>(null);
   useEffect(() => {
     const n = Number(peek);
-    if (!n) return;
+    if (!n) {
+      revealedPeek.current = null;
+      return;
+    }
     // Functional update: the focused row is read, not a dependency, so moving it doesn't re-run this.
     setFocusedKey((cur) => focusForIssue(order, cur, n) ?? cur);
-  }, [peek, order]);
+    if (revealedPeek.current === n) return;
+    const key = focusForIssue(order, null, n);
+    if (!key) return;
+    revealedPeek.current = n;
+    revealRow(key);
+  }, [peek, order, revealRow]);
 
   // Saving
   const [dialog, setDialog] = useState<null | "new" | "rename">(null);
@@ -397,8 +416,11 @@ export function Explorer({
             ))}
           </div>
         )}
-        {rows.length === 0 && connectionProblem(connection) ? (
-          // An error is never an empty list (SPEC §3.3).
+        {rows.length === 0 && pool.length === 0 && connectionProblem(connection) ? (
+          // An error is never an empty list (SPEC §3.3). With cached issues on
+          // this page it is the filters that match nothing: the empty state
+          // below names them and offers "Clear filters", and the banner already
+          // reports the connection.
           <div data-list-state="error">
             <EmptyHint
               icon="alert"
@@ -436,7 +458,7 @@ export function Explorer({
             />
           </div>
         ) : layout === "board" ? (
-          <BoardLayout rows={rows} field={state.boardColumnsField ?? "status"} props={props} focusedKey={focusedKey} onFocus={setFocusedKey} onOpen={open} dropRelease={dropRelease} peeked={peeked} />
+          <BoardLayout rows={rows} field={state.boardColumnsField ?? "status"} props={props} focusedKey={focusedKey} onFocus={setFocusedKey} onOpen={open} dropRelease={dropRelease} peeked={peeked} limits={boardLimits} setLimits={setBoardLimits} />
         ) : layout === "table" ? (
           <TableLayout
             rows={order}
@@ -448,6 +470,7 @@ export function Explorer({
             onOpen={open}
             scrollRef={scrollRef}
             peeked={peeked}
+            reveal={reveal}
             selection={
               selection && {
                 ...selection,
@@ -457,7 +480,7 @@ export function Explorer({
             }
           />
         ) : (
-          <ListLayout groups={groups} collapsed={collapsed} onToggleGroup={onToggleGroup} props={props} focusedKey={focusedKey} onFocus={setFocusedKey} onOpen={open} scrollRef={scrollRef} selection={selection} peeked={peeked} />
+          <ListLayout groups={groups} collapsed={collapsed} onToggleGroup={onToggleGroup} props={props} focusedKey={focusedKey} onFocus={setFocusedKey} onOpen={open} scrollRef={scrollRef} selection={selection} peeked={peeked} reveal={reveal} />
         )}
       </div>
       {selectable && selectedIssues.length > 0 && (

@@ -51,13 +51,51 @@ test("empty names the active filters and offers Clear filters", async ({ browser
   }
 });
 
-test("an error is not an empty list", async ({ browser }) => {
+const INVALID = { state: "invalid", message: "Your GitHub token is invalid or expired", permissions: [], missing: [], readOnly: true };
+
+test("an error is not an empty list: nothing cached and GitHub unreadable shows the error", async ({ browser }) => {
   const { context, page } = await as(browser);
   try {
-    await page.route("**/api/connection*", (route) => route.fulfill({ json: { state: "invalid", message: "Your GitHub token is invalid or expired", permissions: [], missing: [], readOnly: true } }));
-    await page.goto(url({ filters: [{ field: "author", op: "in", values: ["nobody-here"] }] }));
+    await page.route("**/api/connection*", (route) => route.fulfill({ json: INVALID }));
+    await page.route("**/api/data", async (route) => {
+      const res = await route.fetch();
+      const json = await res.json();
+      json.issues = [];
+      await route.fulfill({ response: res, json, headers: { ...res.headers(), etag: "" } });
+    });
+    await page.goto("/issues");
     const error = page.locator("[data-list-state=error]");
     await expect(error).toContainText("Your GitHub token is invalid or expired");
+    await expect(page.locator("[data-list-state=empty]")).toHaveCount(0);
+  } finally {
+    await context.close();
+  }
+});
+
+test("with cached issues, a filter that matches nothing is the empty state even while GitHub is unreadable", async ({ browser }) => {
+  const { context, page } = await as(browser);
+  try {
+    await page.route("**/api/connection*", (route) => route.fulfill({ json: INVALID }));
+    await page.goto(url({ filters: [{ field: "author", op: "in", values: ["nobody-here"] }] }));
+    // The cache is there: it is the filter that hides everything, so the list
+    // names it and offers the way out. The banner reports the connection.
+    const empty = page.locator("[data-list-state=empty]");
+    await expect(empty).toContainText("No issues match these filters");
+    await expect(page.locator("[data-list-state=error]")).toHaveCount(0);
+    await empty.getByRole("button", { name: "Clear filters" }).click();
+    await expect(rows(page).first()).toBeVisible();
+  } finally {
+    await context.close();
+  }
+});
+
+test("a chip with its last value unticked reads \"is any\" and keeps the rows", async ({ browser }) => {
+  const { context, page } = await as(browser);
+  try {
+    const data = await (await page.request.get("/api/data")).json();
+    const total = (data.issues as unknown[]).length;
+    await page.goto(url({ filters: [{ field: "author", op: "in", values: [] }] }));
+    await expect(rows(page)).toHaveCount(total);
     await expect(page.locator("[data-list-state=empty]")).toHaveCount(0);
   } finally {
     await context.close();
