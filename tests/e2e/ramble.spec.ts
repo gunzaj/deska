@@ -1,12 +1,9 @@
-import { expect, test, type Browser } from "@playwright/test";
+import { expect, test } from "@playwright/test";
+import { as } from "./helpers";
 
 // Item 13: Ramble. The microphone and the AI are stubbed: the transcript,
 // the parse and the batch create are the server's, never a real model call.
 
-async function as(browser: Browser) {
-  const context = await browser.newContext({ extraHTTPHeaders: { "x-e2e-login": "alice" } });
-  return { context, page: await context.newPage() };
-}
 
 const job = (state: string, over: Record<string, unknown> = {}) => ({
   id: "job-ramble-1",

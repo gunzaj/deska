@@ -1,11 +1,9 @@
 import { expect, test, type Browser } from "@playwright/test";
+import { as as asUser } from "./helpers";
 
 // Copy view / Import view (SPEC §4.2, D7) through the UI, on the mocked server.
 
-async function as(browser: Browser, login = "alice") {
-  const context = await browser.newContext({ extraHTTPHeaders: { "x-e2e-login": login }, permissions: ["clipboard-read", "clipboard-write"] });
-  return { context, page: await context.newPage() };
-}
+const as = (browser: Browser, login = "alice") => asUser(browser, login, { permissions: ["clipboard-read", "clipboard-write"] });
 
 const unique = (s: string) => `${s} ${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
 

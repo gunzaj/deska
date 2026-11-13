@@ -1,5 +1,9 @@
 import { expect, test, type Page } from "@playwright/test";
-import { as } from "./helpers";
+import { as, resetSharedSettings } from "./helpers";
+
+// Shared server settings start and end at their defaults (issue #6).
+test.beforeEach(({ request }) => resetSharedSettings(request));
+test.afterEach(({ request }) => resetSharedSettings(request));
 
 // D11 (SPEC §4.2, §4.3): the new filters in the URL, the default chip, Clear all,
 // and the three distinct list states (loading, empty, error).

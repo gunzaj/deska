@@ -1,10 +1,24 @@
 // Shared e2e helpers for the write-back specs. The e2e servers run with
 // writes off; these turn them on in the payload the browser gets and answer
 // the edit route in the test, so nothing is ever sent to GitHub.
-import type { Browser, Page, Route } from "@playwright/test";
+import type { APIRequestContext, Browser, BrowserContextOptions, Page, Route } from "@playwright/test";
+import { DEFAULT_AI_SETTINGS } from "../../lib/ai/types";
 
-export async function as(browser: Browser, login = "alice") {
-  const context = await browser.newContext({ extraHTTPHeaders: { "x-e2e-login": login } });
+/**
+ * A browser context signed in as `login` (the test-only identity).
+ *
+ * Its `close()` first drops every route handler, ignoring the ones still
+ * running (issue #6): a handler busy in `route.fetch` when the context closes
+ * would otherwise reject after the test ended, and Playwright reports that
+ * error against whichever test runs next.
+ */
+export async function as(browser: Browser, login = "alice", options: BrowserContextOptions = {}) {
+  const context = await browser.newContext({ ...options, extraHTTPHeaders: { ...options.extraHTTPHeaders, "x-e2e-login": login } });
+  const close = context.close.bind(context);
+  context.close = async (opts) => {
+    await Promise.all([context.unrouteAll({ behavior: "ignoreErrors" }), ...context.pages().map((p) => p.unrouteAll({ behavior: "ignoreErrors" }))]).catch(() => {});
+    return close(opts);
+  };
   return { context, page: await context.newPage() };
 }
 
@@ -39,3 +53,20 @@ export async function editRoute(page: Page, reply: (body: Sent, n: number) => { 
 }
 
 export const done = (body: Sent) => ({ status: 200, json: { entry: { id: "e", status: "done", error: null, next: body.next } } });
+
+/**
+ * Put the server-wide settings the specs change back to their defaults: the
+ * time zone and "My default" (prefs), AI settings and the theme. The e2e
+ * servers are shared by every spec, so a spec that changes one of these runs
+ * this before and after each test; a test that fails halfway then can't leave
+ * its setting behind for the next spec (issue #6).
+ */
+export async function resetSharedSettings(request: APIRequestContext) {
+  const headers = { "x-e2e-login": "alice" };
+  const results = await Promise.all([
+    request.patch("/api/me/prefs", { headers, data: { tz: null, defaultTeam: null } }),
+    request.post("/api/ai/settings", { headers, data: DEFAULT_AI_SETTINGS }),
+    request.post("/api/settings/theme", { headers, data: { theme: "system" } }),
+  ]);
+  for (const r of results) if (!r.ok()) throw new Error(`resetSharedSettings: ${r.url()} answered ${r.status()}`);
+}

@@ -1,12 +1,9 @@
-import { expect, test, type Browser } from "@playwright/test";
+import { expect, test } from "@playwright/test";
+import { as } from "./helpers";
 
 // Smoke coverage on the fixture dataset (DEMO_DATASET=fixtures) with mocked
 // auth via the E2E bypass header. No real OAuth or GitHub calls are made.
 
-async function as(browser: Browser, login = "alice") {
-  const context = await browser.newContext({ extraHTTPHeaders: { "x-e2e-login": login } });
-  return { context, page: await context.newPage() };
-}
 
 test("backlog lists open issues without a release and searches by #number", async ({ browser }) => {
   const { context, page } = await as(browser);

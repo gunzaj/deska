@@ -17,6 +17,7 @@ export default tseslint.config(
       "node_modules/**",
       ".next/**",
       ".next-e2e/**",
+      ".next-e2e-settings/**",
       ".next-desktop/**",
       "out/**",
       "build/**",

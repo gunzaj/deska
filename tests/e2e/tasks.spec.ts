@@ -1,12 +1,9 @@
-import { expect, test, type Browser } from "@playwright/test";
+import { expect, test } from "@playwright/test";
+import { as } from "./helpers";
 
 // Tasks (SPEC §12, milestone T1) on the in-memory task store with mocked auth.
 // The store lives for the whole dev server, so every test uses unique titles.
 
-async function as(browser: Browser, login = "alice") {
-  const context = await browser.newContext({ extraHTTPHeaders: { "x-e2e-login": login } });
-  return { context, page: await context.newPage() };
-}
 
 const unique = (s: string) => `${s} ${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
 
@@ -205,8 +202,11 @@ test("projects, labels and Today: quick add files the task; archiving hides it f
   await dialog.getByRole("combobox", { name: "Task" }).press("Enter");
   await expect(page.getByRole("complementary", { name: "Task" }).getByLabel("Title")).toHaveValue(name);
   await page.keyboard.press("Escape");
+  // Closing the panel rewrites the URL; a link clicked before that lands can be
+  // overtaken by it on a slow server (issue #6), so wait for the panel to go.
+  await expect(page.getByRole("complementary", { name: "Task" })).toHaveCount(0);
 
-  await nav.getByRole("link", { name: "Today" }).click();
+  await nav.getByRole("link", { name: /^Today( \d+)?$/ }).click();
   await expect(page.getByRole("listitem").filter({ hasText: name })).toBeVisible();
   await nav.getByRole("link", { name: /^specwork( \d+)?$/ }).click();
   await expect(page.getByRole("listitem").filter({ hasText: name })).toBeVisible();

@@ -46,19 +46,24 @@ test("T-7: a duplicate label name shows an alert in the dialog; a double Enter m
   await context.close();
 });
 
-test("T-5: a task older than the store's newest 200 completions opens from Completed", async ({ browser }) => {
+test("T-5: a completed task the store doesn't hold opens from Completed", async ({ browser }) => {
   const { context, page } = await as(browser);
   const title = unique("Oldest done");
   const oldest = (await (await page.request.post("/api/tasks", { data: { title } })).json()).task.id as string;
   await page.request.patch(`/api/tasks/${oldest}`, { data: { completed: true } });
-  // The oldest completion is the first; 201 newer ones push it out of the store's 200.
-  for (let i = 0; i < 201; i++) {
-    const made = await (await page.request.post("/api/tasks", { data: { title: `Done ${i} ${title}` } })).json();
-    await page.request.patch(`/api/tasks/${made.task.id}`, { data: { completed: true } });
-  }
+  // The store holds only the newest 200 completions; leave this one out of its
+  // load, as if 200 newer ones had pushed it out. (Making 201 real tasks took
+  // minutes and left them in the shared store for every later spec, issue #6.)
+  await page.route("**/api/tasks", async (route) => {
+    const res = await route.fetch();
+    const json = await res.json();
+    json.tasks = (json.tasks as { id: string }[]).filter((t) => t.id !== oldest);
+    await route.fulfill({ response: res, json });
+  });
   await page.goto("/tasks/completed");
   await page.getByRole("button", { name: title, exact: true }).click();
   await expect(page.getByRole("complementary", { name: "Task" }).getByLabel("Title")).toHaveValue(title);
+  await page.request.delete(`/api/tasks/${oldest}`);
   await context.close();
 });
 

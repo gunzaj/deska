@@ -1,12 +1,9 @@
-import { expect, test, type Browser } from "@playwright/test";
+import { expect, test } from "@playwright/test";
+import { as } from "./helpers";
 
 // S3: failed refreshes are visible, and a 401 (GitHub disconnected) stops the
 // app behind a banner instead of showing old data forever.
 
-async function as(browser: Browser, login = "alice") {
-  const context = await browser.newContext({ extraHTTPHeaders: { "x-e2e-login": login } });
-  return { context, page: await context.newPage() };
-}
 
 test("a 401 from /api/data shows the disconnected banner", async ({ browser }) => {
   const { context, page } = await as(browser);
