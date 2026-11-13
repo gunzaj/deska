@@ -26,6 +26,8 @@ type TasksCtx = {
   labels: TaskLabel[];
   sections: TaskSection[];
   loaded: boolean;
+  /** The first load failed (nothing to show yet): the lists show an error state with Retry, not "Loading" forever. */
+  loadError: string | null;
   error: string | null;
   clearError: () => void;
   create: (input: CreateInput) => Promise<Task | null>;
@@ -84,6 +86,8 @@ export function TasksProvider({ children }: { children: ReactNode }) {
   const [labels, setLabels] = useState<TaskLabel[]>([]);
   const [sections, setSections] = useState<TaskSection[]>([]);
   const [loaded, setLoaded] = useState(false);
+  const loadedRef = useRef(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [composeOpen, setComposeOpen] = useState(false);
   const [composePrefill, setComposePrefill] = useState<ComposePrefill>({});
@@ -125,8 +129,15 @@ export function TasksProvider({ children }: { children: ReactNode }) {
       setLabels(body.labels);
       setSections(body.sections ?? []);
       setLoaded(true);
+      loadedRef.current = true;
+      setLoadError(null);
     } catch (e) {
-      if (seq === loadSeq.current) setError(`Could not load tasks: ${e instanceof Error ? e.message : String(e)}`);
+      if (seq !== loadSeq.current) return;
+      const message = e instanceof Error ? e.message : String(e);
+      // Before anything loaded, the list itself shows the failure; after that, a
+      // failed refresh keeps the tasks on screen and reports it in the banner.
+      if (loadedRef.current) setError(`Could not load tasks: ${message}`);
+      else setLoadError(message);
     } finally {
       if (seq === loadSeq.current) loading.current = false;
     }
@@ -475,6 +486,7 @@ export function TasksProvider({ children }: { children: ReactNode }) {
       labels,
       sections,
       loaded,
+      loadError,
       error,
       clearError,
       create,
@@ -493,7 +505,7 @@ export function TasksProvider({ children }: { children: ReactNode }) {
       openCompose,
       closeCompose,
     }),
-    [tasks, projects, labels, sections, loaded, error, clearError, create, update, toggleComplete, remove, reload, createProject, updateProject, createSection, updateSection, deleteSection, createLabel, updateLabel, deleteLabel, openCompose, closeCompose],
+    [tasks, projects, labels, sections, loaded, loadError, error, clearError, create, update, toggleComplete, remove, reload, createProject, updateProject, createSection, updateSection, deleteSection, createLabel, updateLabel, deleteLabel, openCompose, closeCompose],
   );
   const composeValue = useMemo<ComposeState>(() => ({ composeOpen, composePrefill }), [composeOpen, composePrefill]);
 

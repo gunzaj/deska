@@ -49,16 +49,22 @@ export function TaskCheck({
         e.stopPropagation();
         onToggle();
       }}
-      className="group/check grid size-[18px] shrink-0 place-items-center rounded-full border-[1.6px] transition-colors disabled:cursor-not-allowed disabled:opacity-50"
-      style={{ borderColor: c, background: done ? c : `color-mix(in srgb, ${c} ${priority === 4 ? 0 : 10}%, transparent)` }}
+      // A 24×24 touch target (WCAG 2.5.8, UI-PASS §8) around the 18 px circle;
+      // the negative margin keeps the row's layout as it was.
+      className="group/check -m-[3px] grid size-6 shrink-0 place-items-center rounded-full disabled:cursor-not-allowed disabled:opacity-50"
     >
-      <Icon
-        name="check"
-        size={11}
-        strokeWidth={3}
-        className={done ? "text-surface" : "opacity-0 transition-opacity group-hover/check:opacity-100"}
-        style={done ? undefined : { color: c }}
-      />
+      <span
+        className="grid size-[18px] place-items-center rounded-full border-[1.6px] transition-colors"
+        style={{ borderColor: c, background: done ? c : `color-mix(in srgb, ${c} ${priority === 4 ? 0 : 10}%, transparent)` }}
+      >
+        <Icon
+          name="check"
+          size={11}
+          strokeWidth={3}
+          className={done ? "text-surface" : "opacity-0 transition-opacity group-hover/check:opacity-100"}
+          style={done ? undefined : { color: c }}
+        />
+      </span>
     </button>
   );
 }
@@ -196,5 +202,40 @@ export function TaskErrorBanner() {
         <Icon name="x" size={13} />
       </button>
     </div>
+  );
+}
+
+/**
+ * The task lists' loading and load-error states (SPEC §4.2: loading, empty and
+ * error are distinct). Before the first load: a status marked busy. If that
+ * load failed: the reason and Retry, never "Loading" forever.
+ */
+export function TaskListState({ loadingText = "Loading tasks…" }: { loadingText?: string }) {
+  const { loadError, reload } = useTasks();
+  const [retrying, setRetrying] = useState(false);
+  if (loadError) {
+    return (
+      <div data-list-state="error" role="alert" className="flex flex-col items-center gap-2 px-6 py-12 text-center">
+        <Icon name="alert" size={18} />
+        <p className="font-medium">Couldn&apos;t load tasks</p>
+        <p className="text-[12.5px] text-muted">{loadError}</p>
+        <button
+          type="button"
+          disabled={retrying}
+          onClick={() => {
+            setRetrying(true);
+            void reload().finally(() => setRetrying(false));
+          }}
+          className={btn.outline}
+        >
+          {retrying ? "Retrying…" : "Retry"}
+        </button>
+      </div>
+    );
+  }
+  return (
+    <p data-list-state="loading" role="status" aria-busy="true" aria-label="Loading" className="p-6 text-muted">
+      {loadingText}
+    </p>
   );
 }
