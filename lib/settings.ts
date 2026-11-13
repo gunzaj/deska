@@ -33,6 +33,7 @@ const KEYS = {
   ai: "ai.settings",
   aiVerified: "ai.verified",
   aiEndpointModes: "ai.endpoint-modes",
+  theme: "ui.theme",
 } as const;
 
 type Cache = { loaded: Promise<void> | null; values: Map<string, unknown>; version: number };
@@ -89,6 +90,39 @@ async function setIfChanged(key: string, value: unknown): Promise<void> {
   await load();
   if (JSON.stringify(cache().values.get(key) ?? null) === JSON.stringify(value)) return;
   await set(key, value);
+}
+
+/**
+ * A cosmetic setting (ADR-001): stored like any other, but it does not bump
+ * `settingsVersion()`, so a theme change never refetches the data or re-checks
+ * the connection.
+ */
+async function setCosmetic(key: string, value: unknown): Promise<void> {
+  await load();
+  if (dbDir()) {
+    const now = new Date();
+    await getDb()
+      .insert(appSettings)
+      .values({ key, value, updatedAt: now })
+      .onConflictDoUpdate({ target: appSettings.key, set: { value, updatedAt: now } });
+  }
+  cache().values.set(key, value);
+}
+
+export type Theme = "system" | "light" | "dark";
+
+/** The colour theme (ADR-001). Kept in the database because the window's origin changes on every launch, which empties `localStorage`. Any read error is "system". */
+export async function readTheme(): Promise<Theme> {
+  try {
+    const v = await get(KEYS.theme);
+    return v === "light" || v === "dark" ? v : "system";
+  } catch {
+    return "system";
+  }
+}
+
+export async function saveTheme(theme: Theme): Promise<void> {
+  await setCosmetic(KEYS.theme, theme);
 }
 
 /** Bumped by every save: part of the data ETag, so a remap reaches the browser. */
