@@ -346,7 +346,7 @@ export function Explorer({
 
   const toolbar = (
     <div className="flex flex-wrap items-center gap-1.5">
-      <label className="flex h-7 w-full items-center gap-1.5 rounded-md border border-line bg-field px-2 focus-within:border-focus sm:w-56">
+      <label className="flex h-8 w-full items-center gap-1.5 rounded-md border border-line bg-field px-2 focus-within:border-focus sm:h-7 sm:w-56">
         <Icon name="search" size={13} className="text-faint" />
         <input
           ref={searchRef}

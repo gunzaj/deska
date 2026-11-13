@@ -9,7 +9,7 @@ import { Icon, type IconName } from "../icons";
 import { EmptyHint } from "../props";
 import { Dialog } from "../ui/dialog";
 import { btn } from "../ui/popover";
-import { TaskErrorBanner } from "../tasks/bits";
+import { TaskErrorBanner, TaskListState } from "../tasks/bits";
 import { ColorDot, LabelDialog, ProjectDialog } from "../tasks/organize";
 import { DeleteSectionDialog, movedPosition, SectionDialog, SectionMenu } from "../tasks/sections";
 import { endPosition } from "@/lib/client/task-order";
@@ -177,19 +177,21 @@ function TaskList({ def }: { def: ViewDef }) {
       <TaskErrorBanner />
       {def.banner}
       {!loaded ? (
-        <p className="p-6 text-muted">Loading tasks…</p>
+        <TaskListState />
       ) : openCount === 0 && (!showDone || done.length === 0) && !groups.some((g) => g.keepEmpty) ? (
-        <EmptyHint
-          icon={def.empty.icon}
-          title={def.empty.title}
-          hint={def.empty.hint}
-          action={
-            <button type="button" onClick={() => openCompose(prefill)} className={btn.outline}>
-              <Icon name="plus" size={14} />
-              New task
-            </button>
-          }
-        />
+        <div data-list-state="empty">
+          <EmptyHint
+            icon={def.empty.icon}
+            title={def.empty.title}
+            hint={def.empty.hint}
+            action={
+              <button type="button" onClick={() => openCompose(prefill)} className={btn.outline}>
+                <Icon name="plus" size={14} />
+                New task
+              </button>
+            }
+          />
+        </div>
       ) : (
         <>
           {groups.map((g) => (
@@ -446,7 +448,7 @@ export function TaskProjectPage({ id }: { id: string }) {
           ),
         } : null), [project, id, placed, mine, updateProject, updateSection, openCompose, tasksOnly]);
   if (!project || !def) {
-    return loaded ? <EmptyHint icon="list" title="Project not found" hint="It doesn't exist, or it belongs to someone else." /> : <p className="p-6 text-muted">Loading…</p>;
+    return loaded ? <EmptyHint icon="list" title="Project not found" hint="It doesn't exist, or it belongs to someone else." /> : <TaskListState loadingText="Loading…" />;
   }
   return (
     <>
@@ -478,7 +480,7 @@ export function TaskLabelPage({ id }: { id: string }) {
           ),
         } : null), [label, id]);
   if (!label || !def) {
-    return loaded ? <EmptyHint icon="tag" title="Label not found" hint="It was deleted, or it belongs to someone else." /> : <p className="p-6 text-muted">Loading…</p>;
+    return loaded ? <EmptyHint icon="tag" title="Label not found" hint="It was deleted, or it belongs to someone else." /> : <TaskListState loadingText="Loading…" />;
   }
   return (
     <>
