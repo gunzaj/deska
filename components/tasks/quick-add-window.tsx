@@ -9,6 +9,7 @@ import { Icon } from "../icons";
 import { btn } from "../ui/popover";
 import { TaskAssistChips, useTaskAssist, type TaskAssistChoices } from "./ai-task-assist";
 import { ColorDot } from "./organize";
+import { TASKS_CHANGED } from "./store";
 import { QuickAddInput, type SuggestFn } from "./quick-add-input";
 
 /** What the one-line window can store: no `#issue` links (it has no issue data). */
@@ -143,6 +144,13 @@ export function QuickAddWindow() {
       assist.reset();
       if (resultId) void fetch(`/api/ai/results/${resultId}/outcome`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ outcome: "accepted" }) }).catch(() => null);
       setState("saved");
+      try {
+        const ch = new BroadcastChannel(TASKS_CHANGED);
+        ch.postMessage("created");
+        ch.close();
+      } catch {
+        // No channel: the main window finds the task on its next refresh.
+      }
       close();
       return;
     }

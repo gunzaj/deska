@@ -11,7 +11,7 @@ import { GET as jobGet } from "@/app/api/ai/jobs/[id]/route";
 import { POST as jobCancel } from "@/app/api/ai/jobs/[id]/cancel/route";
 import { setAiKey } from "@/lib/ai/key";
 import { buildPrompt, inputHash, jsonSchemaOf, promptVersion, type AiTask } from "@/lib/ai/prompt";
-import { aiNotReady, cancelJob, getJob, idle, resetJobs, startJob } from "@/lib/ai/runner";
+import { aiNotReady, cancelJob, getJob, idle, resetJobs, startJob, startJobs } from "@/lib/ai/runner";
 import { latestResult } from "@/lib/ai/results";
 import { testConnection } from "@/lib/ai/test-connection";
 import { DEFAULT_AI_SETTINGS, verifyId, type AiSettings } from "@/lib/ai/types";
@@ -167,6 +167,20 @@ describe("settings route", () => {
     expect((await readAiSettings()).transcribeModel).toBe("whisper-large-v3");
 
     const bad = await settingsPost(json("/api/ai/settings", { ...DEFAULT_AI_SETTINGS, transcribeBaseUrl: "http://models.example.test/v1" }));
+    expect(bad.status).toBe(400);
+    expect((await bad.json()).error).toMatch(/Plain http/);
+  });
+
+  it("defaults and normalises the local dictation server URL", async () => {
+    const res = await settingsPost(json("/api/ai/settings", { ...DEFAULT_AI_SETTINGS, provider: "claude-code", transcribeApi: "local" }));
+    const body = (await res.json()) as { settings: AiSettings };
+    expect(body.settings).toMatchObject({ transcribeApi: "local", transcribeLocalUrl: "http://127.0.0.1:8787" });
+    expect(body.settings.transcribeBaseUrl).toBe("");
+
+    const custom = await settingsPost(json("/api/ai/settings", { ...DEFAULT_AI_SETTINGS, provider: "claude-code", transcribeApi: "local", transcribeLocalUrl: "http://localhost:9999/" }));
+    expect(((await custom.json()) as { settings: AiSettings }).settings.transcribeLocalUrl).toBe("http://localhost:9999");
+
+    const bad = await settingsPost(json("/api/ai/settings", { ...DEFAULT_AI_SETTINGS, transcribeApi: "local", transcribeLocalUrl: "http://models.example.test/v1" }));
     expect(bad.status).toBe(400);
     expect((await bad.json()).error).toMatch(/Plain http/);
   });
@@ -401,5 +415,48 @@ describe("ai_results", () => {
     await resetGithubCache();
     const kinds = ((await getDb().execute(sql`SELECT subject_kind FROM ai_results ORDER BY 1`)).rows as { subject_kind: string }[]).map((r) => r.subject_kind);
     expect(kinds).toEqual(["day", "task"]);
+  });
+});
+
+describe("settings that change while jobs wait (§4.9)", () => {
+  it("AI turned off: the job still queued is not sent", async () => {
+    const settings = await configure({ provider: "claude-code" });
+    fake.slow(300);
+    fake.reply(claudeOk(GOOD));
+    const [first, second] = await startJobs([task({ subject: "1" }), task({ subject: "2" })]);
+    // The first is with the model; the second waits behind it.
+    await new Promise((r) => setTimeout(r, 100));
+    await saveAiSettings({ ...settings, provider: "off" });
+    await idle();
+    expect(getJob(first!.id)).toMatchObject({ state: "done" });
+    expect(getJob(second!.id)).toMatchObject({ state: "error", error: { code: "off" } });
+    expect(fake.runs()).toHaveLength(1);
+  });
+
+  it("another model or endpoint through Settings: what is queued or running for the old one stops", async () => {
+    await configure({ provider: "claude-code" });
+    fake.slow(2_000);
+    fake.reply(claudeOk(GOOD));
+    const [first, second] = await startJobs([task({ subject: "1" }), task({ subject: "2" })]);
+    // Wait until the first `claude` has started (a fixed wait is racy on a loaded machine).
+    for (let i = 0; i < 100 && fake.runs().length < 1; i++) await new Promise((r) => setTimeout(r, 50));
+    const res = await settingsPost(json("/api/ai/settings", { ...DEFAULT_AI_SETTINGS, provider: "claude-code", model: "opus" }));
+    expect(res.status).toBe(200);
+    await idle();
+    expect(getJob(first!.id)?.state).toBe("cancelled");
+    expect(getJob(second!.id)?.state).toBe("cancelled");
+    expect(fake.runs()).toHaveLength(1);
+  });
+
+  it("a different, untested provider saved directly: the queued job fails as not verified", async () => {
+    const settings = await configure({ provider: "claude-code" });
+    fake.slow(300);
+    fake.reply(claudeOk(GOOD));
+    const [, second] = await startJobs([task({ subject: "1" }), task({ subject: "2" })]);
+    await new Promise((r) => setTimeout(r, 100));
+    await saveAiSettings({ ...settings, model: "opus" });
+    await idle();
+    expect(getJob(second!.id)).toMatchObject({ state: "error", error: { code: "not-verified" } });
+    expect(fake.runs()).toHaveLength(1);
   });
 });

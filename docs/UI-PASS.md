@@ -3,7 +3,7 @@
 Status: **proposal for review**. Owner: Designer. Implementers: Backend Engineer (PR1, shipped) and whoever takes PR2/PR3 — one PR per milestone (§11).
 Scope: how Deska looks and feels, screen by screen. No product requirements here — where a screen's behaviour is unclear, it follows `docs/SPEC.md`.
 
-**This document now lives in `gunzaj/deska` (the standalone macOS app) and is measured on that tree, at `6b37d17`.** It was written in `gunzaj/deska-old` and ported here; the port is not a copy, because three things moved underneath it: the token file already exists (PR #8), theme and density both live in `app_settings` (§3), and the predecessor's avatar contrast fix came across while its size rule did not (§6.1).
+**This document now lives in `gunzaj/deska` (the standalone macOS app) and is measured on that tree, at `6b37d17`.** It was written in `gunzaj/deska-old` and ported here; the port is not a copy, because three things moved underneath it: the token file already exists (PR #8), theme and density both belong in `app_settings` (§3, ADR-001; the theme half shipped with the FIX-SPEC follow-up, density is still PR2), and the predecessor's avatar contrast fix came across while its size rule did not (§6.1).
 
 Every number below was measured on the demo dataset (dev server, Chromium), 1440×900 and 390×844, light and dark. "Measured" means read off the running app, not estimated. Where a number is a choice rather than a measurement, it says **choice**.
 
@@ -16,7 +16,7 @@ Measured on the pivot tree at `6b37d17`, across `/issues`, `/tasks`, `/triage`, 
 | Symptom | Evidence | Cost of ignoring it |
 |---|---|---|
 | **16 type sizes** — 9, 10, 10.5, 11, 11.5, 12, 12.5, 13, 13.5, 14, 15, 18, 20, 22, 24, 28 px — in **401 `text-[Npx]` occurrences across 62 files** (125 at 12.5, 89 at 12, 54 at 11.5) | `grep -rno 'text-\[[0-9.]*px\]' components app` | Every new component picks its own step; nothing reads as a scale, and the density switch has nothing to move |
-| **Four row rhythms for one concept**: issue row 38, PR row 44, task row 44, epic row 56; board cards 89–156 | `layouts.tsx:12` `ROW_H = 38`, `GROUP_H = 36`, `HEAD = 34`, `SEL = 32`; `h-11`/`h-14` in `task-row.tsx:114`, `prs/explorer.tsx:180`, `epics.tsx:19` | A 2,300-row list is where rhythm is felt; four heights read as four products |
+| **Three row rhythms for one concept**: issue row 38, task row 44, epic row 56; board cards 89–156 | `layouts.tsx:12` `ROW_H = 38`, `GROUP_H = 36`, `HEAD = 34`, `SEL = 32`; `h-11`/`h-14` in `task-row.tsx:114`, `epics.tsx:19` | A 2,300-row list is where rhythm is felt; three heights read as three products |
 | **Assignee initials render at 8 px** (`fontSize: max(8, size * 0.42)`), 24 avatar call sites, 12 of them at 16 px and 5 below it | `props.tsx:104` | Contrast is fixed (§6.1), legibility is not: the one avatar on every row is the smallest text on the screen |
 | **Seven radii plus one-offs** — `md` 109, `full` 50, `xl` 25, `lg` 25, `2xl` 4, `sm` 2, plus four arbitrary `rounded-[Npx]` and hard-coded 4/6/8 px in `globals.css` | class inventory per route | Edges stop reading as a hierarchy |
 | **Motion on 16 elements, no duration/easing tokens** — 11 `transition-colors`, 4 `transition-opacity`, 1 `transition-transform` | `transition-*` inventory; the only durations are 120/160ms literals in `globals.css:270` | Half the app feels alive, half feels dead, at the same click |
@@ -33,7 +33,7 @@ Recorded here so the spec and the ADR cannot drift:
 1. **One token owner file**: `app/styles/tokens.css`, `@import`ed at the top of `app/globals.css`, carrying the `:root`, `@media (prefers-color-scheme: dark)`, `[data-theme="dark"]` and `@theme inline` blocks with their Suite provenance comments. Components hold zero raw px/hex for type, radius, spacing, duration or colour. **Shipped in PR #8** (`fd529bd`): same 171 properties, same `@theme inline`, five inert `--text-d*` steps added.
 2. **Density is a context, not a prop**: `data-density="compact|comfortable"` on `<html>`, beside `data-theme`, read by CSS only.
 3. **Both cosmetic preferences live in `app_settings`, read server-side in the root layout.** Not localStorage, not a cookie — see §3, which is where the pivot changes the answer the predecessor gave.
-4. **Three PRs, in this order**: (a) scale additions, null visual diff — **shipped as #8**; (b) density and theme from `app_settings`; (c) raw px/hex sweep. This document is written against all three.
+4. **Three PRs, in this order**: (a) scale additions, null visual diff — **shipped as #8**; (b) density and theme from `app_settings` (theme shipped; density remains); (c) raw px/hex sweep. This document is written against all three.
 
 ---
 
@@ -84,7 +84,7 @@ Migration map for the sweep (mechanical, one commit): `8 / 9 / 9.24 / 10 / 10.5 
 
 | Token | compact | comfortable | Comfortable is for |
 |---|---|---|---|
-| `--row-h` | 32px | **38px** | issue, PR and task rows |
+| `--row-h` | 32px | **38px** | issue and task rows |
 | `--row-h-roomy` | 40px | **46px** | epic rows, anything with a second line |
 | `--card-h-min` | 76px | **88px** | board cards |
 | `--group-h` | 30px | **36px** | group headers |
@@ -99,7 +99,7 @@ Rules:
 - **One source for row height: `lib/density.ts`.** It exports the numbers (`ROW_H = { compact: 32, comfortable: 38 }`, `GROUP_H = { compact: 30, comfortable: 36 }`, plus the card, padding, gap and control values from the table above). Consumers, all of which need the same number: `layouts.tsx` for the list's scroll offsets and visible window, the **table** layout for its own virtualizer (`HEAD = 34` and the row window), and the root layout, which sets `--row-h`, `--group-h` and the rest from those same values for the chosen density. Constants feed CSS, not the other way round — no `getComputedStyle` round-trip on mount, so no list renders its first frame at the wrong height. CSS never decides a number the scroll math also needs.
 - **`ROW_BOX` stays the row's geometry until PR2.** The row and its loading skeleton share one box string, so the list cannot jump when data lands; PR2 swaps that geometry for `--row-h` with both callers still reading it from the same place.
 - **Density never changes type size.** Compact removes space, not legibility.
-- **Only three surfaces honour density**: issue/PR lists and tables, task lists, board cards. The issue panel, ⌘K, menus and dialogs are always comfortable.
+- **Only three surfaces honour density**: issue lists and tables, task lists, board cards. The issue panel, ⌘K, menus and dialogs are always comfortable.
 - **The switch lives** in the sidebar user menu and in ⌘K as "Density: compact / comfortable" — not in a page header.
 
 ---
@@ -169,13 +169,13 @@ Rules that come with it:
 
 ---
 
-## 7. Row spec (issues, PRs, tasks, epics)
+## 7. Row spec (issues, tasks, epics)
 
-One row component shape, four heights from §3. The measured current state is on the left.
+One row component shape, the heights from §3. The measured current state is on the left.
 
 | Property | Today | Spec |
 |---|---|---|
-| Height | 38 (issue) / 44 (PR, task) / 56 (epic) | `--row-h` for issue/PR/task, `--row-h-roomy` for epic |
+| Height | 38 (issue) / 44 (task) / 56 (epic) | `--row-h` for issue/task, `--row-h-roomy` for epic |
 | Horizontal padding | 16px | `--pad-row-x` |
 | Cell gap | 10px | `--gap-row` |
 | Title | 13 px, 500, truncate | `text-dsm` 500, truncate, `min-w-0 flex-1` |

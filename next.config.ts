@@ -17,6 +17,11 @@ const nextConfig: NextConfig = {
   // No image optimization: the desktop build drops sharp, whose native
   // binaries exist for one architecture only (scripts/desktop.mjs).
   images: { unoptimized: true },
+  // Next truncates request bodies at 10 MB when a middleware matches (it matches
+  // every path here), and the cut JSON would read as "not a Deska file". An export
+  // with a long task history is larger. Keep in step with MAX_IMPORT_BYTES
+  // (lib/backup/local-data.ts), which answers a larger file with a clear error.
+  experimental: { middlewareClientMaxBodySize: "100mb" },
   // The floating dev badge sits on top of the sidebar footer.
   devIndicators: false,
   // Deska edits GitHub on the user's behalf once WRITE_MODE=on, so no other

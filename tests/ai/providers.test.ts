@@ -16,6 +16,8 @@ describe("AI settings (§4.9)", () => {
     expect(parseAiSettings({ ...DEFAULT_AI_SETTINGS, effort: "xhigh" }).effort).toBe("xhigh");
     expect(parseAiSettings({ ...DEFAULT_AI_SETTINGS, effort: "turbo" }).effort).toBe("");
     expect(parseAiSettings({ ...DEFAULT_AI_SETTINGS, effort: 3 }).effort).toBe("");
+    expect(parseAiSettings({ ...DEFAULT_AI_SETTINGS, transcribeApi: "local" }).transcribeApi).toBe("local");
+    expect(parseAiSettings({ ...DEFAULT_AI_SETTINGS, transcribeApi: "nope" }).transcribeApi).toBe("openai");
     expect(parseAiSettings(undefined)).toEqual(DEFAULT_AI_SETTINGS);
   });
 });
@@ -47,6 +49,28 @@ describe("Claude Code provider", () => {
   afterEach(() => {
     delete process.env.DESKA_LOGIN_PATH;
     fake.cleanup();
+  });
+
+  it("keeps a character whose bytes arrive in two chunks", async () => {
+    // The CLI's answer in two writes, cut in the middle of a 3-byte character.
+    const text = JSON.stringify(claudeOk({ ok: true, note: "Příliš žluťoučký kůň ✓" }));
+    const bytes = Buffer.from(text, "utf8");
+    const cut = bytes.indexOf(Buffer.from("✓", "utf8")) + 1;
+    const { chmodSync, writeFileSync } = await import("node:fs");
+    const file = `${fake.dir}/claude`;
+    writeFileSync(
+      file,
+      `#!${process.execPath}
+const out = Buffer.from(${JSON.stringify(bytes.toString("base64"))}, "base64");
+process.stdin.resume();
+process.stdin.on("end", () => {
+  process.stdout.write(out.subarray(0, ${cut}), () => setTimeout(() => process.stdout.write(out.subarray(${cut}), () => process.exit(0)), 150));
+});
+`,
+    );
+    chmodSync(file, 0o755);
+    const res = await callClaude({ model: "sonnet", system: "s", user: "u", schema: SCHEMA, timeoutMs: 10_000 });
+    expect(res).toMatchObject({ ok: true, output: { ok: true, note: "Příliš žluťoučký kůň ✓" } });
   });
 
   it("calls `claude -p` with the SPEC arguments, the prompt on stdin, and returns structured_output and cost", async () => {

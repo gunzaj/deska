@@ -16,9 +16,9 @@ vi.mock("@/lib/github/projects", async (orig) => {
     }),
   };
 });
-const sync = vi.hoisted(() => ({ requests: [] as string[] }));
+const sync = vi.hoisted(() => ({ requests: [] as string[], interrupts: 0 }));
 vi.mock("@/lib/sync/service", () => ({
-  syncService: () => ({ request: (why: string) => void sync.requests.push(why), interrupt: async () => undefined }),
+  syncService: () => ({ request: (why: string) => void sync.requests.push(why), interrupt: async () => void (sync.interrupts += 1) }),
 }));
 
 describe("choosing a project", async () => {
@@ -26,7 +26,8 @@ describe("choosing a project", async () => {
   const { resetSettingsCache, readTarget, saveMapping, saveTarget } = await import("@/lib/settings");
   const { setLocalToken } = await import("@/lib/github/local-token");
   const { invalidateReadCache } = await import("@/lib/store");
-  const { chooseProject } = await import("@/lib/server/project-setup");
+  const { chooseProject, remap } = await import("@/lib/server/project-setup");
+  const { withSyncLock } = await import("@/lib/sync/lock");
   const { suggestMapping } = await import("@/lib/sync/field-map");
 
   const TOKEN = ["github", "pat", "CHOOSE", "FAKE", "0".repeat(24)].join("_");
@@ -38,6 +39,7 @@ describe("choosing a project", async () => {
     resetSettingsCache();
     invalidateReadCache();
     sync.requests = [];
+    sync.interrupts = 0;
     setLocalToken(TOKEN, "launch");
     projects.current = { id: "PVT_acme_widgets_roadmap", number: 7, title: "Widgets Roadmap" };
     await saveTarget({ repo: "acme/widgets", org: "acme", projectNumber: 7, projectId: "PVT_acme_widgets_roadmap", projectTitle: "Widgets Roadmap" });
@@ -55,10 +57,39 @@ describe("choosing a project", async () => {
     expect(sync.requests).toEqual(["project"]);
   });
 
+  it("switching project fails the GitHub edits still waiting for the old one", async () => {
+    const { enqueueEdit, getEdit, PROJECT_CHANGED } = await import("@/lib/outbox/store");
+    await q(`TRUNCATE outbox, audit_log`);
+    const waiting = await enqueueEdit({ userId: "alice", issueNodeId: "I_widgets_1", op: "update", field: "status", base: null, next: "o_todo", idempotencyKey: "alice:old-project" });
+    await chooseProject({ repo: "acme/gadgets", org: "acme", projectNumber: 7, mapping });
+    expect(await getEdit(waiting.id)).toMatchObject({ status: "failed", error: PROJECT_CHANGED });
+  });
+
   it("switching to another project in the same repository also starts over", async () => {
     projects.current = { id: "PVT_other_project", number: 8, title: "Other" };
     await chooseProject({ repo: "acme/widgets", org: "acme", projectNumber: 8, mapping });
     expect(await q(`SELECT gh_node_id FROM issues`)).toEqual([]);
+  });
+
+  it("a remap stops the running cycle and waits for its lock, so the cycle's remaining pages can't overwrite it", async () => {
+    await chooseProject({ repo: "acme/widgets", org: "acme", projectNumber: 7, mapping });
+    sync.requests = [];
+    sync.interrupts = 0;
+    let release!: () => void;
+    const held = new Promise<void>((r) => (release = r));
+    let done = false;
+    // A cycle holds the sync lock.
+    const cycle = withSyncLock(() => held);
+    const run = remap(mapping).then(() => (done = true));
+    await new Promise((r) => setTimeout(r, 400));
+    expect(sync.interrupts).toBe(1);
+    expect(done).toBe(false);
+    release();
+    await cycle;
+    await run;
+    expect(done).toBe(true);
+    // The stopped cycle is started again, with the new mapping.
+    expect(sync.requests).toEqual(["project"]);
   });
 
   it("choosing the same project again keeps the cache", async () => {

@@ -6,6 +6,7 @@ import { dueLabel } from "@/lib/tasks/dates";
 import type { Priority, Recurrence } from "@/lib/tasks/model";
 import { parseQuickAdd, tokenKey, type Token, type TokenKind } from "@/lib/tasks/quick-add";
 import { useAppData } from "../app/provider";
+import { useTasksOnly } from "../app/tasks-only";
 import { Icon, type IconName } from "../icons";
 import { Dialog } from "../ui/dialog";
 import { btn } from "../ui/popover";
@@ -45,6 +46,7 @@ export function ComposeTask() {
   const { composeOpen, composePrefill } = useComposeState();
   const { closeCompose, create, projects, labels, sections, tasks } = useTasks();
   const { data, byNumber } = useAppData();
+  const tasksOnly = useTasksOnly();
   // Links attached outside the text: the item quick add was opened from, or picked by hand.
   const [attached, setAttached] = useState<number[]>([]);
   const [text, setText] = useState("");
@@ -328,11 +330,11 @@ export function ComposeTask() {
           <PriorityPicker value={priority} onChange={(p) => setOver((o) => ({ ...o, priority: p }))} />
           <ProjectPicker value={projectId} onChange={(id) => setOver((o) => ({ ...o, projectId: id }))} />
           <LabelPicker value={labelNames} onChange={(names) => setOver((o) => ({ ...o, labels: names.filter((n) => !parsed.labels.includes(n)) }))} />
-          <AddLinkButton linked={links} onAdd={(n) => setAttached((a) => [...a, n])} />
+          {!tasksOnly && <AddLinkButton linked={links} onAdd={(n) => setAttached((a) => [...a, n])} />}
         </div>
         <div className="flex items-center gap-1.5 border-t border-line px-3 py-2.5">
           <span className="min-w-0 flex-1 truncate text-[11.5px] text-faint">
-            <b className="font-medium">tomorrow 3pm</b> · <b className="font-medium">every fri</b> · <b className="font-medium">high</b> · <b className="font-medium">#1234</b> · <b className="font-medium">+label</b> · <b className="font-medium">=Project</b> — Backspace on a highlight keeps it as text
+            <b className="font-medium">tomorrow 3pm</b> · <b className="font-medium">every fri</b> · <b className="font-medium">high</b> {!tasksOnly && (<> · <b className="font-medium">#1234</b></>)} · <b className="font-medium">+label</b> · <b className="font-medium">=Project</b> — Backspace on a highlight keeps it as text
           </span>
           <button
             type="button"

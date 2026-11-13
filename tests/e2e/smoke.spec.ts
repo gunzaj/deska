@@ -76,9 +76,9 @@ test("data API requires a session and returns compact rows", async ({ request })
 });
 
 test("edit API is gated when writes are off", async ({ request }) => {
-  const res = await request.post("/api/issues/edit", {
+  const res = await request.post("/api/issues/100/edit", {
     headers: { "x-e2e-login": "alice" },
-    data: { issueCount: 1 },
+    data: { field: "status", next: null },
   });
   expect(res.status()).toBe(403);
 });

@@ -59,3 +59,23 @@ test("Ramble's transcription endpoint is saved independently of the provider", a
   await expect(page.locator("[data-ai-message]")).toContainText("Saved");
   await context.close();
 });
+
+test("a local dictation app has its own URL and hides the model and key", async ({ browser }) => {
+  const { context, page } = await as(browser);
+  await page.goto("/settings");
+  await expect(page.getByLabel("Provider")).toBeEnabled();
+  await page.getByLabel("Transcription source").selectOption("local");
+  await expect(page.getByLabel("Local transcription server URL")).toBeVisible();
+  await expect(page.getByLabel("Transcription model")).toHaveCount(0);
+  await page.getByLabel("Local transcription server URL").fill("http://127.0.0.1:9999/");
+  await page.getByRole("button", { name: "Save", exact: true }).click();
+  await expect(page.locator("[data-ai-message]")).toContainText("Saved");
+  await page.reload();
+  await expect(page.getByLabel("Transcription source")).toHaveValue("local");
+  await expect(page.getByLabel("Local transcription server URL")).toHaveValue("http://127.0.0.1:9999");
+  // Put it back: the e2e server's database is shared with the other specs.
+  await page.getByLabel("Transcription source").selectOption("openai");
+  await page.getByRole("button", { name: "Save", exact: true }).click();
+  await expect(page.locator("[data-ai-message]")).toContainText("Saved");
+  await context.close();
+});

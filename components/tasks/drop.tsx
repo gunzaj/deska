@@ -30,7 +30,8 @@ export function useTaskDrop(target: DropTarget) {
       if (!isTask(e)) return;
       e.preventDefault();
       const task = tasks.find((t) => t.id === e.dataTransfer.getData(TASK_DRAG_TYPE));
-      if (!task) return;
+      // A sub-task lives under its parent; a project page would not list it (T-8).
+      if (!task || (task.parentId && target.kind === "project")) return;
       const names = task.labels.map((id) => labels.find((l) => l.id === id)?.name).filter((n): n is string => Boolean(n));
       const out = dropOutcome(task, names, target, today);
       if (!out) return;

@@ -7,7 +7,7 @@
 // a retry waits leaves the row pending instead of failing it.
 import { invalidateReadCache } from "@/lib/store";
 import { writeGate } from "@/lib/writes/gate";
-import { drainOutbox, recoverSending } from "./store";
+import { drainOutbox, recoverSending, STALE_SENDING_MS } from "./store";
 import { currentDeps } from "./runtime";
 
 const INTERVAL_MS = 5_000;
@@ -27,6 +27,9 @@ export function startOutboxWorker(): Handle {
     if (running) return;
     running = true;
     try {
+      // A row whose result could not be recorded stays `sending` with no crash
+      // to recover it: after ten minutes no run still holds it.
+      await recoverSending(STALE_SENDING_MS);
       const gate = await writeGate();
       if (!gate.allowed) return;
       const deps = await currentDeps();

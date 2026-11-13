@@ -18,7 +18,7 @@ A macOS app for working with GitHub Issues and a GitHub Project: filtering, fast
 - The overview (header, Risk, notes, counts) follows the same team filter as the board.
 
 **Tasks**
-- **Ramble:** create tasks from a voice note. Record, review the transcript and one editable row per task, then create them in one step. Retries never duplicate. Needs a transcription endpoint in Settings → AI (OpenAI-compatible; Claude Code has no audio input) and microphone access.
+- **Ramble:** create tasks from a voice note. Record, review the transcript and one editable row per task, then create them in one step. Retries never duplicate. Needs a transcription source in Settings → AI (an OpenAI-compatible endpoint, or a local dictation app's server; Claude Code has no audio input) and microphone access.
 - **Saved task views:** save a combination of project, label, priority and due window; they appear in the Tasks section of the sidebar.
 - Fixes: Tidy Inbox Undo restores a moved day of the month, a saved Inbox view hides sub-tasks, clearing a recurrence while moving the date keeps it cleared, and one-off reminders that already fired don't fire again.
 
@@ -61,5 +61,5 @@ You only do this the first time.
 - No auto-update: new versions are on the Releases page.
 - One repository and one project at a time. macOS only.
 - No editing of issue titles or bodies, no GitHub comments, no parent/sub-issue changes.
-- Ramble needs an OpenAI-compatible transcription endpoint; recordings stop after two minutes and uploads are capped at 25 MB.
+- Ramble needs an OpenAI-compatible transcription endpoint or a local dictation app's server; that app must be running with its local API on, recordings stop after two minutes and uploads are capped at 25 MB.
 - A saved task view holds one label and can be deleted but not edited.

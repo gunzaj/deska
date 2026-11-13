@@ -58,7 +58,7 @@ describe("the outbox (W0: one process, no lease)", async () => {
   const { PostgresStore, readSnapshot } = await import("@/lib/sync/store-postgres");
   const { getStore, invalidateReadCache } = await import("@/lib/store");
   const { submitEdit } = await import("@/lib/outbox/edit");
-  const { drainOutbox, enqueueEdit, getEdit, listOpenEdits, recoverSending, saveStep } = await import("@/lib/outbox/store");
+  const { drainOutbox, enqueueEdit, getEdit, listOpenEdits, recoverSending, saveStep, STALE_SENDING_MS } = await import("@/lib/outbox/store");
   const { refreshIssue } = await import("@/lib/outbox/runtime");
   const { saveCloseDoneStatus } = await import("@/lib/settings");
   const { fixtureSnapshot } = await import("../fixtures/github");
@@ -248,6 +248,79 @@ describe("the outbox (W0: one process, no lease)", async () => {
     await drainOutbox(async () => ({ client, doneStatusOptionId: "a0000006" }));
     expect(client.applied).toEqual(['status="a0000006"']);
     expect((await getEdit(row.id))?.status).toBe("done");
+  });
+
+  it("a quit during the FIRST try of a close: the recovered row finishes Status instead of conflicting", async () => {
+    // A real crash leaves attempts at 0 (it is only raised when a try finishes)
+    // and no step: GitHub took the close, the app quit before it heard back.
+    const row = await enqueueEdit({ userId: "alice", issueNodeId: "I_bug", op: "close", field: null, base: "open", next: "closed", idempotencyKey: "alice:first-try" });
+    await getDb().execute(sql`UPDATE outbox SET status = 'sending' WHERE id = ${row.id}`);
+    expect(await recoverSending()).toBe(1);
+    // The cut-off try counts, so the worker looks at GitHub before sending again.
+    expect((await getEdit(row.id))?.attempts).toBe(1);
+    const client = fakeClient({ state: "closed" });
+    await drainOutbox(async () => ({ client, doneStatusOptionId: "a0000006" }));
+    expect(client.applied).toEqual(['status="a0000006"']);
+    expect((await getEdit(row.id))?.status).toBe("done");
+  });
+
+  it("a quit during the FIRST try of a create: the issue GitHub already made is found, not created again", async () => {
+    const payload = { title: "New", body: "", labelNames: [], assigneeLogins: [], milestoneNumber: null, typeId: null, fields: [] };
+    const row = await enqueueEdit({ userId: "alice", issueNodeId: "", op: "create", field: null, base: null, next: payload, idempotencyKey: "alice:create-crash" });
+    await getDb().execute(sql`UPDATE outbox SET status = 'sending' WHERE id = ${row.id}`);
+    expect(await recoverSending()).toBe(1);
+    const client = fakeClient({});
+    const createIssue = vi.fn(async () => ({ nodeId: "I_second", number: 1000 }));
+    const findCreatedIssue = vi.fn(async () => ({ nodeId: "I_created", number: 999 }));
+    await drainOutbox(async () => ({ client: { ...client, createIssue, findCreatedIssue }, doneStatusOptionId: "", recordStep: (id, step, result) => saveStep(id, step, result) }));
+    expect(findCreatedIssue).toHaveBeenCalledTimes(1);
+    expect(createIssue).not.toHaveBeenCalled();
+    expect(await getEdit(row.id)).toMatchObject({ status: "done", result: { nodeId: "I_created", number: 999 } });
+  });
+
+  it("a row left sending with the app still running is recovered once it is stale, not before", async () => {
+    const row = await enqueueEdit({ userId: "alice", issueNodeId: "I_bug", op: "update", field: "priority", base: null, next: HIGH, idempotencyKey: "alice:stuck" });
+    await getDb().execute(sql`UPDATE outbox SET status = 'sending', updated_at = now() WHERE id = ${row.id}`);
+    expect(await recoverSending(STALE_SENDING_MS)).toBe(0);
+    await getDb().execute(sql`UPDATE outbox SET updated_at = now() - interval '11 minutes' WHERE id = ${row.id}`);
+    expect(await recoverSending(STALE_SENDING_MS)).toBe(1);
+    expect((await getEdit(row.id))?.status).toBe("pending");
+  });
+
+  it("a close with no Done Status fails before anything is sent (it used to close the issue first)", async () => {
+    const row = await enqueueEdit({ userId: "alice", issueNodeId: "I_bug", op: "close", field: null, base: "open", next: "closed", idempotencyKey: "alice:no-done" });
+    const client = fakeClient({ state: "open" });
+    await drainOutbox(async () => ({ client, doneStatusOptionId: "" }));
+    expect(client.applied).toEqual([]);
+    expect(await getEdit(row.id)).toMatchObject({ status: "failed", attempts: 0 });
+    expect((await getEdit(row.id))?.error).toMatch(/Done Status/);
+  });
+
+  it("any edit request carries the Done Status, so a close queued behind it can run", async () => {
+    await saveCloseDoneStatus("a0000006");
+    invalidateReadCache();
+    let seen: string | null = null;
+    await submitEdit({
+      viewer: "alice",
+      token: "t",
+      store: await getStore(),
+      issueNodeId: "I_bug",
+      body: { field: "priority", base: null, next: HIGH },
+      deps: (done) => ((seen = done), { client: fakeClient({ priority: null }), doneStatusOptionId: done }),
+    });
+    expect(seen).toBe("a0000006");
+  });
+
+  it("a label delta is written without reading the issue first", async () => {
+    const client = fakeClient({});
+    const readField = vi.fn(async () => {
+      throw Object.assign(new Error("HTTP 404"), { status: 404 });
+    });
+    const label = [...(await getStore()).labels.keys()][0]!;
+    const r = await edit({ field: "labels", next: { added: [label], removed: [] } }, { ...client, readField });
+    expect(r.status).toBe(200);
+    expect(readField).not.toHaveBeenCalled();
+    expect(client.applied).toHaveLength(1);
   });
 
   it("edits to the same issue and field run in order: a queued add cannot undo a later remove (v5 1.6)", async () => {

@@ -52,16 +52,16 @@ describe("safe task updates (Postgres)", () => {
     expect((await repo.get(t.id))?.dueDate).toBe("2026-10-23");
   });
 
-  it("an occurrence already logged is not logged again and the date doesn't move twice", async () => {
+  it("an occurrence already logged is not logged again, and completing still moves the date (T-1)", async () => {
     const t = task();
     await repo.insert(t);
-    // A second request that slipped past the version check (no expectedUpdatedAt)
-    // but saw the same occurrence: the unique index stops the second move.
+    // A stale row for this occurrence (an undone older one, or a date put back by
+    // hand): the unique index keeps one row, and the click must still move the date.
     await getDb().execute(sql`INSERT INTO task_completions (task_id, login, due_date) VALUES (${t.id}, 'alice', '2026-10-16')`);
     const r = await updateTask("alice", t.id, { completed: true });
     expect(r.ok).toBe(true);
     expect(await completions(t.id)).toEqual(["2026-10-16"]);
-    expect((await repo.get(t.id))?.dueDate).toBe("2026-10-16");
+    expect((await repo.get(t.id))?.dueDate).toBe("2026-10-23");
   });
 
   it("a stale updatedAt returns 409 with the current task and writes nothing", async () => {

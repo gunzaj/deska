@@ -7,7 +7,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
  * An explorer's filter/sort/layout state, kept in the `s` query parameter so a
  * view can be shared or reloaded as it is (v5 4.6). It starts from the URL when
  * that holds a valid state, else from `saved`, and re-syncs when `savedKey`
- * changes (navigating between views reuses the component). The URL is written
+ * changes (navigating between views reuses the component) or the URL's `s`
+ * changes without this hook having written it. The URL is written
  * with the native history API: Next's useSearchParams stays in step without a
  * server round trip per keystroke.
  *
@@ -30,10 +31,17 @@ export function useUrlExplorerState<S>({
   const [state, setStateRaw] = useState<S>(() => decode(params.get("s")) ?? saved);
 
   const lastKey = useRef(savedKey);
+  // The `s` this hook last read or wrote. A different one in the URL came from
+  // a navigation to the same page (⌘K "Search all issues" on All issues, a
+  // sidebar link back to the plain list): the page stays mounted, so the state
+  // has to follow the URL, or the next edit writes the stale state over it.
+  const lastS = useRef(params.get("s"));
   useEffect(() => {
-    if (lastKey.current === savedKey) return;
+    const s = params.get("s");
+    if (lastKey.current === savedKey && lastS.current === s) return;
     lastKey.current = savedKey;
-    setStateRaw(decode(params.get("s")) ?? saved);
+    lastS.current = s;
+    setStateRaw(decode(s) ?? saved);
   }, [savedKey, saved, params, decode]);
 
   const setState = useCallback(
@@ -42,6 +50,7 @@ export function useUrlExplorerState<S>({
       const url = new URL(window.location.href);
       if (same(next, saved)) url.searchParams.delete("s");
       else url.searchParams.set("s", encode(next));
+      lastS.current = url.searchParams.get("s");
       window.history.replaceState(null, "", url);
     },
     [saved, same, encode],

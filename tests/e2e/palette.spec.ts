@@ -77,3 +77,25 @@ test("Escape closes the switcher without opening anything", async ({ browser }) 
   await expect(page.getByRole("dialog", { name: "Command palette" })).toHaveCount(0);
   await context.close();
 });
+
+test("\"Search all issues\" works on All issues itself, and the sidebar link clears it again", async ({ browser }) => {
+  const { context, page } = await as(browser);
+  try {
+    await page.goto("/issues");
+    const rows = page.locator("[data-row-id]");
+    await expect(rows.first()).toBeVisible();
+    const all = await rows.count();
+    const search = page.getByLabel("Search issues");
+    const input = await openPalette(page);
+    await input.fill("zzz-no-such-title");
+    await page.getByRole("option", { name: /^Search all issues for/ }).click();
+    // The page stays mounted: its state has to follow the new URL.
+    await expect(search).toHaveValue("zzz-no-such-title");
+    await expect(page.locator("[data-list-state=empty]")).toBeVisible();
+    await page.getByRole("link", { name: "All issues" }).first().click();
+    await expect(search).toHaveValue("");
+    await expect(rows).toHaveCount(all);
+  } finally {
+    await context.close();
+  }
+});

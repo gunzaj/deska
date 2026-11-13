@@ -1,7 +1,7 @@
 "use client";
 
-import { useRef, useState, type ReactNode } from "react";
-import { dueLabel, type DueTone } from "@/lib/tasks/dates";
+import { useEffect, useRef, useState, type ReactNode } from "react";
+import { dueLabel, isCompleteDate, type DueTone } from "@/lib/tasks/dates";
 import { PRIORITIES, type Priority } from "@/lib/tasks/model";
 import { Icon } from "../icons";
 import { btn, PickList, Popover, type PickItem } from "../ui/popover";
@@ -139,9 +139,30 @@ export function DueInput({
   label?: string;
 }) {
   const field = "h-7 rounded-md border border-line bg-surface px-2 text-[12.5px] text-fg outline-none focus:border-[var(--focus)]";
+  // Typing a year digit by digit passes through 0002, 0020, 0202: those stay in
+  // the field and are saved only once complete (on blur or Enter at the latest).
+  const [draft, setDraft] = useState(value ?? "");
+  useEffect(() => setDraft(value ?? ""), [value]);
+  const commit = (v: string) => {
+    if (v === "" ? value !== null : isCompleteDate(v) && v !== value) onChange(v || null);
+    else if (!isCompleteDate(v) && v !== "") setDraft(value ?? "");
+  };
   return (
     <span className="inline-flex items-center gap-1">
-      <input type="date" aria-label={label} value={value ?? ""} onChange={(e) => onChange(e.target.value || null)} className={field} />
+      <input
+        type="date"
+        aria-label={label}
+        value={draft}
+        onChange={(e) => {
+          setDraft(e.target.value);
+          if (isCompleteDate(e.target.value)) commit(e.target.value);
+        }}
+        onBlur={(e) => commit(e.currentTarget.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") commit(e.currentTarget.value);
+        }}
+        className={field}
+      />
       {onTimeChange && value && (
         <input type="time" aria-label="Due time" value={time ?? ""} onChange={(e) => onTimeChange(e.target.value || null)} className={`${field} w-[6.5rem]`} />
       )}

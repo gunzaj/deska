@@ -59,7 +59,14 @@ export type ReconcileResult = {
   rateLimited: boolean;
 };
 
+/** A reconcile that threw is not tried again sooner than this. */
+export const RECONCILE_RETRY_MS = 3600_000;
+
 export function reconcileDue(kv: Kv, nowMs = Date.now()): boolean {
+  // A run that failed (not a rate limit: that has its own wait) would otherwise
+  // be due again on every cycle, a minute later, and fail the same way.
+  const failed = Date.parse(kv.get("reconcile.failedAt") ?? "");
+  if (Number.isFinite(failed) && nowMs - failed >= 0 && nowMs - failed < RECONCILE_RETRY_MS) return false;
   const last = Date.parse(kv.get("reconcile.lastRun") ?? "");
   return !Number.isFinite(last) || nowMs - last >= RECONCILE_INTERVAL_MS;
 }

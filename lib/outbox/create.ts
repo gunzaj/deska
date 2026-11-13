@@ -124,6 +124,13 @@ export async function submitCreate(args: {
   });
   const deps = args.deps ? args.deps("") : await depsFor(args.token, "", map);
   const after = (await processEdit(entry.id, deps)) ?? entry;
+  // A create that failed after GitHub made the issue (adding it to the project
+  // was refused, say): the issue exists, so it goes into the cache and the form
+  // can say so, instead of leaving the user to create it a second time.
+  const made = (after.result as { nodeId?: unknown } | null)?.nodeId;
+  if (after.status === "failed" && typeof made === "string" && made && deps.refresh) {
+    await deps.refresh(made).catch((e) => console.error(`outbox: cache refresh failed for ${made}: ${String(e)}`));
+  }
   const code = after.status === "done" ? 201 : after.status === "conflict" ? 409 : after.status === "failed" ? 502 : 202;
   return { status: code, body: { entry: after } };
 }

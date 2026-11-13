@@ -9,11 +9,19 @@ import type { ClientRelease, WireData } from "./types";
 /** The viewer's date, YYYY-MM-DD, in `tz` (default: the browser's zone). */
 export const viewerToday = (now = new Date(), tz?: string): string => localToday(now, tz);
 
-/** Current / next / previous Release on `today`: the iteration with start ≤ today < end (as the server resolves it). */
+/** Current / next / previous Release on `today`: current is the iteration with start ≤ today < end; next and previous by date (as the server resolves them). */
 export function releasesOn(releases: readonly ClientRelease[], today: string): { currentReleaseId: string | null; nextReleaseId: string | null; previousReleaseId: string | null } {
   const sorted = [...releases].sort((a, b) => a.startDate.localeCompare(b.startDate));
   const idx = sorted.findIndex((r) => r.startDate <= today && today < r.endDate);
-  if (idx < 0) return { currentReleaseId: null, nextReleaseId: null, previousReleaseId: null };
+  // Between two iterations, or before the first or after the last: no current
+  // one, and next/previous by date (§4.1).
+  if (idx < 0) {
+    return {
+      currentReleaseId: null,
+      nextReleaseId: sorted.find((r) => r.startDate > today)?.id ?? null,
+      previousReleaseId: [...sorted].reverse().find((r) => r.endDate <= today)?.id ?? null,
+    };
+  }
   return { currentReleaseId: sorted[idx]!.id, nextReleaseId: sorted[idx + 1]?.id ?? null, previousReleaseId: sorted[idx - 1]?.id ?? null };
 }
 

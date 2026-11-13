@@ -59,7 +59,10 @@ export const AGE_BUCKETS = [
 export function insightStats(issues: ClientIssue[], meta: ClientMeta, triageBase: Filter[]) {
   const open = issues.filter((i) => i.state === "open");
   const now = Date.parse(`${meta.today}T23:59:59Z`);
-  const age = (iso: string) => (now - Date.parse(iso)) / DAY;
+  // Never negative: `now` is the end of the viewer's date read as UTC, so west of
+  // UTC in the evening an issue made in the last hours is "after" it, and a
+  // negative age fell out of every bucket.
+  const age = (iso: string) => Math.max(0, (now - Date.parse(iso)) / DAY);
   const count = <K extends string>(rows: ClientIssue[], key: (i: ClientIssue) => K[]) => {
     const m = new Map<K, number>();
     for (const r of rows) for (const k of key(r)) m.set(k, (m.get(k) ?? 0) + 1);

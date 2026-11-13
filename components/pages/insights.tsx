@@ -266,7 +266,7 @@ export function InsightsPage() {
   return (
     <Page title="Insights" icon={<Icon name="chart" size={15} />} actions={<ScopePicker scope={scope} onChange={(sc) => setParam("scope", scopeParam(sc) ?? "all")} />}>
       <div className="space-y-4 p-4 md:p-6">
-        {missingView && <p className="rounded-lg bg-hover px-3 py-2 text-[12.5px] text-muted">That view doesn&apos;t exist any more, so this shows the whole repo.</p>}
+        {missingView && <p className="rounded-lg bg-hover px-3 py-2 text-[12.5px] text-muted">That view doesn&apos;t exist any more, so there is nothing to count. Pick another scope.</p>}
         <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
           <Tile label="Open issues" value={total} href={href([OPEN])} />
           <Tile label="Needs triage" value={s.triage} sub={`${pct(s.triage)} · no priority${triageDim ? ` or ${triageDim.name.toLowerCase()}` : ""}`} href={scope.kind === "all" ? "/triage" : href(tabs[0]!.base)} tone={s.triage ? "warning" : undefined} />

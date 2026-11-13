@@ -24,6 +24,7 @@ import { AI_TRIAGE_EVENT } from "../issue/ai-suggestion";
 import { EmptyHint, Kbd } from "../props";
 import { DefaultScopeChip } from "../app/default-scope-chip";
 import { useSnoozes } from "../triage/snoozes";
+import { usePrefs } from "../tasks/notifications";
 import { Dialog } from "../ui/dialog";
 import { btn } from "../ui/popover";
 import { useToast } from "../ui/toast";
@@ -65,7 +66,27 @@ function SnoozeDialog({ open, onClose, today, onPick }: { open: boolean; onClose
   );
 }
 
+/**
+ * The walk-through. Its list of issues is fixed when it starts, so it starts
+ * only once the snoozes and the "My default" value are read: started before, a
+ * reload on this page walked through snoozed issues and every team's issues.
+ */
 export function TriageRunPage() {
+  const { loaded: snoozesLoaded } = useSnoozes();
+  const { loaded: prefsLoaded } = usePrefs();
+  if (!snoozesLoaded || !prefsLoaded) {
+    return (
+      <Page title="Triage">
+        <div role="status" data-triage-loading>
+          <EmptyHint icon="clock" title="Preparing the queue…" />
+        </div>
+      </Page>
+    );
+  }
+  return <TriageWalk />;
+}
+
+function TriageWalk() {
   const router = useRouter();
   const params = useSearchParams();
   const { data, byNodeId } = useAppData();

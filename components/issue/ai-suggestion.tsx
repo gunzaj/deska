@@ -10,6 +10,9 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from "react"
 import type { Job } from "@/lib/ai/runner";
 import type { TriageFlag, TriageSuggestion } from "@/lib/ai/triage";
 import { EDITING_OFF } from "@/lib/client/edit";
+
+/** Why Accept and Edit are off on a suggestion made for an older version of the issue. */
+const OUTDATED = "The issue changed since this suggestion was made. Run it again.";
 import { longAgo, plainName } from "@/lib/client/format";
 import { usePoll } from "@/lib/client/poll";
 import { Elapsed } from "../ai/elapsed";
@@ -292,8 +295,8 @@ export function IssueAiSuggestion({ number }: { number: number }) {
               type="button"
               onClick={() => void accept()}
               className={btn.outline}
-              disabled={!meta.writeMode || !suggestion.id}
-              title={!meta.writeMode ? (meta.editOffReason ?? EDITING_OFF) : "Apply this suggestion through the write gate"}
+              disabled={!meta.writeMode || !suggestion.id || !suggestion.fresh}
+              title={!meta.writeMode ? (meta.editOffReason ?? EDITING_OFF) : !suggestion.fresh ? OUTDATED : "Apply this suggestion through the write gate"}
               data-ai-accept
             >
               <Icon name="check" size={13} />
@@ -303,8 +306,8 @@ export function IssueAiSuggestion({ number }: { number: number }) {
               type="button"
               onClick={() => setEditing(new Set(suggestedParts(suggestion.result, meta.mapping.sprint != null)))}
               className={btn.outline}
-              disabled={!meta.writeMode || !suggestion.id}
-              title={!meta.writeMode ? (meta.editOffReason ?? EDITING_OFF) : "Adjust the suggestion before accepting"}
+              disabled={!meta.writeMode || !suggestion.id || !suggestion.fresh}
+              title={!meta.writeMode ? (meta.editOffReason ?? EDITING_OFF) : !suggestion.fresh ? OUTDATED : "Adjust the suggestion before accepting"}
               data-ai-edit
             >
               <Icon name="sliders" size={13} />

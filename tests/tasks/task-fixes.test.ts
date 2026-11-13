@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 vi.mock("@/lib/session", () => ({ getViewerLogin: async () => "alice" }));
 
 const { __resetTasks, taskRepo } = await import("@/lib/tasks/repo");
-const { createTask, updateTask, snoozeTask, deleteTask, restoreTask, createProject, listTasks } = await import("@/lib/tasks/service");
+const { createTask, updateTask, snoozeTask, deleteTask, restoreTask, createProject, createSection, listTasks } = await import("@/lib/tasks/service");
 const { createTaskSchema } = await import("@/lib/tasks/model");
 const { fireReminders } = await import("@/lib/tasks/notify");
 const { parseQuickAdd } = await import("@/lib/tasks/quick-add");
@@ -66,8 +66,8 @@ describe("an absolute reminder that already fired stays fired", () => {
   it("a one-off reminder fired before the upgrade keeps its old dedupe key", async () => {
     const t = await make({ title: "Call", dueDate: "2026-10-12", reminders: [{ kind: "absolute", at: "2026-10-12T08:00:00Z" }] });
     const repo = taskRepo();
-    await repo.addNotification({ login: me, kind: "reminder", taskId: t.id, title: t.title, dedupeKey: `rem:${t.id}:abs:${t.reminders[0]!.id}` });
     at("2026-10-12T08:00:30Z");
+    await repo.addNotification({ login: me, kind: "reminder", taskId: t.id, title: t.title, dedupeKey: `rem:${t.id}:abs:${t.reminders[0]!.id}` });
     expect(await fireReminders(new Date(), me)).toBe(0);
   });
 });
@@ -185,5 +185,78 @@ describe("zonedToUtc in the spring-forward gap", () => {
     expect(zonedToUtc("2026-11-01", "01:30", "America/New_York").toISOString()).toBe("2026-11-01T05:30:00.000Z");
     expect(zonedToUtc("2026-03-08", "01:59", "America/New_York").toISOString()).toBe("2026-03-08T06:59:00.000Z");
     expect(zonedToUtc("2026-03-08", "03:00", "America/New_York").toISOString()).toBe("2026-03-08T07:00:00.000Z");
+  });
+});
+
+describe("a recurring task can't get stuck (T-1)", () => {
+  const daily = { rule: "FREQ=DAILY", text: "every day", fromCompletion: false };
+  it("undoing an older occurrence is refused, so later completions keep moving the date", async () => {
+    const t = await make({ title: "Water", dueDate: "2026-10-12", recurrence: daily });
+    await update(t.id, { completed: true }); // 12 -> 13
+    await update(t.id, { completed: true }); // 13 -> 14
+    const refused = await updateTask(me, t.id, { undoOccurrence: "2026-10-12" });
+    expect(refused).toMatchObject({ ok: false, status: 400 });
+    await update(t.id, { undoOccurrence: "2026-10-13" });
+    await update(t.id, { completed: true });
+    expect((await update(t.id, { completed: true })).dueDate).toBe("2026-10-15");
+  });
+
+  it("an occurrence that is already logged still moves the date", async () => {
+    const t = await make({ title: "Water", dueDate: "2026-10-12", recurrence: daily });
+    await update(t.id, { completed: true });
+    await update(t.id, { dueDate: "2026-10-12" }); // the date is put back by hand
+    expect((await update(t.id, { completed: true })).dueDate).toBe("2026-10-13");
+  });
+});
+
+describe("undo after a delete or a drag", () => {
+  it("delete then restore doesn't fire the day's reminders again (T-3)", async () => {
+    const t = await make({ title: "Call", dueDate: "2026-10-12", dueTime: "08:00" });
+    at("2026-10-12T08:00:30Z");
+    expect(await fireReminders(new Date(), me)).toBe(1);
+    await deleteTask(me, t.id);
+    await restoreTask(me, t.id);
+    expect(await fireReminders(new Date(), me)).toBe(0);
+  });
+
+  it("moving to a project and back restores the section and position (T-2)", async () => {
+    const a = await createProject(me, { name: "Alpha", color: "blue" });
+    const b = await createProject(me, { name: "Beta", color: "green" });
+    if (!a.ok || !b.ok) throw new Error("project");
+    const sec = await createSection(me, { projectId: a.value.id, name: "Doing" });
+    if (!sec.ok) throw new Error("section");
+    const t = await make({ title: "Drag", projectId: a.value.id, sectionId: sec.value.id });
+    await make({ title: "Later", projectId: a.value.id });
+    const before = (await taskRepo().placements(me)).get(t.id)!;
+    // What the drop sends to undo: where the task was filed.
+    await update(t.id, { projectId: b.value.id });
+    const moved = (await listTasks(me)).tasks.find((x) => x.id === t.id)!;
+    expect(moved).toMatchObject({ projectId: b.value.id, sectionId: null });
+    await update(t.id, { projectId: a.value.id, sectionId: sec.value.id, position: before.position });
+    const back = (await listTasks(me)).tasks.find((x) => x.id === t.id)!;
+    expect(back).toMatchObject({ projectId: a.value.id, sectionId: sec.value.id, position: before.position });
+  });
+});
+
+describe("reminders", () => {
+  it("making a one-off task recurring doesn't re-fire a reminder that fired (T-10)", async () => {
+    const t = await make({ title: "Call", dueDate: "2026-10-12", reminders: [{ kind: "absolute", at: "2026-10-12T08:00:00Z" }] });
+    at("2026-10-12T08:00:30Z");
+    expect(await fireReminders(new Date(), me)).toBe(1);
+    await update(t.id, { recurrence: { rule: "FREQ=DAILY", text: "every day", fromCompletion: false } });
+    expect(await fireReminders(new Date(), me)).toBe(0);
+  });
+
+  it("snooze at ten reminders drops the oldest snooze, never the user's own (T-11)", async () => {
+    const own = Array.from({ length: 9 }, (_, i) => ({ kind: "relative" as const, offsetMin: (i + 1) * 5 }));
+    const t = await make({ title: "Busy", dueDate: "2026-10-12", dueTime: "10:00", reminders: own });
+    await snoozeTask(me, t.id, "1h");
+    const second = await snoozeTask(me, t.id, "tomorrow");
+    expect(second.ok && second.value.reminders.filter((r) => r.kind === "relative")).toHaveLength(9);
+    expect(second.ok && second.value.reminders.filter((r) => r.kind === "absolute")).toHaveLength(1);
+    // Ten of the user's own: nothing to drop, so snooze is refused and nothing is lost.
+    const full = await make({ title: "Full", dueDate: "2026-10-12", reminders: Array.from({ length: 10 }, (_, i) => ({ kind: "relative" as const, offsetMin: (i + 1) * 5 })) });
+    expect(await snoozeTask(me, full.id, "1h")).toMatchObject({ ok: false });
+    expect((await taskRepo().get(full.id))?.reminders).toHaveLength(10);
   });
 });

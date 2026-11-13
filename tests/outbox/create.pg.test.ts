@@ -48,7 +48,7 @@ describe("creating an issue (W3)", async () => {
 
   const TOKEN = ["github", "pat", "CREATE", "FAKE", "0".repeat(24)].join("_");
 
-  const fake = (opts: { failAdd?: boolean } = {}) => {
+  const fake = (opts: { failAdd?: boolean; refuseAdd?: boolean } = {}) => {
     const calls: string[] = [];
     return {
       calls,
@@ -59,6 +59,7 @@ describe("creating an issue (W3)", async () => {
       async addProjectItem() {
         calls.push("add-project");
         if (opts.failAdd) throw Object.assign(new Error("502"), { status: 502 });
+        if (opts.refuseAdd) throw Object.assign(new Error("Resource not accessible by personal access token"), { status: 422 });
       },
       async applyField(_n: string, field: string | null, next: unknown) {
         calls.push(`field:${field}=${JSON.stringify(next)}`);
@@ -93,6 +94,24 @@ describe("creating an issue (W3)", async () => {
     await saveCloseDoneStatus("a0000006");
     setLocalToken(TOKEN, "launch");
     github.created.clear();
+  });
+
+  it("a create that fails after GitHub made the issue reports the issue and puts it in the cache", async () => {
+    const client = fake({ refuseAdd: true });
+    const r = await submitCreate({
+      viewer: "alice",
+      token: TOKEN,
+      store: await getStore(),
+      body: { title: "New issue" },
+      deps: (done) => ({ client, doneStatusOptionId: done, recordStep: (id, step, result) => saveStep(id, step, result), refresh: (id) => refreshIssue(TOKEN, id) }),
+    });
+    // The form reads these: the reason, and the issue that exists, so it does
+    // not offer Create again (which made a second issue).
+    expect(r.status).toBe(502);
+    expect(r.body.entry).toMatchObject({ status: "failed", result: { nodeId: "I_created", number: 999 } });
+    expect(r.body.entry?.error).toMatch(/not accessible/);
+    expect(client.calls).toEqual(["create", "add-project"]);
+    expect((await readSnapshot()).issues.some((i) => i.nodeId === "I_created")).toBe(true);
   });
 
   it("validates the form's fields against the discovered metadata by ID", async () => {

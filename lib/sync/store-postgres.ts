@@ -216,6 +216,21 @@ export class PostgresStore implements ImportStore, IdResolver {
     }, (removed) => removed > 0);
   }
 
+  async unresolvedRefs(): Promise<string | null> {
+    const res = await getDb().execute(sql`
+      SELECT md5(string_agg(ref, ',' ORDER BY ref)) AS fingerprint FROM (
+        SELECT DISTINCT 'L:' || il.label_id AS ref FROM issue_labels il
+          WHERE NOT EXISTS (SELECT 1 FROM labels l WHERE l.id = il.label_id)
+        UNION
+        SELECT DISTINCT 'M:' || i.milestone_id FROM issues i
+          WHERE i.milestone_id IS NOT NULL AND i.deleted = false AND NOT EXISTS (SELECT 1 FROM milestones m WHERE m.id = i.milestone_id)
+        UNION
+        SELECT DISTINCT 'O:' || d.option_id FROM project_item_dims d
+          WHERE NOT EXISTS (SELECT 1 FROM field_options o WHERE o.id = d.option_id) AND NOT EXISTS (SELECT 1 FROM iterations t WHERE t.id = d.option_id)
+      ) refs`);
+    return (res.rows[0] as { fingerprint?: string | null } | undefined)?.fingerprint ?? null;
+  }
+
   // --- IdResolver ------------------------------------------------------
 
   /**

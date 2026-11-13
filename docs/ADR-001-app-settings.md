@@ -1,6 +1,6 @@
 # ADR-001 — Theme and density live in `app_settings`, not the browser
 
-- **Status:** accepted (Architect), 2026-11-07
+- **Status:** accepted (Architect), 2026-11-07. Theme implemented 2026-11-13 (`ui.theme`, `/api/settings/theme`, server-rendered `data-theme`, no pre-paint script). Density waits for UI-pass PR2: the app has no density setting yet.
 - **Applies to:** PR2 of the UI pass (`docs/UI-PASS.md` §3), and anything else that
   wants a per-machine preference.
 - **Supersedes:** the pre-pivot ruling that density goes in a cookie read in

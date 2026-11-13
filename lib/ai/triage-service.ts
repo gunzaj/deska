@@ -57,15 +57,20 @@ async function commentsFor(store: ReadModel, issue: { number: number; nodeId: st
   return [];
 }
 
-/** Everything a suggestion for this issue is built from, or null when it isn't cached. */
-export async function triageInput(number: number): Promise<TriageIssueInput | null> {
+/**
+ * Everything a suggestion for this issue is built from, or null when it isn't
+ * cached. With `forHash`, only what the input hash covers is read (the issue's
+ * version and the choices the schema is built from): the description and the
+ * comments are left empty, so telling "Outdated" costs no call to GitHub.
+ */
+export async function triageInput(number: number, opts: { forHash?: boolean } = {}): Promise<TriageIssueInput | null> {
   const store = await getStore();
   const issue = store.issueByNumber(number);
   if (!issue) return null;
   const mapping = store.projectFieldMap();
   const [body, comments, candidates] = await Promise.all([
-    cachedBody(issue.nodeId, issue.body),
-    commentsFor(store, issue),
+    opts.forHash ? "" : cachedBody(issue.nodeId, issue.body),
+    opts.forHash ? [] : commentsFor(store, issue),
     duplicatesOf(number, MAX_TRIAGE_CANDIDATES),
   ]);
   const parent = issue.parentNodeId ? store.issues.get(issue.parentNodeId) : undefined;
@@ -114,11 +119,21 @@ export async function latestTriageSuggestion(number: number): Promise<{ suggesti
   const ai = await aiStatus();
   const settings = await readAiSettings();
   const row = await latestResultRow(TRIAGE_FEATURE, String(number));
-  if (!row) return { suggestion: null, ai };
-  const input = await triageInput(number);
+  // An accepted suggestion is done: shown again, its Accept would write the same
+  // values over whatever changed since.
+  if (!row || row.acceptedAt) return { suggestion: null, ai };
+  const input = await triageInput(number, { forHash: true });
   if (!input) return null;
   const fresh = row.inputHash === inputHash(triageTask(input), settings.extraInstructions);
   return { suggestion: suggestionView(row, fresh), ai };
+}
+
+/** Whether a stored triage suggestion still matches its issue (the same hash "Outdated" is told by). */
+export async function triageSuggestionFresh(row: Pick<StoredResult, "subject" | "inputHash">): Promise<boolean> {
+  const number = Number(row.subject);
+  const input = Number.isInteger(number) ? await triageInput(number, { forHash: true }) : null;
+  if (!input) return false;
+  return row.inputHash === inputHash(triageTask(input), (await readAiSettings()).extraInstructions);
 }
 
 /** Asks the model for a suggestion for this issue; null when it isn't cached. */

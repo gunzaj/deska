@@ -56,7 +56,9 @@ function useSubIssues(number: number) {
     ctrl.current?.abort();
     const c = new AbortController();
     ctrl.current = c;
-    void run(ref.current, c.signal);
+    // After a failed page, continue where it stopped. A list that ended short
+    // of GitHub's count has no next page to continue with: read it again.
+    void run(ref.current.done ? EMPTY : ref.current, c.signal);
   }, [run]);
   return { ...state, retry };
 }

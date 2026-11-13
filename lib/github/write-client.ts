@@ -272,6 +272,36 @@ export class GitHubWriteClient implements WriteClient {
         : sortedNames(res.data.assignees ?? []);
     }
     const ref = this.refFor(field);
+    // One query for the item and its first page of values, the common case.
+    // A cached item ID, a second page of items or of values falls through to
+    // the paged lookups below.
+    if (!this.items.has(issueNodeId)) {
+      const meta = await this.loadMeta();
+      const res: any = await this.gql(
+        `query($id:ID!) { node(id:$id) { ... on Issue { projectItems(first:100) {
+          pageInfo { hasNextPage }
+          nodes { id project { id } fieldValues(first:50) {
+            pageInfo { hasNextPage }
+            nodes {
+              ... on ProjectV2ItemFieldSingleSelectValue { optionId field { ... on ProjectV2FieldCommon { id name } } }
+              ... on ProjectV2ItemFieldIterationValue { iterationId field { ... on ProjectV2FieldCommon { id name } } }
+            }
+          } } } } } }`,
+        { id: issueNodeId },
+      );
+      const conn = res.node?.projectItems;
+      const item = conn?.nodes?.find((n: { project: { id: string } }) => n.project.id === meta.projectId);
+      if (item) {
+        this.items.set(issueNodeId, item.id);
+        const values = item.fieldValues;
+        for (const fv of values?.nodes ?? []) {
+          if (fv?.field?.id === ref.id) return fv.optionId ?? fv.iterationId ?? null;
+        }
+        if (values && !values.pageInfo?.hasNextPage) return null;
+      } else if (conn && !conn.pageInfo?.hasNextPage) {
+        return null; // not in the project yet — nothing to read
+      }
+    }
     const itemId = await this.findItem(issueNodeId);
     if (!itemId) return null; // not in the project yet — nothing to read
     // Page through the item's field values until the mapped field turns up. A
@@ -300,6 +330,8 @@ export class GitHubWriteClient implements WriteClient {
 
   async applyField(issueNodeId: string, field: string | null, next: unknown): Promise<void> {
     if (field === "type") {
+      // By node ID, so GitHub would take it for an issue transferred elsewhere.
+      await this.assertInRepo(issueNodeId);
       await this.mutate(
         `mutation($issue:ID!, $type:ID) { updateIssueIssueType(input:{issueId:$issue, issueTypeId:$type}) { issue { id } } }`,
         { issue: issueNodeId, type: next ?? null },
@@ -339,6 +371,7 @@ export class GitHubWriteClient implements WriteClient {
     const ref = this.refFor(field);
     const def = meta.fields.get(ref.id);
     if (!def) throw new NonRetryableError(`the ${ref.name} field is no longer in the project`);
+    await this.assertInRepo(issueNodeId);
     const itemId = await this.itemFor(issueNodeId);
     if (next == null) {
       await this.mutate(
@@ -348,8 +381,10 @@ export class GitHubWriteClient implements WriteClient {
       return;
     }
     const valueKey = def.dataType === "ITERATION" ? "iterationId" : "singleSelectOptionId";
+    // GitHub types both `singleSelectOptionId` and `iterationId` as String, not
+    // ID: declaring `$value:ID!` makes GitHub refuse every project field write.
     await this.mutate(
-      `mutation($project:ID!, $item:ID!, $field:ID!, $value:ID!) {
+      `mutation($project:ID!, $item:ID!, $field:ID!, $value:String!) {
         updateProjectV2ItemFieldValue(input:{projectId:$project, itemId:$item, fieldId:$field, value:{${valueKey}:$value}}) { clientMutationId }
       }`,
       { project: meta.projectId, item: itemId, field: def.id, value: next },
@@ -378,6 +413,7 @@ export class GitHubWriteClient implements WriteClient {
       throw new NonRetryableError("GitHub created the issue but returned no node ID; nothing else was written");
     }
     this.items.set(data.node_id, "");
+    this.inRepo.add(data.node_id);
     return { nodeId: data.node_id, number: data.number };
   }
 
@@ -436,6 +472,18 @@ export class GitHubWriteClient implements WriteClient {
     });
   }
 
+  /** Issues this client has seen in the configured repo (it lives a few minutes). */
+  private inRepo = new Set<string>();
+
+  /**
+   * Writes by node ID (Type, project fields) reach the issue wherever it lives:
+   * one transferred to another repository must be refused like the REST writes.
+   */
+  private async assertInRepo(issueNodeId: string): Promise<void> {
+    if (this.inRepo.has(issueNodeId)) return;
+    await this.issueNumber(issueNodeId);
+  }
+
   /**
    * The issue's number in the configured repo. REST writes address `owner/repo`
    * plus a number, so an issue transferred to another repo would send the write
@@ -452,6 +500,7 @@ export class GitHubWriteClient implements WriteClient {
     if (actual.toLowerCase() !== expected.toLowerCase()) {
       throw new NonRetryableError(`this issue now lives in ${actual || "another repository"}, not ${expected}; nothing was written`);
     }
+    this.inRepo.add(issueNodeId);
     return node.number;
   }
 }

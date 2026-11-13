@@ -13,19 +13,31 @@ import { useOpenIssue } from "../app/open-issue";
 import { useAppData } from "../app/provider";
 import { Icon } from "../icons";
 
+/** Requests in flight, by release: the sprint header and the risk section ask at the same moment, and share one. */
+const scopeRequests = new Map<string, Promise<string[]>>();
+
+function scopeAdded(key: string, releaseId: string, since: string): Promise<string[]> {
+  let req = scopeRequests.get(key);
+  if (!req) {
+    req = fetch(`/api/releases/${encodeURIComponent(releaseId)}/scope-added?since=${since}`)
+      .then(async (res) => {
+        if (isUnauthorized(res) || !res.ok) return [] as string[];
+        return ((await res.json()) as { nodeIds: string[] }).nodeIds;
+      })
+      .catch(() => [] as string[])
+      .finally(() => scopeRequests.delete(key));
+    scopeRequests.set(key, req);
+  }
+  return req;
+}
+
 /** Issues F0 saw set to this Release on or after its start. A failed load just means none are shown. */
 export function useScopeAdded(release: ClientRelease): { ids: string[]; loaded: boolean } {
   const [state, setState] = useState<{ key: string; ids: string[] } | null>(null);
   const key = `${release.id}:${release.startDate}`;
   useEffect(() => {
     let live = true;
-    void fetch(`/api/releases/${encodeURIComponent(release.id)}/scope-added?since=${release.startDate}`)
-      .then(async (res) => {
-        if (isUnauthorized(res) || !res.ok) return [] as string[];
-        return ((await res.json()) as { nodeIds: string[] }).nodeIds;
-      })
-      .catch(() => [] as string[])
-      .then((ids) => live && setState({ key, ids }));
+    void scopeAdded(key, release.id, release.startDate).then((ids) => live && setState({ key, ids }));
     return () => {
       live = false;
     };
@@ -35,7 +47,7 @@ export function useScopeAdded(release: ClientRelease): { ids: string[]; loaded: 
 
 const explorer = (filters: Parameters<typeof encodeState>[0]["filters"]) => `/issues?s=${encodeState({ ...PRESETS.all, filters })}`;
 
-function Group({ id, title, hint, issues, href }: { id: string; title: string; hint: string; issues: ClientIssue[]; href: string }) {
+function Group({ id, title, hint, issues, href }: { id: string; title: string; hint: string; issues: ClientIssue[]; href?: string }) {
   const open = useOpenIssue();
   return (
     <section aria-label={title} data-risk={id} className="min-w-0">
@@ -43,7 +55,7 @@ function Group({ id, title, hint, issues, href }: { id: string; title: string; h
         <h3 className="text-[12.5px] font-semibold">
           {title} <span className="tabular-nums text-faint" data-risk-count>{issues.length}</span>
         </h3>
-        {issues.length > 0 && (
+        {issues.length > 0 && href && (
           <Link href={href} className="text-[11.5px] text-brand-text hover:underline">
             View in explorer
           </Link>
@@ -105,7 +117,8 @@ export function ReleaseRisk({ release, issues, filters = [] }: { release: Client
           title="Added after the start"
           hint={scope.loaded ? "Issues put into this Release once it had started." : "Loading…"}
           issues={risk.scopeAdded}
-          href={explorer([...filters, { field: "release", op: "in", values: [release.id] }])}
+          // No explorer link: no filter means "added after the start", so the
+          // link opened the whole Release under a count of a few.
         />
       </div>
     </details>

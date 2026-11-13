@@ -32,6 +32,8 @@ type PrefsCtx = {
   /** The viewer's time zone: their setting, else the browser's. */
   tz: string;
   setPrefs: (p: Partial<Prefs>) => Promise<void>;
+  /** The saved preferences were read (or could not be): before that, `prefs` is the cached guess. */
+  loaded: boolean;
 };
 
 type Clock = { today: string; now: string; tz: string };
@@ -139,6 +141,7 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
   const [list, setList] = useState<AppNotification[]>([]);
   const [unread, setUnread] = useState(0);
   const [prefs, setPrefsState] = useState<Prefs>({ tz: null, browserNotifications: false, sidebar: null, defaultTeam: null });
+  const [prefsLoaded, setPrefsLoaded] = useState(false);
   // The latest list and count, for the mark-read rollback.
   const listRef = useRef(list);
   listRef.current = list;
@@ -199,10 +202,12 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     void (async () => {
       const res = await fetchPreloaded("/api/me/prefs", { cache: "no-store" }).catch(() => null);
-      if (!res?.ok) return;
-      const p = (await res.json()) as Prefs;
+      if (!res?.ok) return setPrefsLoaded(true);
+      const p = (await res.json().catch(() => null)) as Prefs | null;
+      if (!p) return setPrefsLoaded(true);
       // Settings changed here while this was loading win over what the server said.
       setPrefsState({ ...p, ...edited.current });
+      setPrefsLoaded(true);
       cacheSidebar(p.sidebar);
       cacheTeam(p.defaultTeam ?? null);
       // First visit: remember the browser's zone so reminders use it server-side.
@@ -259,7 +264,7 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
 
   const value = useMemo<NotesCtx>(() => ({ list, unread, markRead }), [list, unread, markRead]);
   const tz = prefs.tz ?? browserTz();
-  const prefsValue = useMemo<PrefsCtx>(() => ({ prefs, tz, setPrefs }), [prefs, tz, setPrefs]);
+  const prefsValue = useMemo<PrefsCtx>(() => ({ prefs, tz, setPrefs, loaded: prefsLoaded }), [prefs, tz, setPrefs, prefsLoaded]);
   return (
     <PrefsContext.Provider value={prefsValue}>
       <ClockProvider tz={tz}>

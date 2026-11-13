@@ -57,8 +57,19 @@ test("My default filters lists and Insights by default; the chip switches it off
 
     // Theme is in the menu now.
     await page.locator("[data-user-menu]").first().click();
+    const saved = page.waitForResponse((r) => r.url().endsWith("/api/settings/theme") && r.request().method() === "POST");
     await page.getByRole("radio", { name: "Dark" }).click();
     await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
+    // Stored in the app's settings (ADR-001), not localStorage: a fresh load renders it from the server.
+    expect((await saved).status()).toBe(200);
+    await page.evaluate(() => localStorage.clear());
+    await page.reload();
+    await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
+    await page.locator("[data-user-menu]").first().click();
+    const back = page.waitForResponse((r) => r.url().endsWith("/api/settings/theme") && r.request().method() === "POST");
+    await page.getByRole("radio", { name: "System" }).click();
+    await expect(page.locator("html")).not.toHaveAttribute("data-theme", /./);
+    await back;
   } finally {
     await reset(page);
     await context.close();

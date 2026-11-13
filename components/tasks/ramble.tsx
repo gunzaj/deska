@@ -152,7 +152,9 @@ export function RambleDialog({ open, onClose }: { open: boolean; onClose: () => 
     setPhase("transcribing");
     setError(null);
     const form = new FormData();
-    form.append("file", blob, "ramble.webm");
+    // AAC in MP4 is what a local dictation app decodes; OpenAI-compatible
+    // endpoints accept it too, so prefer it over WebM/Opus.
+    form.append("file", blob, blob.type.includes("mp4") ? "ramble.m4a" : "ramble.webm");
     try {
       const res = await fetch("/api/ai/transcribe", { method: "POST", body: form });
       if (s !== session.current) return;
@@ -242,7 +244,7 @@ export function RambleDialog({ open, onClose }: { open: boolean; onClose: () => 
         return;
       }
       stream.current = media;
-      const type = ["audio/webm;codecs=opus", "audio/webm", "audio/mp4"].find((t) => MediaRecorder.isTypeSupported(t));
+      const type = ["audio/mp4;codecs=mp4a.40.2", "audio/webm;codecs=opus", "audio/webm"].find((t) => MediaRecorder.isTypeSupported(t));
       const rec = new MediaRecorder(media, type ? { mimeType: type } : undefined);
       recorder.current = rec;
       chunks.current = [];

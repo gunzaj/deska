@@ -1,6 +1,7 @@
 import "./globals.css";
 import type { Metadata, Viewport } from "next";
-import { headers } from "next/headers";
+import { connection } from "next/server";
+import { readTheme } from "@/lib/settings";
 
 export const metadata: Metadata = {
   title: { default: "Deska", template: "%s · Deska" },
@@ -14,20 +15,14 @@ export const viewport: Viewport = {
   ],
 };
 
-// Apply the saved theme before paint so there is no light/dark flash.
-const THEME_SCRIPT = `try{var t=localStorage.getItem("deska-theme");if(t==="light"||t==="dark")document.documentElement.setAttribute("data-theme",t)}catch(e){}`;
-
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
-  // The middleware's per-request CSP nonce (v5 4.10): the inline theme snippet
-  // needs it, and reading the header makes every page render per request.
-  const nonce = (await headers()).get("x-nonce") ?? undefined;
+  // Every page renders per request, so the stored theme (ADR-001) is on <html>
+  // from the first byte: no pre-paint script, no flash, and it survives a
+  // relaunch (the window's origin, and with it localStorage, changes each time).
+  await connection();
+  const theme = await readTheme();
   return (
-    <html lang="en" suppressHydrationWarning>
-      <head>
-        {/* Browsers hide a nonce from the DOM once applied, so the client sees
-            nonce="" where the server sent the value: not a real mismatch. */}
-        <script nonce={nonce} suppressHydrationWarning dangerouslySetInnerHTML={{ __html: THEME_SCRIPT }} />
-      </head>
+    <html lang="en" data-theme={theme === "system" ? undefined : theme}>
       <body>{children}</body>
     </html>
   );

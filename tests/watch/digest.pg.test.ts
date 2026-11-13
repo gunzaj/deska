@@ -28,8 +28,8 @@ describe("watch digest notifications (Postgres)", () => {
       ["watch_digest", null, "2 watched items changed"],
     ]);
     expect(unread).toBe(2);
-    // Deleting the task takes its notifications with it; the digest stays.
-    await repo.deleteNotificationsForTask(mine.id);
+    // Deleting the task for good takes its notifications with it (the foreign key cascades); the digest stays.
+    await getDb().execute(sql`DELETE FROM tasks WHERE id = ${mine.id}`);
     expect((await repo.notifications("alice", 50)).list.map((n) => n.kind)).toEqual(["watch_digest"]);
   });
 });

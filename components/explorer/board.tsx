@@ -179,6 +179,8 @@ export function BoardLayout({
   onOpen,
   dropRelease,
   peeked,
+  limits,
+  setLimits,
 }: {
   rows: ClientIssue[];
   field: BoardField;
@@ -191,12 +193,14 @@ export function BoardLayout({
   dropRelease?: string | null;
   /** The issue open in the side panel (improvement 1). */
   peeked?: number | null;
+  /** Cards shown per column after "Show more". The explorer owns it, so j/k reach the cards shown. */
+  limits: Readonly<Record<string, number>>;
+  setLimits: (update: (l: Readonly<Record<string, number>>) => Record<string, number>) => void;
 }) {
   const { data, option } = useAppData();
   const { edit, disabledReason } = useIssueEdits();
   const { meta } = data;
   const cols = useMemo(() => boardColumns(rows, field, meta), [rows, field, meta]);
-  const [limits, setLimits] = useState<Record<string, number>>({});
   const [dragging, setDragging] = useState<DragData | null>(null);
   const [menu, setMenu] = useState<{ anchor: HTMLElement; issue: ClientIssue; fromKey: string } | null>(null);
   const openMoveMenu = useCallback((anchor: HTMLElement, issue: ClientIssue, fromKey: string | null) => setMenu({ anchor, issue, fromKey: fromKey ?? "" }), []);

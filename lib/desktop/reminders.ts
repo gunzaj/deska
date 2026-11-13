@@ -9,11 +9,9 @@
 // handed over once, whoever created it.
 import type { ReminderItem } from "../../desktop/bridge";
 import { LOCAL_OWNER } from "../local-owner";
-import { dueCount } from "../tasks/counts";
 import { localToday } from "../tasks/dates";
 import { fireReminders } from "../tasks/notify";
 import { taskRepo } from "../tasks/repo";
-import { listTasks } from "../tasks/service";
 import { onTasksChanged } from "./events";
 
 /** Well inside the 60 s the spec allows between a reminder coming due and its notification. */
@@ -61,8 +59,7 @@ export async function reminderTick(state: ReminderState, now = new Date(), tz?: 
 
 /** The Dock count when it differs from the last one sent; null when unchanged. */
 export async function badgeChange(state: ReminderState, now = new Date(), tz?: string): Promise<number | null> {
-  const { tasks, projects } = await listTasks(LOCAL_OWNER);
-  const count = dueCount(tasks, projects, localToday(now, tz ?? (await zone())));
+  const count = await taskRepo().dueCount(LOCAL_OWNER, localToday(now, tz ?? (await zone())));
   if (count === state.badge) return null;
   state.badge = count;
   return count;

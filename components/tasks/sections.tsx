@@ -5,6 +5,8 @@ import type { TaskSection } from "@/lib/tasks/model";
 import { Icon } from "../icons";
 import { Dialog } from "../ui/dialog";
 import { btn, PickList, Popover, type PickItem } from "../ui/popover";
+import { nameTaken } from "@/lib/client/task-names";
+import { DialogError, useSubmit } from "./organize";
 import { useTasks } from "./store";
 
 // Sections of a project (SPEC §4.6, D13): the name dialog, the header menu and
@@ -12,7 +14,8 @@ import { useTasks } from "./store";
 
 /** Name a new section of `projectId`, or rename `section`. */
 export function SectionDialog({ open, onClose, projectId, section }: { open: boolean; onClose: () => void; projectId: string; section?: TaskSection | null }) {
-  const { createSection, updateSection } = useTasks();
+  const { createSection, updateSection, sections } = useTasks();
+  const submit = useSubmit(open);
   const [name, setName] = useState("");
   const initial = useRef(section);
   initial.current = section;
@@ -23,8 +26,8 @@ export function SectionDialog({ open, onClose, projectId, section }: { open: boo
   const save = async () => {
     const n = name.trim();
     if (!n) return;
-    const ok = section ? await updateSection(section.id, { name: n }) : Boolean(await createSection(projectId, n));
-    if (ok) onClose();
+    if (nameTaken(sections.filter((x) => x.projectId === projectId), n, section?.id)) return submit.setError(`A section named “${n}” already exists.`);
+    await submit.run(async (onError) => (section ? await updateSection(section.id, { name: n }, onError) : Boolean(await createSection(projectId, n, onError))), onClose);
   };
   return (
     <Dialog open={open} onClose={onClose} label={section ? "Rename section" : "New section"} width={400}>
@@ -45,6 +48,7 @@ export function SectionDialog({ open, onClose, projectId, section }: { open: boo
           placeholder="e.g. Waiting on review"
           className="mt-3 h-9 w-full rounded-lg border border-line-field bg-field px-3 text-[14px] outline-none focus:border-focus"
         />
+        <DialogError error={submit.error} />
         <div className="mt-4 flex justify-end gap-1.5">
           <button type="button" onClick={onClose} className={btn.outline}>
             Cancel

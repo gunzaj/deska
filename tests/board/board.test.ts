@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { importFull } from "@/lib/sync/import";
 import { MemoryStore } from "@/lib/sync/store-memory";
-import { buildBoard, moveCard } from "@/lib/board/board";
+import { buildBoard } from "@/lib/board/board";
 import { buildViewRows, resolveRelease } from "@/lib/views/rows";
 import { fixtureSnapshot } from "../fixtures/github";
 
@@ -20,28 +20,24 @@ describe("release board (M7)", () => {
     expect(cols.find((c) => c.name === "No value")?.cards.map((r) => r.number)).toEqual([102]);
   });
 
-  it("a drag sets Status through the outbox descriptor", async () => {
-    const { rows } = await setup();
-    const card = rows.find((r) => r.number === 100)!;
-    expect(moveCard(card, { columnOptionId: "a0000002", boardField: "status" }, "e0000023")).toEqual({
-      field: "status",
-      next: "a0000002",
-    });
-    expect(moveCard(card, { columnOptionId: "a0000001", boardField: "status" }, "e0000023")).toBeNull();
-  });
-
-  it("dragging a backlog card into the release sets Release", async () => {
-    const { rows } = await setup();
-    const backlogCard = rows.find((r) => r.number === 102)!; // no release
-    expect(backlogCard.releaseId).toBeNull();
-    expect(moveCard(backlogCard, { columnOptionId: "a0000001", boardField: "status" }, "e0000023")).toEqual({
-      field: "release",
-      next: "e0000023",
-    });
-  });
-
   it("resolves the current release by date (core board default)", async () => {
     const { store } = await setup();
     expect(resolveRelease(store, "current", "2026-10-09T00:00:00Z")).toBe("e0000023");
+  });
+
+  it("outside every iteration: no current release, next and previous by date (§4.1)", async () => {
+    const { store } = await setup();
+    const sprint = store.fields.get(store.projectFieldMap().sprint!.id)!;
+    const sorted = [...sprint.iterations].sort((a, b) => a.startDate.localeCompare(b.startDate));
+    const first = sorted[0]!;
+    const last = sorted[sorted.length - 1]!;
+    const before = new Date(Date.parse(first.startDate) - 86_400_000).toISOString();
+    const after = new Date(Date.parse(last.startDate) + (last.duration + 1) * 86_400_000).toISOString();
+    expect(resolveRelease(store, "current", before)).toBeNull();
+    expect(resolveRelease(store, "next", before)).toBe(first.id);
+    expect(resolveRelease(store, "previous", before)).toBeNull();
+    expect(resolveRelease(store, "current", after)).toBeNull();
+    expect(resolveRelease(store, "previous", after)).toBe(last.id);
+    expect(resolveRelease(store, "next", after)).toBeNull();
   });
 });

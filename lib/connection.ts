@@ -14,7 +14,7 @@ import { desktopGuard } from "./desktop/guard";
 import { checkToken, ghCliStatus, previewStatus, missingStatus, MESSAGES, type CheckTarget, type ConnectionStatus } from "./github/connection";
 import { localToken, requestGhReread, tokenAuth, tokenState } from "./github/local-token";
 import { currentTarget, settingsVersion } from "./settings";
-import { recordWriteAccess, writeGate } from "./writes/gate";
+import { accountChanged, recordWriteAccess, writeGate } from "./writes/gate";
 
 const OK_TTL_MS = 10 * 60_000;
 const ERROR_TTL_MS = 60_000;
@@ -98,6 +98,15 @@ export async function connectionStatus({ refresh = false }: { refresh?: boolean 
     if (status.state === "invalid" && (await requestGhReread())) return connectionStatus({ refresh: true });
     Object.assign(cache(), { status, at: Date.now(), fromSync: false });
     if (status.login) cache().owner = { login: status.login, name: status.name, avatarUrl: status.avatarUrl };
+    if (status.login) {
+      // Another account than the one this install last saw (`gh auth switch`
+      // under the GitHub CLI source): "GitHub writes" was turned on for the
+      // other one, so it goes off and the waiting edits are failed (§3.4).
+      const prev = await savedIdentity().catch(() => null);
+      if (prev && prev.login.toLowerCase() !== status.login.toLowerCase()) {
+        await accountChanged().catch((e) => console.error(`could not turn writes off after an account change: ${e instanceof Error ? e.message : String(e)}`));
+      }
+    }
     if (status.login) await saveIdentity(status).catch((e) => console.error(`could not save the GitHub identity: ${e instanceof Error ? e.message : String(e)}`));
     return status;
   })().finally(() => {

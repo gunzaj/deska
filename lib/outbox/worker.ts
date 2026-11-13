@@ -43,6 +43,12 @@ export class NonRetryableError extends Error {
 
 export function isRetryable(e: unknown): boolean {
   if (e instanceof NonRetryableError) return false;
+  // GraphQL errors arrive as HTTP 200 with an `errors` list and no status. Only
+  // a rate limit there is transient; a validation, permission or not-found
+  // error fails the same way every time, and retrying it only kept the edit
+  // spinning for a minute before it failed anyway.
+  const gqlErrors = (e as { errors?: { type?: string }[] } | null)?.errors;
+  if (Array.isArray(gqlErrors) && gqlErrors.length) return gqlErrors.some((x) => x?.type === "RATE_LIMITED");
   const status = (e as { status?: number })?.status ?? 0;
   if (status >= 500 || status === 429) return true;
   // No HTTP status at all: a connection reset, DNS failure or timeout. Those
@@ -102,6 +108,13 @@ export async function attemptEntry(
   onStep?: (step: string, result?: unknown) => Promise<void>,
 ): Promise<Attempt> {
   if (entry.op === "create") return applyCreate(entry, client, onStep);
+  // A close also sets Status (§4.8), so it needs the Done Status before its
+  // first step: checked inside the steps, the issue was closed first and the
+  // job failed afterwards. A close queued behind another edit, or one waiting
+  // on a retry, runs with the Done Status of that moment.
+  if (entry.op === "close" && !doneStatusOptionId) {
+    return { status: "failed", error: "the Done Status for closing is not set in Settings; nothing was written", tried: false };
+  }
   const isState = entry.op === "close" || entry.op === "reopen";
   // Label/assignee deltas commute: concurrent edits to *different* labels
   // never conflict, so deltas skip the full-set stale check.
@@ -122,7 +135,9 @@ export async function attemptEntry(
 
   let current: unknown;
   try {
-    current = await client.readField(entry.issueNodeId, isState ? "state" : entry.field);
+    // A delta is not compared with anything (see above), so its read was two
+    // GitHub calls per edit for nothing, and a failed read failed the edit.
+    if (!isDelta) current = await client.readField(entry.issueNodeId, isState ? "state" : entry.field);
   } catch (e) {
     // A failed read is not evidence of a remote change: reporting it as a
     // conflict offered "Overwrite" for an edit nobody else had made. A transient

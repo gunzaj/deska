@@ -98,6 +98,28 @@ describe("import", () => {
     expect((await q(`SELECT section_id FROM tasks WHERE id = '${T1}'`))[0]!.section_id).toBe(S1);
   });
 
+  it("B-1: a project and a label that exist under another ID take the file's sections, tasks and links", async () => {
+    await seedLocal();
+    const doc = JSON.parse(JSON.stringify(await exportLocalData()));
+    await resetEverything();
+    // Recreated by hand under new IDs, with the same names (another case for the label).
+    const P2 = "60000000-0000-0000-0000-0000000000a2";
+    const L2 = "60000000-0000-0000-0000-0000000000b2";
+    await q(`INSERT INTO task_projects (id, owner_login, name, color) VALUES ('${P2}', 'local', 'errands', 'red')`);
+    await q(`INSERT INTO task_labels (id, owner_login, name) VALUES ('${L2}', 'local', 'Home')`);
+
+    const res = await importLocalData(doc);
+    expect(await count("task_projects")).toBe(1);
+    expect(res.tables.task_projects).toMatchObject({ rows: 1, added: 0, skipped: 1, remapped: 1 });
+    expect(res.tables.task_labels).toMatchObject({ remapped: 1, skipped: 1 });
+    expect(res.tables.tasks).toMatchObject({ rows: 2, added: 2, skipped: 0 });
+    expect((await q(`SELECT project_id FROM task_sections WHERE id = '${S1}'`))[0]!.project_id).toBe(P2);
+    expect((await q(`SELECT project_id FROM task_placements WHERE task_id = '${T1}'`))[0]!.project_id).toBe(P2);
+    expect((await q(`SELECT label_id FROM task_label_links WHERE task_id = '${T1}'`))[0]!.label_id).toBe(L2);
+    expect((await q(`SELECT title FROM tasks ORDER BY title`)).map((r) => r.title)).toEqual(["Buy milk", "Oat milk"]);
+    expect(await count("task_comments")).toBe(1);
+  });
+
   it("skips a task whose section is in neither the file nor the database", async () => {
     await seedLocal();
     const doc = await exportLocalData();
@@ -115,7 +137,7 @@ describe("import", () => {
     await q(`UPDATE tasks SET title = 'Changed here' WHERE id = '${T1}'`);
     await q(`DELETE FROM tasks WHERE id = '${T2}'`);
     const res = await importLocalData(doc);
-    expect(res.tables.tasks).toEqual({ rows: 2, added: 1 });
+    expect(res.tables.tasks).toEqual({ rows: 2, added: 1, skipped: 1, remapped: 0 });
     expect((await q(`SELECT title FROM tasks ORDER BY title`)).map((r) => r.title)).toEqual(["Changed here", "Oat milk"]);
     // A second import adds nothing.
     expect((await importLocalData(doc)).added).toBe(0);

@@ -196,3 +196,24 @@ describe("parent progress in views (§4.4)", () => {
     expect(out.map((r) => r.number)).toEqual([1, 2, 3]);
   });
 });
+
+describe("a filter with no value picked", () => {
+  it("is no constraint: the chip reads \"is any\", so it keeps every row", async () => {
+    const { store, rows } = await setup();
+    const ctx = { viewerLogin: "alice", store, todayIso: TODAY };
+    const run = (filters: View["filters"]) => runView({ id: "t", name: "t", layout: "list", filters, sort: [] }, ctx, rows).length;
+    expect(rows.length).toBeGreaterThan(0);
+    for (const field of ["status", "priority", "label", "assignee", "author", "type", "milestone", "release"] as const) {
+      expect(run([{ field, op: "in", values: [] } as View["filters"][number]]), `${field} in []`).toBe(rows.length);
+      expect(run([{ field, op: "not_in", values: [] } as View["filters"][number]]), `${field} not_in []`).toBe(rows.length);
+    }
+  });
+
+  it("a named sprint that does not exist still matches nothing", async () => {
+    const { store, rows } = await setup();
+    // A day before every iteration: "current" resolves to no sprint.
+    const ctx = { viewerLogin: "alice", store, todayIso: "2020-01-01T00:00:00Z" };
+    const view: View = { id: "t", name: "t", layout: "list", filters: [{ field: "release", op: "in", values: ["current"] }], sort: [] };
+    expect(runView(view, ctx, rows)).toHaveLength(0);
+  });
+});

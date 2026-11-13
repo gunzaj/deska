@@ -2,7 +2,7 @@
 // desktop shell asks before it opens the window, and the user picks "Restore
 // from latest backup" (or starts empty). The damaged database folder is moved
 // aside, never deleted.
-import { existsSync, mkdirSync, renameSync } from "node:fs";
+import { existsSync, mkdirSync, renameSync, rmSync } from "node:fs";
 import { closeDb, dbDir, ensureMigrated } from "@/db";
 import { resetSettingsCache } from "../settings";
 import { invalidateReadCache } from "../store";
@@ -50,10 +50,28 @@ export async function recoverDatabase(mode: "restore" | "fresh", after: () => vo
     movedTo = `${dir}.damaged-${new Date().toISOString().replace(/[:.]/g, "-")}`;
     renameSync(dir, movedTo);
   }
-  mkdirSync(dir, { recursive: true });
-  resetSettingsCache();
-  invalidateReadCache();
-  await ensureMigrated();
+  try {
+    mkdirSync(dir, { recursive: true });
+    resetSettingsCache();
+    invalidateReadCache();
+    await ensureMigrated();
+  } catch (e) {
+    // The fresh database cannot open either (a failed migration, a full disk):
+    // put the original back, or the next launch would open an empty folder
+    // without asking and nothing would ever be restored.
+    try {
+      await closeDb();
+    } catch {
+      // never opened
+    }
+    if (movedTo) {
+      rmSync(dir, { recursive: true, force: true });
+      renameSync(movedTo, dir);
+    }
+    const reason = e instanceof Error ? (e.cause instanceof Error ? e.cause.message : e.message) : String(e);
+    setDbState(false, reason);
+    throw new LocalDataError(`Deska could not set up a new database (${reason.slice(0, 200)}). Your original database was put back; nothing was changed.`, 500);
+  }
 
   const result: RecoverResult = { restored: null, movedTo, skipped: [] };
   if (mode === "restore") {

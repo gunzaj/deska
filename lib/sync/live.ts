@@ -8,7 +8,7 @@ import type { IdResolver } from "./poll";
 import type { ReconcileSource } from "./reconcile";
 import { effectiveMapping, type ProjectFieldMap } from "./field-map";
 import { readMapping } from "../settings";
-import { GitHubSource } from "./source-github";
+import { GitHubSource, ProjectNotFoundError } from "./source-github";
 import type { ImportSource, IssuePage } from "./first-import";
 import type {
   FullSnapshot,
@@ -71,7 +71,8 @@ async function fetchMetadata(
       } } } } } }`,
       { org, num, after },
     );
-    const project = fieldsRes.organization.projectV2;
+    const project = fieldsRes?.organization?.projectV2;
+    if (!project) throw new ProjectNotFoundError(org, num);
     projectId = project.id;
     fieldNodes.push(...project.fields.nodes);
     const info = project.fields.pageInfo;
@@ -389,6 +390,8 @@ export function githubReconcileSource(token: string, ids: IdResolver, fields: Pr
     fetchMetadata: () => fetchRepoMetadata(token, target),
     listOpenNodeIds: () => gh.listOpenNodeIds(),
     fetchNodes: (nodeIds) => gh.fetchNodes(nodeIds),
+    // §4.4 [D9]: without this the reconcile never re-reads the parents' counts.
+    fetchSubSummaries: (nodeIds) => gh.fetchSubSummaries(nodeIds),
     repoName: gh.repoName,
   };
 }

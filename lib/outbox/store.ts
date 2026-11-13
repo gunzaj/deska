@@ -65,6 +65,11 @@ export type ProcessDeps = {
   refresh?: (issueNodeId: string) => Promise<void>;
   /** Persist a finished step of a multi-step job before the next one starts (W0). */
   recordStep?: (id: string, step: string, result?: unknown) => Promise<void>;
+  /**
+   * Answer the edit request as soon as GitHub has taken the write: the cache
+   * re-read and the queued followers run afterwards, off the request's clock.
+   */
+  background?: boolean;
 };
 
 type Raw = typeof outbox.$inferSelect;
@@ -176,15 +181,63 @@ async function claim(id: string): Promise<Raw | null> {
   return row ?? null;
 }
 
+/** A row `sending` for longer than this, with the process still running, was lost by its run (W0). */
+export const STALE_SENDING_MS = 10 * 60_000;
+
 /**
- * A crash between the two steps of a close leaves its row `sending`; the next
- * start turns it back into a pending row. Its `step` says where to resume, so the
- * close is not sent twice and the Status update is not skipped.
+ * A crash or quit during a try leaves its row `sending`; the next start turns it
+ * back into a pending row. Its `step` says where a multi-step job resumes. The
+ * try that was cut off counts as an attempt: `attempts` is otherwise only
+ * raised when a try finishes, so a first try that GitHub may already have
+ * applied would look like a row never sent, and the retry would create a second
+ * issue or report the user's own close as a conflict. With the count raised, the
+ * worker looks at GitHub before it sends again (attemptEntry).
+ *
+ * With `olderThanMs`, only rows untouched for that long are recovered: the
+ * worker loop uses it for a row whose result could not be recorded (a database
+ * error), which would otherwise block its issue and field until a restart.
  */
-export async function recoverSending(): Promise<number> {
-  const rows = await getDb().update(outbox).set({ status: "pending" }).where(eq(outbox.status, "sending")).returning({ id: outbox.id });
+export async function recoverSending(olderThanMs?: number): Promise<number> {
+  const stale = olderThanMs === undefined ? undefined : lte(outbox.updatedAt, new Date(Date.now() - olderThanMs));
+  const rows = await getDb()
+    .update(outbox)
+    .set({ status: "pending", attempts: sql`${outbox.attempts} + 1`, updatedAt: new Date() })
+    .where(and(eq(outbox.status, "sending"), stale))
+    .returning({ id: outbox.id });
   return rows.length;
 }
+
+/**
+ * Fail every edit still waiting to be sent (SPEC §3.4, §4.8): after the GitHub
+ * sign-in or the project changed, a queued label change or create must not go
+ * out later under another account or into another project. A row being sent
+ * right now finishes; nothing here touches GitHub.
+ */
+export async function failPendingEdits(reason: string): Promise<number> {
+  return getDb().transaction(async (tx) => {
+    const rows = await tx
+      .update(outbox)
+      .set({ status: "failed", error: reason, nextAttemptAt: null, updatedAt: new Date() })
+      .where(eq(outbox.status, "pending"))
+      .returning();
+    if (rows.length) {
+      await tx.insert(auditLog).values(
+        rows.map((r) => ({
+          userId: r.userId ?? LOCAL_OWNER,
+          issueNodeId: targetNodeId(toRow(r)),
+          field: r.field ?? r.op,
+          old: (r.baseJson ?? null) as never,
+          new: (r.newJson ?? null) as never,
+          result: "failed",
+        })),
+      );
+    }
+    return rows.length;
+  });
+}
+
+export const SIGN_IN_CHANGED = "The GitHub sign-in changed before this was sent. Nothing was written; make the change again.";
+export const PROJECT_CHANGED = "The project changed before this was sent. Nothing was written.";
 
 /** Persist a finished step of a multi-step job, before the next step starts (W0). */
 export async function saveStep(id: string, step: string, result?: unknown): Promise<void> {
@@ -294,8 +347,15 @@ export async function processEdit(id: string, deps: ProcessDeps): Promise<Outbox
   if (!claimed) return getEdit(id);
   const out = await runAttempt(claimed, deps);
   if (!out) return getEdit(id);
-  await afterDone(out, deps);
-  await processFollowers(out, deps);
+  const rest = async () => {
+    await afterDone(out, deps);
+    await processFollowers(out, deps);
+  };
+  if (deps.background) {
+    void rest().catch((e) => console.error(`outbox: background follow-up failed: ${e instanceof Error ? e.message : String(e)}`));
+    return out;
+  }
+  await rest();
   return out;
 }
 

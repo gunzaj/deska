@@ -102,6 +102,24 @@ export async function aiNotReady(): Promise<{ settings: AiSettings; failure: AiF
   return { settings, failure: null };
 }
 
+/** Why a queued job may no longer run with the settings it was queued under, or null. */
+async function changedSince(queued: AiSettings): Promise<AiFailure | null> {
+  const { settings, failure } = await aiNotReady();
+  if (failure) return failure;
+  if (verifyId(settings) !== verifyId(queued)) return { code: "not-verified", message: "The AI settings changed after this was queued. Run it again." };
+  return null;
+}
+
+/**
+ * The provider, model or endpoint changed (Settings → AI): stop what is queued
+ * or running for the previous one. Returns how many jobs were stopped.
+ */
+export function cancelActiveJobs(): number {
+  const active = [...store().jobs.values()].filter((j) => j.state === "queued" || j.state === "running");
+  for (const j of active) cancelJob(j.id);
+  return active.length;
+}
+
 /** A short, value-free description of why an answer failed its schema, for the retry prompt. */
 function describeIssues(issues: { path: PropertyKey[]; message: string }[]): string {
   return issues
@@ -224,6 +242,15 @@ function enqueue(task: AiTask, { settings, failure }: Awaited<ReturnType<typeof 
   s.tail = s.tail.then(async () => {
     try {
       if (job.state !== "queued") return; // cancelled while waiting
+      // The settings may have changed while this waited behind other jobs: AI
+      // turned off, or another provider, model or endpoint that has not passed
+      // "Test connection". Nothing is sent to the one it was queued for.
+      const stale = await changedSince(settings);
+      if (stale) {
+        job.state = "error";
+        job.error = stale;
+        return;
+      }
       job.state = "running";
       await execute(job, task, settings, ctrl.signal);
     } catch (e) {

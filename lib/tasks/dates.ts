@@ -53,6 +53,14 @@ export function isIsoDate(s: unknown): s is string {
   return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === s;
 }
 
+/**
+ * A date input's value that is a finished date: a date input passes through
+ * 0002-…, 0020-… while a year is typed, and those must not be saved.
+ */
+export function isCompleteDate(s: string): boolean {
+  return isIsoDate(s) && Number(s.slice(0, 4)) >= 1000;
+}
+
 export type DueTone = "overdue" | "today" | "soon" | "later";
 
 /** Todoist-style label: Yesterday / Today / Tomorrow / weekday this week / "20 Oct". */

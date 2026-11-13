@@ -208,7 +208,7 @@ test("projects, labels and Today: quick add files the task; archiving hides it f
 
   await nav.getByRole("link", { name: "Today" }).click();
   await expect(page.getByRole("listitem").filter({ hasText: name })).toBeVisible();
-  await nav.getByRole("link", { name: "specwork", exact: true }).click();
+  await nav.getByRole("link", { name: /^specwork( \d+)?$/ }).click();
   await expect(page.getByRole("listitem").filter({ hasText: name })).toBeVisible();
 
   await nav.getByRole("link", { name: project }).click();

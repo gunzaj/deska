@@ -4,6 +4,7 @@ import { beforeAll, describe, expect, it } from "vitest";
 import { sql } from "drizzle-orm";
 import { getDb } from "@/db";
 import { taskProjects, taskReminders } from "@/db/schema";
+import { dueCount } from "@/lib/tasks/counts";
 import { COMPLETED_LIMIT, PostgresTaskRepo, type StoredTask } from "@/lib/tasks/repo";
 
 function row(p: Partial<StoredTask>): StoredTask {
@@ -171,6 +172,30 @@ describe("PostgresTaskRepo", () => {
     expect(ids).not.toContain(done.id);
   });
 
+  it("counts what is due in SQL exactly as the Today badge does (T-12)", async () => {
+    const today = "2026-10-20";
+    const archived = { id: crypto.randomUUID(), owner: "dc", name: "Old", color: "grey", position: 1, archived: true, source: null };
+    const live = { ...archived, id: crypto.randomUUID(), name: "Live", archived: false };
+    await repo.insertProject(archived);
+    await repo.insertProject(live);
+    const mk = async (p: Partial<StoredTask>, projectId: string | null) => {
+      const t = row({ creator: "dc", ...p });
+      await repo.insert(t);
+      if (projectId) await repo.setPlacement(t.id, "dc", { projectId, position: 1 });
+    };
+    await mk({ dueDate: "2026-10-19" }, null); // overdue: counts
+    await mk({ dueDate: today }, live.id); // today, live project: counts
+    await mk({ dueDate: today, parentId: null }, archived.id); // archived project: no
+    await mk({ dueDate: "2026-10-21" }, null); // tomorrow: no
+    await mk({ dueDate: today, completedAt: "2026-10-19T00:00:00.000Z" }, null); // done: no
+    await mk({ dueDate: today, deletedAt: "2026-10-19T00:00:00.000Z" }, null); // deleted: no
+    await mk({ dueDate: today }, null); // counts
+    const places = await repo.placements("dc");
+    const all = (await repo.list()).map((t) => ({ ...t, projectId: places.get(t.id)?.projectId ?? null }));
+    expect(await repo.dueCount("dc", today)).toBe(dueCount(all, await repo.projects("dc"), today));
+    expect(await repo.dueCount("dc", today)).toBeGreaterThanOrEqual(3);
+  });
+
   it("dedupes notifications, counts unread and marks read per login", async () => {
     const t = row({ creator: "nn" });
     await repo.insert(t);
@@ -185,7 +210,8 @@ describe("PostgresTaskRepo", () => {
     expect((await repo.notifications("nn", 10)).unread).toBe(2);
     await repo.markRead("nn", [list[0]!.id]);
     expect((await repo.notifications("nn", 10)).unread).toBe(1);
-    await repo.deleteNotificationsForTask(t.id);
+    // Deleting the task for good cascades to its notifications.
+    await getDb().execute(sql`DELETE FROM tasks WHERE id = ${t.id}`);
     expect((await repo.notifications("nn", 10)).list).toEqual([]);
   });
 

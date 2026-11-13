@@ -17,7 +17,10 @@ import { Dialog } from "../ui/dialog";
 import { btn } from "../ui/popover";
 import { useToast } from "../ui/toast";
 
-type Entry = { id: string; issueNodeId: string; op: string; field: string | null; status: string; error: string | null; remote: unknown; next: unknown };
+type Entry = { id: string; issueNodeId: string; op: string; field: string | null; idempotencyKey?: string; status: string; error: string | null; remote: unknown; next: unknown };
+
+/** Still with the outbox: waiting for a try, or being sent right now. */
+const inFlight = (status: string) => status === "pending" || status === "sending";
 
 type Conflict = { issue: ClientIssue; field: EditField; next: unknown; remote: unknown };
 
@@ -47,6 +50,8 @@ export function useIssueEdits(): EditsCtx {
 
 const fieldKey = (nodeId: string, field: string) => `${nodeId}:${field}`;
 const POLL_MS = 10_000;
+/** Longest the UI waits on one edit request. */
+const EDIT_TIMEOUT_MS = 20_000;
 
 /** A value as people read it: option and iteration names, never IDs. */
 export function valueText(meta: ClientMeta, field: EditField, v: unknown): string {
@@ -110,6 +115,12 @@ export function EditsProvider({ children }: { children: ReactNode }) {
   // the old value (the cache has not moved yet) while its spinner still showed
   // (v5 3.11). Several edits can be queued for one field.
   const queuedOverlays = useRef(new Map<string, { nodeId: string; ids: string[] }>());
+  // Queued edits made with `quiet` (bulk edits): their outcome is not toasted.
+  const quietIds = useRef(new Set<string>());
+  // Read through a ref: the map changes with every data load, and loadQueued
+  // must not change with it (its effect would fetch the outbox each time).
+  const byNodeIdRef = useRef(byNodeId);
+  byNodeIdRef.current = byNodeId;
   const queuedRef = useRef(queued);
   queuedRef.current = queued;
 
@@ -130,21 +141,45 @@ export function EditsProvider({ children }: { children: ReactNode }) {
     const res = await fetch("/api/outbox?mine=1", { cache: "no-store" }).catch(() => null);
     if (isUnauthorized(res) || !res?.ok) return;
     const { entries } = (await res.json()) as { entries: Entry[] };
-    const keys = new Set(entries.filter((e) => e.status === "pending").map((e) => fieldKey(e.issueNodeId, e.field ?? "state")));
+    const keys = new Set(entries.filter((e) => inFlight(e.status)).map((e) => fieldKey(e.issueNodeId, e.field ?? "state")));
     // Something we were waiting for went through (or failed): fetch the new
     // data, then drop its overlay, so the row never shows a value in between.
     const gone = [...queuedRef.current].filter((k) => !keys.has(k));
     setQueued(keys);
     if (!gone.length) return;
     await refresh();
+    // The server keys an edit by `<login>:<client id>`; done rows are not listed.
+    const byClientId = new Map<string, Entry>();
+    for (const e of entries) {
+      const clientId = e.idempotencyKey?.slice(e.idempotencyKey.indexOf(":") + 1);
+      if (clientId) byClientId.set(clientId, e);
+    }
+    let failed: { entry: Entry; quiet: boolean } | null = null;
     for (const k of gone) {
       const o = queuedOverlays.current.get(k);
       if (!o) continue;
-      // The refreshed row has it; edits still in flight stay on top.
-      for (const id of o.ids) settle(o.nodeId, id, false);
+      // The refreshed row has it; edits still in flight stay on top. A failed
+      // or conflicting edit never reached GitHub, so its layer just goes.
+      for (const id of o.ids) {
+        settle(o.nodeId, id, false);
+        const entry = byClientId.get(id);
+        if (entry && (entry.status === "failed" || entry.status === "conflict")) failed = { entry, quiet: quietIds.current.has(id) };
+        quietIds.current.delete(id);
+      }
       queuedOverlays.current.delete(k);
     }
-  }, [meta.writeMode, refresh, settle]);
+    // A queued edit that ended badly used to vanish without a word: the value
+    // flipped back and nothing said why.
+    if (!failed || failed.quiet) return;
+    const { entry } = failed;
+    const issue = byNodeIdRef.current.get(entry.issueNodeId);
+    if (entry.status === "conflict" && issue && entry.field) {
+      setConflict({ issue, field: entry.field as EditField, next: entry.next, remote: entry.remote ?? null });
+      return;
+    }
+    const where = issue ? ` #${issue.number}` : "";
+    toast({ message: `Couldn't save${where}: ${entry.error ?? entry.status}`, kind: "error" });
+  }, [meta.writeMode, refresh, settle, toast]);
   useEffect(() => {
     void loadQueued();
   }, [loadQueued]);
@@ -169,9 +204,26 @@ export function EditsProvider({ children }: { children: ReactNode }) {
       bump(key, 1);
       const body = editRequest(issue, field, next, id);
       if (opts.base !== undefined) body.base = opts.base;
-      const res = await fetch(`/api/issues/${issue.number}/edit`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }).catch(() => null);
+      // Not endless: past this the request may still land, so the edit is
+      // treated as queued and the poll below settles it.
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), EDIT_TIMEOUT_MS);
+      let timedOut = false;
+      const res = await fetch(`/api/issues/${issue.number}/edit`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body), signal: ctrl.signal }).catch(() => {
+        timedOut = ctrl.signal.aborted;
+        return null;
+      });
       const out = (await res?.json().catch(() => null)) as { entry?: Entry; error?: string } | null;
+      clearTimeout(timer);
       bump(key, -1);
+      if (timedOut) {
+        if (opts.quiet) quietIds.current.add(id);
+        const q = queuedOverlays.current.get(key);
+        queuedOverlays.current.set(key, { nodeId: issue.nodeId, ids: [...(q?.ids ?? []), id] });
+        setQueued((prev) => new Set(prev).add(key));
+        if (!opts.quiet) toast({ message: "GitHub is slow to answer. Still saving; Deska will update when it's done." });
+        return "pending";
+      }
       if (isUnauthorized(res)) {
         rollback(issue.nodeId, id);
         return "failed";
@@ -179,6 +231,7 @@ export function EditsProvider({ children }: { children: ReactNode }) {
       if (res?.status === 200 || res?.status === 202) {
         if (res.status === 202) {
           // The outbox has it and will write it later: keep the overlay (see above).
+          if (opts.quiet) quietIds.current.add(id);
           const q = queuedOverlays.current.get(key);
           queuedOverlays.current.set(key, { nodeId: issue.nodeId, ids: [...(q?.ids ?? []), id] });
           setQueued((prev) => new Set(prev).add(key));

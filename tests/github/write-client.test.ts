@@ -152,6 +152,8 @@ describe("GitHubWriteClient", () => {
     expect(mutations).toHaveLength(1);
     expect(mutations[0]!.query).toContain("updateProjectV2ItemFieldValue");
     expect(mutations[0]!.query).toContain(`${key}:$value`);
+    // GitHub types both value keys as String; `$value:ID!` was refused on every write.
+    expect(mutations[0]!.query).toContain("$value:String!");
     expect(mutations[0]!.variables).toEqual({ project: PROJECT, item: "PVTI_existing", field: fieldId, value });
   });
 
@@ -221,6 +223,15 @@ describe("GitHubWriteClient", () => {
     await expect(c.readField("I_1", "state")).rejects.toThrow(/nothing was written/);
     expect(rest).toHaveLength(0);
     expect(isRetryable(await c.closeIssue("I_1").catch((e) => e))).toBe(false);
+  });
+
+  it("a transferred issue is refused for writes by node ID too: Type and project fields", async () => {
+    issueRepo = "acme/gadgets";
+    const c = client();
+    await expect(c.applyField("I_1", "type", "IT_acme_feature")).rejects.toThrow(/now lives in/);
+    await expect(c.applyField("I_1", "status", "opt_todo")).rejects.toThrow(NonRetryableError);
+    expect(mutations).toHaveLength(0);
+    expect(rest).toHaveLength(0);
   });
 
   it("treats a 404 on label removal as done", async () => {

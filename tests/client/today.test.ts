@@ -27,6 +27,16 @@ describe("the viewer's today", () => {
 
   it("resolves Releases like the server does", () => {
     expect(releasesOn(releases, "2026-11-23")).toEqual({ currentReleaseId: "R2", nextReleaseId: "R3", previousReleaseId: "R1" });
-    expect(releasesOn(releases, "2027-01-01")).toEqual({ currentReleaseId: null, nextReleaseId: null, previousReleaseId: null });
+  });
+
+  it("on a day outside every iteration there is no current one, and next and previous go by date (§4.1)", () => {
+    // After the last sprint.
+    expect(releasesOn(releases, "2027-01-01")).toEqual({ currentReleaseId: null, nextReleaseId: null, previousReleaseId: "R3" });
+    // Before the first.
+    expect(releasesOn(releases, "2026-10-01")).toEqual({ currentReleaseId: null, nextReleaseId: "R1", previousReleaseId: null });
+    // A break between two: R1 ended on the 10th, R2 starts on the 17th.
+    const gap: ClientRelease[] = [releases[0]!, { id: "R2", title: "Sprint 2", startDate: "2026-11-17", duration: 14, endDate: "2026-12-01" }];
+    expect(releasesOn(gap, "2026-11-12")).toEqual({ currentReleaseId: null, nextReleaseId: "R2", previousReleaseId: "R1" });
+    expect(releasesOn([], "2026-11-12")).toEqual({ currentReleaseId: null, nextReleaseId: null, previousReleaseId: null });
   });
 });

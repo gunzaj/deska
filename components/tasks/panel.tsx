@@ -3,6 +3,7 @@
 import { useSearchParams } from "next/navigation";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { formatDate, longAgo } from "@/lib/client/format";
+import { labelNameOf } from "@/lib/client/task-optimistic";
 import type { Task } from "@/lib/tasks/model";
 import { Icon } from "../icons";
 import { EmptyHint } from "../props";
@@ -18,6 +19,7 @@ import { SectionPicker } from "./sections";
 import { closeTask, openTask, TASK_PARAM } from "./open-task";
 import { useTasks } from "./store";
 import { usePanelFocus } from "../app/panel-focus";
+import { useTasksOnly } from "../app/tasks-only";
 
 /** Side panel for `?task=<id>`, over the right of the content like the issue panel. */
 export function TaskPeek() {
@@ -65,12 +67,16 @@ function Prop({ label, children }: { label: string; children: ReactNode }) {
 }
 
 function TaskPanel({ id }: { id: string }) {
-  const { tasks, loaded, update, remove } = useTasks();
-  const task = tasks.find((t) => t.id === id) ?? null;
+  const { tasks, update, remove } = useTasks();
+  // The store holds the newest 200 completed tasks; an older one (opened from
+  // Completed) is read from the server instead (T-5).
+  const [fetched, setFetched] = useState<Task | null>(null);
+  const task = tasks.find((t) => t.id === id) ?? (fetched?.id === id ? fetched : null);
   // Rendered description, tagged with the text it was rendered from: a stale
   // render (a colleague edited it, or an edit is still saving) isn't shown.
   const [rendered, setRendered] = useState<{ from: string; html: string } | null>(null);
   const [missing, setMissing] = useState(false);
+  const [failed, setFailed] = useState(false);
   const description = task?.description;
   const latest = useRef({ description, rendered });
   latest.current = { description, rendered };
@@ -82,8 +88,9 @@ function TaskPanel({ id }: { id: string }) {
     fetch(`/api/tasks/${id}`, { cache: "no-store", signal: ctrl.signal })
       .then(async (res) => {
         if (res.status === 404) return setMissing(true);
-        if (!res.ok) return;
+        if (!res.ok) return setFailed(true);
         const body = (await res.json()) as { task: Task; descriptionHtml: string };
+        setFetched(body.task);
         // A save may have rendered the current text while this was on its way.
         setRendered((prev) => (prev && prev.from === latest.current.description ? prev : { from: body.task.description, html: body.descriptionHtml }));
       })
@@ -95,8 +102,10 @@ function TaskPanel({ id }: { id: string }) {
     return (
       <>
         <PanelTop />
-        {missing || loaded ? (
+        {missing ? (
           <EmptyHint icon="alert" title="Task not found" hint="It was deleted." />
+        ) : failed ? (
+          <EmptyHint icon="alert" title="Could not load the task" hint="Check the connection and open it again." />
         ) : (
           <p className="p-6 text-muted">Loading…</p>
         )}
@@ -104,7 +113,13 @@ function TaskPanel({ id }: { id: string }) {
     );
   }
   const html = rendered?.from === task.description ? rendered.html : null;
-  return <TaskBody task={task} html={html} setRendered={setRendered} update={update} remove={remove} />;
+  // A task the store doesn't hold has no optimistic copy: show the server's answer.
+  const save: typeof update = async (tid, patch) => {
+    const res = await update(tid, patch);
+    if (res && !tasks.some((t) => t.id === tid)) setFetched(res.task);
+    return res;
+  };
+  return <TaskBody task={task} html={html} setRendered={setRendered} update={save} remove={remove} />;
 }
 
 function PanelHeader({ children }: { children?: ReactNode }) {
@@ -149,8 +164,9 @@ function TaskBody({
   const [confirmDelete, setConfirmDelete] = useState(false);
   const { tasks, labels, sections, toggleComplete } = useTasks();
   const { today, now, tz } = useToday();
+  const tasksOnly = useTasksOnly();
   const parent = task.parentId ? tasks.find((t) => t.id === task.parentId) : null;
-  const myLabels = task.labels.map((id) => labels.find((l) => l.id === id)?.name).filter((n): n is string => Boolean(n));
+  const myLabels = task.labels.map((id) => labelNameOf(id, labels)).filter((n): n is string => Boolean(n));
   const done = Boolean(task.completedAt);
 
   useEffect(() => setTitle(task.title), [task.title]);
@@ -274,7 +290,7 @@ function TaskBody({
                 ))}
               </div>
             )}
-            <AddLinkButton linked={task.links.map((l) => l.number)} onAdd={(n) => void update(task.id, { links: [...task.links.map((l) => l.number), n] })} />
+            {!tasksOnly && <AddLinkButton linked={task.links.map((l) => l.number)} onAdd={(n) => void update(task.id, { links: [...task.links.map((l) => l.number), n] })} />}
           </section>
 
           {!task.parentId && <SubTasks parent={task} />}
@@ -306,9 +322,12 @@ function TaskBody({
             <Prop label="Priority">
               <PriorityPicker value={task.priority} onChange={(p) => void update(task.id, { priority: p })} />
             </Prop>
-            <Prop label="Project">
-              <ProjectPicker value={task.projectId} onChange={(id) => void update(task.id, { projectId: id })} />
-            </Prop>
+            {/* A sub-task lives under its parent; a project page lists only top-level tasks (T-8). */}
+            {!task.parentId && (
+              <Prop label="Project">
+                <ProjectPicker value={task.projectId} onChange={(id) => void update(task.id, { projectId: id })} />
+              </Prop>
+            )}
             {task.projectId && !task.parentId && sections.some((s) => s.projectId === task.projectId) && (
               <Prop label="Section">
                 <SectionPicker projectId={task.projectId} value={task.sectionId} onChange={(id) => void update(task.id, { sectionId: id })} />

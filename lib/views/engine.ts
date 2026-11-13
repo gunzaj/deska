@@ -112,6 +112,11 @@ export function compileFilter(f: Filter, ctx: ViewContext): RowTest {
   }
   const op = (f as { op: string }).op;
   const field = f.field;
+  // "is" / "is not" with no value picked is no constraint: the chip reads "is
+  // any", and unticking a chip's last value must not empty the list. Asked of
+  // the values as stored, so "current sprint" with no current sprint still
+  // matches nothing.
+  if ((op === "in" || op === "not_in") && !((f as { values?: string[] }).values ?? []).length) return () => true;
   let values: (string | null | undefined)[] | undefined;
   if (field === "release") {
     values = releaseValues((f as { values?: string[] }).values, ctx);
