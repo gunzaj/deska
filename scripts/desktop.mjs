@@ -5,7 +5,7 @@
 //                        after onboarding, or set DESKA_DEMO_SEED=demo for sample data
 //   pnpm desktop:stage   build the Next standalone server and the Electron code
 //                        into desktop/build (enough to run `electron .`)
-//   pnpm desktop:build   stage, then package an unsigned universal .dmg in release/
+//   pnpm desktop:build   stage, then package an ad-hoc signed universal .dmg in release/
 import { execFileSync, spawn } from "node:child_process";
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
@@ -122,10 +122,17 @@ function afterPackHook() {
   writeFileSync(
     hook,
     `const { cpSync } = require("node:fs");
+const { execFileSync } = require("node:child_process");
 const path = require("node:path");
 exports.default = async (context) => {
   const app = path.join(context.appOutDir, context.packager.appInfo.productFilename + ".app");
   cpSync(${JSON.stringify(path.join(BUILD, "server"))}, path.join(app, "Contents", "Resources", "server"), { recursive: true });
+  // Ad-hoc sign the finished bundle (not the per-architecture halves of a
+  // universal build). Without a sealed signature macOS has no identity to
+  // keep a privacy grant against, and asks for the microphone on every use.
+  if (context.appOutDir.endsWith("-temp")) return;
+  execFileSync("codesign", ["--force", "--deep", "--sign", "-", "--options", "runtime", "--entitlements", ${JSON.stringify(path.join(root, "desktop", "assets", "entitlements.mac.plist"))}, app], { stdio: "inherit" });
+  execFileSync("codesign", ["--verify", "--deep", "--strict", app], { stdio: "inherit" });
 };
 `,
   );
@@ -154,9 +161,11 @@ function build() {
       target: [{ target: "dmg", arch: ["universal"] }],
       category: "public.app-category.productivity",
       icon: path.join(root, "desktop", "assets", "icon.icns"),
-      // Unsigned until the maintainer has a Developer ID (SPEC §1.3).
+      // No Developer ID yet (SPEC §1.3): electron-builder signs nothing, and
+      // the afterPack hook signs the bundle ad hoc with the entitlements in
+      // desktop/assets/entitlements.mac.plist.
       identity: null,
-      // The flag is set for when a Developer ID exists; it has no effect on an unsigned build.
+      // For when a Developer ID exists; the ad-hoc signature sets the same flag.
       hardenedRuntime: true,
       gatekeeperAssess: false,
       // The server folder is the same JavaScript in both architectures.

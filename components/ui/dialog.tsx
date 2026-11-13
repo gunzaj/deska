@@ -78,7 +78,7 @@ export function Dialog({ open, onClose, children, width = 440, label }: { open: 
   return createPortal(
     <div className="fixed inset-0 z-50 flex items-start justify-center p-4 pt-[12vh]">
       <button type="button" aria-label="Close" tabIndex={-1} onClick={onClose} className="anim-fade absolute inset-0 cursor-default bg-underlay" />
-      <div ref={panel} role="dialog" aria-modal="true" aria-label={label} tabIndex={-1} className="anim-pop relative w-full overflow-hidden rounded-2xl border border-line bg-popover shadow-modal outline-none" style={{ maxWidth: width }}>
+      <div ref={panel} role="dialog" aria-modal="true" aria-label={label} tabIndex={-1} className="anim-pop relative max-h-[calc(100dvh-12vh-1rem)] w-full overflow-y-auto overscroll-contain rounded-2xl border border-line bg-popover shadow-modal outline-none" style={{ maxWidth: width }}>
         {children}
       </div>
     </div>,

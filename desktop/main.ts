@@ -561,7 +561,7 @@ function openQuickAdd() {
   }
   const win = new BrowserWindow({
     width: 600,
-    height: 190,
+    height: 170,
     useContentSize: true,
     title: "Quick add",
     frame: false,
@@ -775,7 +775,7 @@ function registerIpc() {
     if (!fromApp(e) || !quickWindow || quickWindow.isDestroyed() || e.sender !== quickWindow.webContents) return;
     if (typeof height !== "number" || !Number.isFinite(height)) return;
     const [w] = quickWindow.getContentSize();
-    quickWindow.setContentSize(w ?? 600, Math.round(Math.min(Math.max(height, 190), 480)));
+    quickWindow.setContentSize(w ?? 600, Math.round(Math.min(Math.max(height, 160), 480)));
   });
 }
 

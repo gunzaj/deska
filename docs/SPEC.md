@@ -150,7 +150,7 @@ GitHub stays the shared source of truth. Anyone without Deska can open every iss
 - Multiple repositories or projects at once; user-owned (non-org) projects.
 - Deleting issues, ever. Creating, renaming or deleting project fields, options or iterations. Removing project items.
 - Editing issue title/body, posting GitHub comments, editing parent/sub-issue relationships.
-- Auto-update. Code signing/notarization (added later when the maintainer has a Developer ID).
+- Auto-update. Developer ID code signing/notarization (added later when the maintainer has a Developer ID). Until then the bundle is signed ad hoc (§5 D14).
 
 ## 1.4 Starting point
 
@@ -361,6 +361,8 @@ Add — desktop-native (D12):
 
 **[D12]** The desktop settings (shortcut, notifications, launch at login, Dock badge) are kept by the main process in `desktop-prefs.json` in the profile (no secret in it), not in the database, because main is what registers the shortcut, shows banners and sets the badge. Defaults: `⌃⌥Space` (`Control+Alt+Space`), notifications on, badge on, launch at login off (and only offered in the installed app). A shortcut needs Control, Command or Alt plus one key; one another app holds is refused and the previous one stays. The quick-add window is `/quick-add` in a small always-on-top frameless window: same parser as in-app quick add (dates, times, recurrence, priority, `+label`, `=Project`; `#issue` links stay text), Enter saves and closes, Esc closes. Reminders fire from a 30 s timer in the server process (`lib/desktop/reminders.ts`), whether or not a page polls; each new reminder notification is handed to main once and shown natively with Complete, Snooze 1 h and Tomorrow (clicking opens the task). Snooze adds a one-shot snooze reminder (1 h from now, or 09:00 tomorrow in the task's zone) through `POST /api/tasks/[id]/snooze`; unlike the task's own absolute reminders it does not move with a recurring task, and completing the occurrence drops it; all three actions also mark the notification read. If macOS blocks notifications, or they are off, the bell still has every reminder. The Dock badge is `dueCount` (`lib/tasks/counts.ts`, also the sidebar's Today count: open, not in an archived project, due today or earlier, sub-tasks included), refreshed within a second of a task edit and on every tick. Closing the window keeps the app running; the Dock icon opens a window again; a launch by "launch at login" opens none.
 
+**[Changed after D14, at the maintainer's request]** The quick-add window shows the same form as the in-app quick add (the sidebar's +): the typed line with its recognised chips, "+ Description", pickers to set the due date, time, repeat, priority, project and labels with the mouse (a pick wins over the parsed word, as in-app), AI assist, Cancel, Add another and Add task. Without issue data it has no "Link issue" button and `#1234` stays text. The window is as tall as the form and grows (up to 480 px) while a picker or the suggestion list is open.
+
 Add — Todoist parity (D13):
 - **Sections** in a project (create, rename, reorder, collapse, drag tasks between them).
 - **Completed** view: last 30 days grouped by day, with un-complete.
@@ -476,7 +478,7 @@ Steps:
 - Electron main, preload and a utilityProcess running the Next standalone build. §2.2 complete.
 - `db/` uses PGlite via Drizzle (remove the `pg` pool). Migrations run on PGlite, including `pg_trgm`; if it won't load, Possible duplicates uses the existing in-memory similarity fallback.
 - Advisory sync lock → in-process mutex. Postgres-backed tests run on PGlite (no Docker).
-- `pnpm desktop:dev`; `pnpm desktop:build` (unsigned universal `.dmg`). Demo data until D5 (in-process sync).
+- `pnpm desktop:dev`; `pnpm desktop:build` (universal `.dmg`, no Developer ID). Demo data until D5 (in-process sync).
 - **Acceptance:** the built app opens with demo data and no server started by hand; a saved view survives relaunch; a request without the secret cookie or with a wrong `Host` gets 403; GitHub links open the default browser, other external URLs are blocked; a Playwright `_electron` smoke test launches the app and loads the issue list.
 
 ### D3 — Local identity and token
@@ -529,7 +531,7 @@ Steps:
 - **Acceptance:** sections survive restart, reorder and backup/restore; un-completing from the Completed view returns the task to its project and section; ⌘K finds a task by a word only in its description.
 
 ### D14 — macOS release v1.0 (read-only)
-- `electron-builder` universal `.dmg`, hardened runtime, built with `DESKA_WRITES=off`, unsigned. Release notes include "how to open an unsigned app" steps.
+- `electron-builder` universal `.dmg`, hardened runtime, built with `DESKA_WRITES=off`, no Developer ID. The bundle is signed ad hoc with the microphone entitlement (`desktop/assets/entitlements.mac.plist`): without a sealed signature macOS cannot keep a privacy grant and asks for the microphone on every use. An ad-hoc grant belongs to one build, so macOS asks once after each update. Release notes include "how to open an unsigned app" steps.
 - About window: version + link to Releases. No auto-update.
 - `docs/handoff.md`: install and run, read and write permissions, what's read-only, where data and backups live, known limitations.
 - A GitHub Actions workflow builds the `.dmg` on a `v*` tag.

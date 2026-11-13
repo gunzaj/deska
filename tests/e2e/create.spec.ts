@@ -52,8 +52,13 @@ test("the form sends title, body, Type, labels, assignees, milestone and the map
   await page.getByPlaceholder("Search labels…").fill("ui");
   await page.getByRole("option", { name: "UI" }).click();
   await page.keyboard.press("Escape");
-  await expect(dialog.locator("[data-create-label-chips]")).toContainText("UI");
-  await dialog.getByRole("group", { name: "Assignees" }).getByRole("checkbox", { name: "alice" }).check();
+  await expect(dialog.locator('[data-create-chips="labels"]')).toContainText("UI");
+  // Assignees: the same searchable picker, so a big org doesn't flood the form.
+  await dialog.getByRole("button", { name: "Assignees" }).click();
+  await page.getByPlaceholder("Search assignees…").fill("ali");
+  await page.getByRole("option", { name: "alice" }).click();
+  await page.keyboard.press("Escape");
+  await expect(dialog.locator('[data-create-chips="assignees"]')).toContainText("alice");
   await dialog.getByRole("button", { name: "Create issue" }).click();
   await expect.poll(() => sent).toMatchObject({
     title: "New issue from Deska",
@@ -104,5 +109,19 @@ test("with writes off the form is visible but Create is disabled with the reason
   await expect(submit).toBeDisabled();
   await expect(submit).toHaveAttribute("title", "Editing is off for this deployment");
   await expect(dialog).toContainText("Editing is off for this deployment");
+  await context.close();
+});
+
+test("on a short window the form scrolls and Create stays on screen", async ({ browser }) => {
+  const { context, page } = await as(browser, "alice", { viewport: { width: 1000, height: 520 } });
+  await page.goto("/issues");
+  const dialog = await openForm(page);
+  // The dialog never grows past the window, so its body scrolls instead of being cut off.
+  const box = await dialog.boundingBox();
+  expect(box!.y + box!.height).toBeLessThanOrEqual(520);
+  expect(await dialog.evaluate((el) => el.scrollHeight > el.clientHeight)).toBe(true);
+  // The footer sticks to the bottom: Cancel and Create are reachable without scrolling.
+  await expect(dialog.getByRole("button", { name: "Create issue" })).toBeInViewport();
+  await expect(dialog.getByRole("button", { name: "Cancel" })).toBeInViewport();
   await context.close();
 });

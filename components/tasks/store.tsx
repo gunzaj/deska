@@ -13,7 +13,7 @@ import { btn } from "../ui/popover";
 /** What quick add opens with: the issue it came from, the view's project or date (§12.4). */
 export type ComposePrefill = { links?: number[]; projectId?: string | null; sectionId?: string | null; dueDate?: string | null; parentId?: string | null };
 
-type CreateInput = Partial<CreateTaskInput> & { title: string };
+export type CreateInput = Partial<CreateTaskInput> & { title: string };
 
 /**
  * Browser-side task state. Loads every task the viewer can see once, keeps it

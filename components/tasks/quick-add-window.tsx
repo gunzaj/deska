@@ -1,19 +1,11 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
-import { normalizeTaskSuggestion } from "@/lib/ai/task-assist";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { localTime, localToday } from "@/lib/tasks/dates";
-import type { Priority, Prefs, TaskLabel, TaskProject, TaskSection } from "@/lib/tasks/model";
-import { parseQuickAdd, type TokenKind } from "@/lib/tasks/quick-add";
-import { Icon } from "../icons";
-import { btn } from "../ui/popover";
-import { TaskAssistChips, useTaskAssist, type TaskAssistChoices } from "./ai-task-assist";
-import { ColorDot } from "./organize";
+import type { Prefs, TaskLabel, TaskProject, TaskSection } from "@/lib/tasks/model";
+import { ComposeForm } from "./compose";
+import type { CreateInput } from "./store";
 import { TASKS_CHANGED } from "./store";
-import { QuickAddInput, type SuggestFn } from "./quick-add-input";
-
-/** What the one-line window can store: no `#issue` links (it has no issue data). */
-const ENABLED: ReadonlySet<TokenKind> = new Set<TokenKind>(["date", "time", "recurrence", "priority", "project", "label"]);
 
 function browserTz(): string {
   try {
@@ -23,28 +15,25 @@ function browserTz(): string {
   }
 }
 
-const BASE_HEIGHT = 190;
+/** Main clamps the window to 160–480 px of content height. */
+const MAX_HEIGHT = 480;
 
 const close = () => void window.deska?.quickAdd?.close();
 
 /**
- * The floating quick-add window (SPEC §4.6). Enter saves and closes, Esc
- * closes. It uses the same parser as the in-app quick add, so
- * "call dentist tomorrow 3pm high =Home +phone" means the same here.
- * The ✨ action asks the model for the same properties as chips to check before
- * saving; the plain parse is what Enter saves without it (SPEC §4.9).
+ * The floating quick-add window (SPEC §4.6): the same form as the in-app quick
+ * add (the sidebar's +), pickers included, so a property can be typed or set
+ * with the mouse. Enter saves and closes, Esc closes. It has no issue data, so
+ * `#1234` stays text and there is no "Link issue" button.
  */
 export function QuickAddWindow() {
-  const [text, setText] = useState("");
-  const [ignored, setIgnored] = useState<Set<string>>(new Set());
   const [projects, setProjects] = useState<TaskProject[]>([]);
   const [labels, setLabels] = useState<TaskLabel[]>([]);
   const [sections, setSections] = useState<TaskSection[]>([]);
   const [tz, setTz] = useState(browserTz);
   const [state, setState] = useState<"idle" | "saving" | "saved">("idle");
   const [error, setError] = useState<string | null>(null);
-  const saving = useRef(false);
-  const assist = useTaskAssist();
+  const box = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     void (async () => {
@@ -61,7 +50,7 @@ export function QuickAddWindow() {
     })();
   }, []);
 
-  // Esc closes, wherever the focus is.
+  // Esc closes, wherever the focus is (an open picker or suggestion list takes it first).
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape" && !e.defaultPrevented) close();
@@ -70,79 +59,39 @@ export function QuickAddWindow() {
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
-  const names = useMemo(() => projects.map((p) => p.name), [projects]);
-  const now = new Date();
-  const parsed = useMemo(
-    () => parseQuickAdd(text, { today: localToday(now, tz), now: localTime(now, tz), ignored, projects: names, enabled: ENABLED }),
-    // The clock is read at parse time; a new keystroke is the reason to re-parse.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [text, tz, ignored, names],
-  );
+  // The window is as tall as the form, plus the open suggestion list. An open
+  // picker (a popover in a portal) gets the full height: the popover re-places
+  // itself on the window's resize, below its button.
+  useLayoutEffect(() => {
+    const el = box.current;
+    if (!el) return;
+    let last = 0;
+    const fit = () => {
+      const picker = [...document.body.children].some((c) => c.getAttribute("role") === "dialog");
+      let h = el.offsetHeight;
+      for (const list of el.querySelectorAll<HTMLElement>('[role="listbox"]')) h = Math.max(h, list.getBoundingClientRect().bottom + 8);
+      const want = Math.ceil(picker ? MAX_HEIGHT : h);
+      if (want === last) return;
+      last = want;
+      void window.deska?.quickAdd?.resize?.(want);
+    };
+    fit();
+    const ro = new ResizeObserver(fit);
+    ro.observe(el);
+    const mo = new MutationObserver(fit);
+    mo.observe(document.body, { childList: true, subtree: true });
+    return () => {
+      ro.disconnect();
+      mo.disconnect();
+    };
+  }, []);
 
-  // The suggestion is fixed up against the lists this window loaded (SPEC §4.9):
-  // a project, section or label that is not there cannot become the task's.
-  const ai = useMemo(() => {
-    const s = assist.suggestion;
-    if (!s) return null;
-    return normalizeTaskSuggestion(
-      {
-        projects: projects.map((p) => ({ id: p.id, name: p.name, sections: sections.filter((x) => x.projectId === p.id).map((x) => ({ id: x.id, name: x.name })) })),
-        labels: labels.map((l) => ({ id: l.id, name: l.name })),
-        current: null,
-      },
-      s,
-    );
-  }, [assist.suggestion, projects, sections, labels]);
-  const aiChoices = useMemo<TaskAssistChoices>(() => ({ projects, sections, labels, today: localToday(new Date(), tz) }), [projects, sections, labels, tz]);
-
-  // Typing changes the line the suggestion was for: drop it (SPEC §4.9).
-  const changeText = (v: string) => {
-    if (assist.suggestion || assist.phase !== "idle" || assist.error) assist.reset();
-    setText(v);
-  };
-
-  const askAi = () => {
-    const at = new Date();
-    void assist.run(text, { today: localToday(at, tz), now: localTime(at, tz), tz });
-  };
-
-  const submit = async () => {
-    const title = ai?.title ?? parsed.title;
-    if (!title || saving.current) return;
-    saving.current = true;
+  const create = async (input: CreateInput): Promise<{ id: string } | null> => {
     setState("saving");
     setError(null);
-    const projectId = ai?.projectId ?? (parsed.project ? (projects.find((p) => p.name === parsed.project)?.id ?? null) : null);
-    const dueDate = ai?.dueDate ?? parsed.dueDate;
-    const dueTime = dueDate ? (ai?.dueDate ? (ai.dueTime ?? null) : parsed.dueTime) : null;
-    const recurrence = dueDate ? (ai?.dueDate ? (ai.recurrence ?? null) : (parsed.recurrence ? { rule: parsed.recurrence.rule, text: parsed.recurrence.label, fromCompletion: parsed.recurrence.fromCompletion } : null)) : null;
-    const priority = (ai?.priority as Priority | undefined) ?? parsed.priority ?? 4;
-    const aiLabels = (ai?.labelIds ?? []).flatMap((id) => labels.find((l) => l.id === id)?.name ?? []);
-    const aiIssue = ai?.issueNumber != null ? Number(ai.issueNumber) : null;
-    const resultId = assist.resultId;
-    const res = await fetch("/api/tasks", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        title,
-        priority,
-        dueDate,
-        dueTime,
-        tz,
-        recurrence,
-        projectId,
-        // Only the suggestion can name a section here; without one the body is
-        // exactly what the plain parse always sent.
-        ...(ai?.projectId ? { sectionId: ai.sectionId ?? null } : {}),
-        labels: [...new Set([...parsed.labels, ...aiLabels])],
-        ...(aiIssue != null ? { links: [aiIssue] } : {}),
-      }),
-    }).catch(() => null);
-    saving.current = false;
+    const res = await fetch("/api/tasks", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(input) }).catch(() => null);
     if (res?.ok) {
-      // The suggestion became the task: record it accepted (SPEC §4.9).
-      assist.reset();
-      if (resultId) void fetch(`/api/ai/results/${resultId}/outcome`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ outcome: "accepted" }) }).catch(() => null);
+      const body = (await res.json().catch(() => null)) as { task?: { id: string } } | null;
       setState("saved");
       try {
         const ch = new BroadcastChannel(TASKS_CHANGED);
@@ -151,8 +100,7 @@ export function QuickAddWindow() {
       } catch {
         // No channel: the main window finds the task on its next refresh.
       }
-      close();
-      return;
+      return { id: body?.task?.id ?? "" };
     }
     setState("idle");
     setError(
@@ -160,82 +108,25 @@ export function QuickAddWindow() {
         ? "Could not reach Deska."
         : res.status === 401
           ? "Connect GitHub in Deska first."
-          : (await res.json().catch(() => null))?.error ?? `Could not save (HTTP ${res.status}).`,
+          : ((await res.json().catch(() => null))?.error ?? `Could not save (HTTP ${res.status}).`),
     );
+    return null;
   };
 
-  // `=` lists projects and `+` labels, as in the in-app quick add. No `#`: this
-  // window has no issue data.
-  const suggest: SuggestFn = (trigger, q) => {
-    const needle = q.toLowerCase();
-    if (trigger === "=") {
-      return projects
-        .filter((p) => p.name.toLowerCase().includes(needle))
-        .map((p) => ({ id: `p:${p.id}`, label: p.name, insert: `=${p.name}`, icon: <ColorDot color={p.color} /> }));
-    }
-    if (trigger === "+") {
-      const found = labels.filter((l) => l.name.toLowerCase().includes(needle)).map((l) => ({ id: `+${l.id}`, label: l.name, insert: `+${l.name}`, icon: <ColorDot color={l.color} size={7} shape="tag" /> }));
-      const fresh = q && /^\p{L}[\p{L}\p{N}_-]*$/u.test(q) && !labels.some((l) => l.name.toLowerCase() === needle) ? [{ id: `+new:${q}`, label: `Create label “${q}”`, insert: `+${q}`, icon: <Icon name="plus" size={12} className="text-faint" /> }] : [];
-      return [...found, ...fresh];
-    }
-    return [];
-  };
-
-  // The window is a fixed 190px; grow it by the open list's height, keeping the input where it is.
-  const [suggestCount, setSuggestCount] = useState(0);
-  useEffect(() => {
-    void window.deska?.quickAdd?.resize?.(BASE_HEIGHT + (suggestCount ? suggestCount * 32 + 16 : 0));
-  }, [suggestCount]);
-
-  const aiBusy = assist.phase === "checking" || assist.phase === "running";
+  const at = new Date();
   return (
-    <main className="h-screen overflow-hidden bg-surface px-5" data-quick-add data-state={state}>
-      <div className="flex flex-col justify-center gap-2" style={{ height: BASE_HEIGHT }}>
-      <div className="flex items-center gap-2">
-        <p className="flex-1 text-[11px] font-medium uppercase tracking-wide text-faint">New task</p>
-        <button
-          type="button"
-          onClick={askAi}
-          className={btn.ghost}
-          disabled={!text.trim() || aiBusy}
-          aria-label="AI assist"
-          title="Ask the model to fill in the task's properties"
-          data-ai-assist
-        >
-          <Icon name="zap" size={13} />
-          AI assist
-        </button>
-      </div>
-      <QuickAddInput
-        autoFocus
-        label="Task"
-        value={text}
-        onChange={changeText}
-        tokens={parsed.tokens}
-        onRevert={(key) => setIgnored((prev) => new Set(prev).add(key))}
-        onSubmit={() => void submit()}
-        suggest={suggest}
-        onSuggestCount={setSuggestCount}
-        placeholder="e.g. Call dentist tomorrow 3pm high"
-      />
-      {aiBusy && (
-        <p role="status" className="flex items-center gap-2 text-[11.5px] text-muted" data-ai-assist-progress>
-          <span className="size-3 animate-spin rounded-full border-2 border-line border-t-brand" aria-label="Asking the model" />
-          {assist.phase === "checking" ? "Checking AI assist…" : "Asking the model…"}
-          <button type="button" onClick={() => void assist.cancel()} className={btn.ghost}>
-            Cancel
-          </button>
-        </p>
-      )}
-      {ai && <TaskAssistChips suggestion={ai} choices={aiChoices} onRemove={assist.removeField} onDismiss={assist.dismiss} />}
-      {assist.error && (
-        <p role="alert" className="text-[11.5px] text-critical" data-ai-assist-error>
-          {assist.error.kind === "failed" ? `AI unavailable — ${assist.error.message}` : assist.error.message}
-        </p>
-      )}
-      <p className="min-h-4 text-[11.5px] text-faint" role={error ? "alert" : undefined}>
-        {error ? <span className="text-critical">{error}</span> : <>↵ to save · Esc to close · <b className="font-medium">fri</b> · <b className="font-medium">high</b> · <b className="font-medium">+label</b> · <b className="font-medium">=Project</b></>}
-      </p>
+    <main className="h-screen overflow-hidden bg-popover" data-quick-add data-state={state}>
+      <div ref={box}>
+        <ComposeForm
+          projects={projects}
+          labels={labels}
+          sections={sections}
+          clock={{ today: localToday(at, tz), now: localTime(at, tz), tz }}
+          onCreate={create}
+          onCancel={close}
+          onCreated={close}
+          error={error}
+        />
       </div>
     </main>
   );

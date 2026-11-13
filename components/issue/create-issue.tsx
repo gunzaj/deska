@@ -9,7 +9,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { EDITING_OFF } from "@/lib/client/edit";
 import { plainName } from "@/lib/client/format";
 import { useAppData } from "../app/provider";
-import { Icon } from "../icons";
+import { Icon, type IconName } from "../icons";
 import { Dialog } from "../ui/dialog";
 import { btn, PickList, Popover } from "../ui/popover";
 import { useToast } from "../ui/toast";
@@ -41,8 +41,6 @@ export function CreateIssue() {
   const [form, setForm] = useState<Form>(empty);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [labelsOpen, setLabelsOpen] = useState(false);
-  const labelAnchor = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
     const onOpen = () => {
@@ -114,20 +112,6 @@ export function CreateIssue() {
       setSaving(false);
     }
   }
-
-  function toggleLabel(id: string) {
-    setForm((f) => {
-      const labelIds = new Set(f.labelIds);
-      if (labelIds.has(id)) labelIds.delete(id);
-      else labelIds.add(id);
-      return { ...f, labelIds };
-    });
-  }
-
-  const selectedLabels = [...form.labelIds].flatMap((id) => {
-    const label = meta.labels.find((l) => l.id === id);
-    return label ? [label] : [];
-  });
 
   const writesOff = !meta.writeMode;
   return (
@@ -202,43 +186,31 @@ export function CreateIssue() {
             ))}
           </div>
 
-          <div className="space-y-1.5">
-            <div className="flex flex-wrap items-center gap-1.5">
-              <button ref={labelAnchor} type="button" onClick={() => setLabelsOpen(true)} className={btn.outline} aria-label="Labels" data-create-labels>
-                <Icon name="tag" size={13} />
-                {form.labelIds.size ? `${form.labelIds.size} label${form.labelIds.size === 1 ? "" : "s"}` : "Labels"}
-              </button>
-              {selectedLabels.length > 0 && (
-                <div className="flex flex-wrap gap-1" data-create-label-chips>
-                  {selectedLabels.map((l) => (
-                    <span key={l.id} className="inline-flex h-6 items-center gap-1 rounded-md border border-line bg-surface px-1.5 text-[11.5px] font-medium">
-                      {l.name}
-                      <button type="button" aria-label={`Remove label ${l.name}`} onClick={() => toggleLabel(l.id)} className="text-faint hover:text-fg">
-                        <Icon name="x" size={11} />
-                      </button>
-                    </span>
-                  ))}
-                </div>
-              )}
-            </div>
-            <Popover anchor={labelAnchor} open={labelsOpen} onClose={() => setLabelsOpen(false)} width={280}>
-              <PickList
-                multi
-                items={meta.labels.map((l) => ({ id: l.id, label: l.name, checked: form.labelIds.has(l.id) }))}
-                onPick={(id) => toggleLabel(id)}
-                placeholder="Search labels…"
-                emptyText={meta.labels.length ? "No labels match" : "This repository has no labels."}
+          {/* Labels and assignees: searchable pickers with chips, not a wall of checkboxes. */}
+          <div className="flex flex-wrap items-start gap-x-3 gap-y-1.5">
+            <ChipPicker
+              noun="label"
+              icon="tag"
+              items={meta.labels.map((l) => ({ id: l.id, name: l.name }))}
+              selected={form.labelIds}
+              onToggle={(id) => setForm((f) => ({ ...f, labelIds: toggled(f.labelIds, id) }))}
+              emptyText={meta.labels.length ? "No labels match" : "This repository has no labels."}
+              data="labels"
+            />
+            {meta.users.length > 0 && (
+              <ChipPicker
+                noun="assignee"
+                icon="user"
+                items={meta.users.map((u) => ({ id: u.login, name: u.login }))}
+                selected={form.assigneeLogins}
+                onToggle={(login) => setForm((f) => ({ ...f, assigneeLogins: toggled(f.assigneeLogins, login) }))}
+                emptyText="No people match"
+                data="assignees"
               />
-            </Popover>
+            )}
           </div>
-          <CheckGroup
-            label="Assignees"
-            options={meta.users.map((u) => ({ id: u.login, name: u.login }))}
-            checked={form.assigneeLogins}
-            onChange={(assigneeLogins) => setForm({ ...form, assigneeLogins })}
-          />
 
-          <div className="flex justify-end gap-1.5 border-t border-line-soft pt-3">
+          <div className="sticky bottom-0 -mx-4 -mb-4 flex justify-end gap-1.5 border-t border-line-soft bg-popover px-4 py-3">
             <button type="button" onClick={() => setOpen(false)} className={btn.ghost}>
               Cancel
             </button>
@@ -273,40 +245,58 @@ function Select({ label, value, options, onChange }: { label: string; value: str
   );
 }
 
-function CheckGroup({
-  label,
-  options,
-  checked,
-  onChange,
+function toggled(set: Set<string>, id: string): Set<string> {
+  const next = new Set(set);
+  if (next.has(id)) next.delete(id);
+  else next.add(id);
+  return next;
+}
+
+/** A trigger button that opens a searchable multi-pick, with the picks shown as removable chips. */
+function ChipPicker({
+  noun,
+  icon,
+  items,
+  selected,
+  onToggle,
+  emptyText,
+  data,
 }: {
-  label: string;
-  options: { id: string; name: string }[];
-  checked: Set<string>;
-  onChange: (next: Set<string>) => void;
+  noun: string;
+  icon: IconName;
+  items: { id: string; name: string }[];
+  selected: Set<string>;
+  onToggle: (id: string) => void;
+  emptyText: string;
+  /** Suffix for the data-create-* hooks the tests use. */
+  data: string;
 }) {
-  if (!options.length) return null;
+  const [open, setOpen] = useState(false);
+  const anchor = useRef<HTMLButtonElement>(null);
+  const Noun = noun[0]!.toUpperCase() + noun.slice(1);
+  const picked = items.filter((i) => selected.has(i.id));
   return (
-    <fieldset className="text-[12.5px] font-medium">
-      <legend>{label}</legend>
-      <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1">
-        {options.map((o) => (
-          <label key={o.id} className="flex items-center gap-1.5 font-normal">
-            <input
-              type="checkbox"
-              className="size-3.5 accent-brand"
-              checked={checked.has(o.id)}
-              onChange={(e) => {
-                const next = new Set(checked);
-                if (e.target.checked) next.add(o.id);
-                else next.delete(o.id);
-                onChange(next);
-              }}
-            />
-            {o.name}
-          </label>
-        ))}
-      </div>
-    </fieldset>
+    <div className="flex flex-wrap items-center gap-1.5">
+      <button ref={anchor} type="button" onClick={() => setOpen(true)} className={btn.outline} aria-label={`${Noun}s`} data-create-trigger={data}>
+        <Icon name={icon} size={13} />
+        {selected.size ? `${selected.size} ${noun}${selected.size === 1 ? "" : "s"}` : `${Noun}s`}
+      </button>
+      {picked.length > 0 && (
+        <div className="flex flex-wrap gap-1" data-create-chips={data}>
+          {picked.map((i) => (
+            <span key={i.id} className="inline-flex h-6 items-center gap-1 rounded-md border border-line bg-surface px-1.5 text-[11.5px] font-medium">
+              {i.name}
+              <button type="button" aria-label={`Remove ${noun} ${i.name}`} onClick={() => onToggle(i.id)} className="text-faint hover:text-fg">
+                <Icon name="x" size={11} />
+              </button>
+            </span>
+          ))}
+        </div>
+      )}
+      <Popover anchor={anchor} open={open} onClose={() => setOpen(false)} width={280}>
+        <PickList multi items={items.map((i) => ({ id: i.id, label: i.name, checked: selected.has(i.id) }))} onPick={onToggle} placeholder={`Search ${noun}s…`} emptyText={emptyText} />
+      </Popover>
+    </div>
   );
 }
 
