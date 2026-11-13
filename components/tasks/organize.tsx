@@ -5,6 +5,7 @@ import { TASK_COLORS, type TaskLabel, type TaskProject } from "@/lib/tasks/model
 import { Icon } from "../icons";
 import { Dialog } from "../ui/dialog";
 import { btn, PickList, Popover, type PickItem } from "../ui/popover";
+import { nameTaken } from "@/lib/client/task-names";
 import { useTasks } from "./store";
 
 // Projects and labels (SPEC §12.3): colour dots, pickers and the project form.
@@ -115,9 +116,41 @@ export function LabelPicker({ value, onChange }: { value: string[]; onChange: (n
   );
 }
 
+/**
+ * A dialog's save: ignores a second submit while the first is on its way (a
+ * double Enter), and keeps the failure in the dialog, where it can be seen (T-7).
+ */
+export function useSubmit(open: boolean) {
+  const [error, setError] = useState<string | null>(null);
+  const busy = useRef(false);
+  useEffect(() => {
+    if (open) setError(null);
+  }, [open]);
+  const run = async (save: (onError: (message: string) => void) => Promise<boolean>, done: () => void) => {
+    if (busy.current) return;
+    busy.current = true;
+    setError(null);
+    try {
+      if (await save(setError)) done();
+    } finally {
+      busy.current = false;
+    }
+  };
+  return { error, setError, run };
+}
+
+export function DialogError({ error }: { error: string | null }) {
+  return error ? (
+    <p role="alert" className="mt-3 text-[12.5px] text-critical">
+      {error}
+    </p>
+  ) : null;
+}
+
 /** Create or edit a project: name and colour. */
 export function ProjectDialog({ open, onClose, project }: { open: boolean; onClose: () => void; project?: TaskProject }) {
-  const { createProject, updateProject } = useTasks();
+  const { createProject, updateProject, projects } = useTasks();
+  const submit = useSubmit(open);
   const [name, setName] = useState("");
   const [color, setColor] = useState("grey");
   // Reset on open only: `project` is a new object after every task reload,
@@ -132,8 +165,8 @@ export function ProjectDialog({ open, onClose, project }: { open: boolean; onClo
   const save = async () => {
     const n = name.trim();
     if (!n) return;
-    const ok = project ? await updateProject(project.id, { name: n, color }) : Boolean(await createProject(n, color));
-    if (ok) onClose();
+    if (nameTaken(projects, n, project?.id)) return submit.setError(`A project named “${n}” already exists.`);
+    await submit.run(async (onError) => (project ? await updateProject(project.id, { name: n, color }, onError) : Boolean(await createProject(n, color, onError))), onClose);
   };
   return (
     <Dialog open={open} onClose={onClose} label={project ? "Edit project" : "New project"} width={400}>
@@ -169,6 +202,7 @@ export function ProjectDialog({ open, onClose, project }: { open: boolean; onClo
             </button>
           ))}
         </div>
+        <DialogError error={submit.error} />
         <div className="mt-4 flex justify-end gap-1.5">
           <button type="button" onClick={onClose} className={btn.outline}>
             Cancel
@@ -184,7 +218,8 @@ export function ProjectDialog({ open, onClose, project }: { open: boolean; onClo
 
 /** Create a label from the sidebar. */
 export function NewLabelDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
-  const { createLabel } = useTasks();
+  const { createLabel, labels } = useTasks();
+  const submit = useSubmit(open);
   const [name, setName] = useState("");
   const [color, setColor] = useState("blue");
   useEffect(() => {
@@ -194,7 +229,9 @@ export function NewLabelDialog({ open, onClose }: { open: boolean; onClose: () =
   }, [open]);
   const save = async () => {
     const n = name.trim();
-    if (n && (await createLabel(n, color))) onClose();
+    if (!n) return;
+    if (nameTaken(labels, n)) return submit.setError(`A label named “${n}” already exists.`);
+    await submit.run(async (onError) => Boolean(await createLabel(n, color, onError)), onClose);
   };
   return (
     <Dialog open={open} onClose={onClose} label="New label" width={400}>
@@ -230,6 +267,7 @@ export function NewLabelDialog({ open, onClose }: { open: boolean; onClose: () =
             </button>
           ))}
         </div>
+        <DialogError error={submit.error} />
         <div className="mt-4 flex justify-end gap-1.5">
           <button type="button" onClick={onClose} className={btn.outline}>
             Cancel
@@ -245,7 +283,8 @@ export function NewLabelDialog({ open, onClose }: { open: boolean; onClose: () =
 
 /** Rename, recolour or delete one of my labels. */
 export function LabelDialog({ open, onClose, label, onDeleted }: { open: boolean; onClose: () => void; label: TaskLabel; onDeleted: () => void }) {
-  const { updateLabel, deleteLabel } = useTasks();
+  const { updateLabel, deleteLabel, labels } = useTasks();
+  const submit = useSubmit(open);
   const [name, setName] = useState(label.name);
   const [color, setColor] = useState(label.color);
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -260,7 +299,9 @@ export function LabelDialog({ open, onClose, label, onDeleted }: { open: boolean
   }, [open, label.id]);
   const save = async () => {
     const n = name.trim();
-    if (n && (await updateLabel(label.id, { name: n, color }))) onClose();
+    if (!n) return;
+    if (nameTaken(labels, n, label.id)) return submit.setError(`A label named “${n}” already exists.`);
+    await submit.run((onError) => updateLabel(label.id, { name: n, color }, onError), onClose);
   };
   return (
     <Dialog open={open} onClose={onClose} label="Edit label" width={400}>
@@ -287,6 +328,7 @@ export function LabelDialog({ open, onClose, label, onDeleted }: { open: boolean
             </button>
           ))}
         </div>
+        <DialogError error={submit.error} />
         <div className="mt-4 flex items-center gap-1.5">
           {confirmDelete ? (
             <button

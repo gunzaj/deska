@@ -20,7 +20,7 @@ import { primaryDimension, sprintOn } from "@/lib/client/explorer";
 import { UserMenu } from "./user-menu";
 import { type SidebarSection } from "@/lib/tasks/model";
 import { ColorDot, NewLabelDialog, ProjectDialog } from "../tasks/organize";
-import { dueCount } from "@/lib/tasks/counts";
+import { sidebarCounts } from "@/lib/tasks/counts";
 import { NotificationBell, useToday } from "../tasks/notifications";
 import { PALETTE_EVENT } from "./palette";
 import { openCreateIssue } from "../issue/create-issue";
@@ -160,21 +160,7 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
     window.addEventListener(CUSTOMIZE_SIDEBAR_EVENT, show);
     return () => window.removeEventListener(CUSTOMIZE_SIDEBAR_EVENT, show);
   }, [inDrawer]);
-  const taskCounts = useMemo(() => {
-    const archived = new Set(projects.filter((p) => p.archived).map((p) => p.id));
-    let inbox = 0;
-    const perProject = new Map<string, number>();
-    const perLabel = new Map<string, number>();
-    for (const t of tasks) {
-      if (t.completedAt || (t.projectId && archived.has(t.projectId))) continue;
-      for (const id of t.labels) perLabel.set(id, (perLabel.get(id) ?? 0) + 1);
-      if (t.projectId) perProject.set(t.projectId, (perProject.get(t.projectId) ?? 0) + 1);
-      // Inbox is the tasks with no project, as on the Inbox page.
-      if (!t.projectId && !t.parentId) inbox++;
-    }
-    const due = dueCount(tasks, projects, today);
-    return { inbox, due, perProject, perLabel };
-  }, [tasks, projects, today]);
+  const taskCounts = useMemo(() => sidebarCounts(tasks, projects, today), [tasks, projects, today]);
   const taskNav: NavItem[] = [
     { href: "/tasks", label: "Inbox", icon: "inbox", count: taskCounts.inbox, match: (p) => p === "/tasks", drop: { kind: "inbox" } },
     { href: "/tasks/today", label: "Today", icon: "star", count: taskCounts.due, drop: { kind: "today" } },

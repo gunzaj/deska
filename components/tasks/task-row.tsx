@@ -221,6 +221,7 @@ export function GroupSection({
   collapse,
   actions,
   drop,
+  endDrop,
 }: {
   title: string;
   count: number;
@@ -230,6 +231,8 @@ export function GroupSection({
   /** Buttons at the end of the header. */
   actions?: ReactNode;
   drop?: HeaderDrop;
+  /** While a task is dragged: a strip below the last row that drops it at the end of the group. */
+  endDrop?: HeaderDrop;
 }) {
   const collapsed = collapse?.collapsed ?? false;
   return (
@@ -260,7 +263,28 @@ export function GroupSection({
         <span className="font-normal tabular-nums text-faint">{count}</span>
         {actions && <span className="ml-auto flex items-center gap-0.5 font-normal">{actions}</span>}
       </h2>
-      {!collapsed && <ul>{children}</ul>}
+      {!collapsed && (
+        <ul>
+          {children}
+          {endDrop && (
+            <li
+              data-end-drop
+              aria-label={`Move to the end of ${title}`}
+              className={`h-4 ${endDrop.over ? "shadow-[inset_0_2px_0_var(--brand-border)]" : ""}`}
+              onDragOver={(e) => {
+                e.preventDefault();
+                endDrop.setOver(true);
+              }}
+              onDragLeave={() => endDrop.setOver(false)}
+              onDrop={(e) => {
+                e.preventDefault();
+                endDrop.setOver(false);
+                endDrop.onDrop();
+              }}
+            />
+          )}
+        </ul>
+      )}
     </section>
   );
 }

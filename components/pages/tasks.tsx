@@ -12,9 +12,11 @@ import { btn } from "../ui/popover";
 import { TaskErrorBanner } from "../tasks/bits";
 import { ColorDot, LabelDialog, ProjectDialog } from "../tasks/organize";
 import { DeleteSectionDialog, movedPosition, SectionDialog, SectionMenu } from "../tasks/sections";
+import { endPosition } from "@/lib/client/task-order";
 import { NEW_SOURCE } from "@/lib/client/project-source";
 import { ProjectSourceSection } from "../tasks/project-source";
 import { useAppViews } from "../app/provider";
+import { useTasksOnly } from "../app/tasks-only";
 import { taskViewMatches, taskViewPrefill, taskViewShowsSubtasks } from "@/lib/tasks/views";
 import { useToday } from "../tasks/notifications";
 import { PlanMyDay } from "../tasks/plan-my-day";
@@ -120,6 +122,18 @@ function TaskList({ def }: { def: ViewDef }) {
     moveTask(moved, { sectionId: g.sectionId, position: (g.tasks[g.tasks.length - 1]?.position ?? 0) + 1 });
   };
 
+  /** Drop the dragged task below the last row of group `g`, in `g`'s section (T-6). */
+  const dropAtEnd = (g: Group) => {
+    const moved = dragId ? c.byId.get(dragId) : undefined;
+    setDragId(null);
+    setOverId(null);
+    if (!moved) return;
+    const sectionMoves = g.sectionId !== undefined && moved.sectionId !== g.sectionId;
+    const position = endPosition(g.tasks, moved.id);
+    if (position === null && !sectionMoves) return;
+    moveTask(moved, { position: position ?? (g.tasks[g.tasks.length - 1]?.position ?? 0) + 1, ...(sectionMoves ? { sectionId: g.sectionId } : {}) });
+  };
+
   const parentTitle = (t: Task) => (t.parentId ? (c.byId.get(t.parentId)?.title ?? null) : null);
 
   /**
@@ -185,6 +199,11 @@ function TaskList({ def }: { def: ViewDef }) {
               count={g.tasks.length}
               collapse={g.section ? { collapsed: g.section.collapsed, toggle: () => void updateSection(g.section!.id, { collapsed: !g.section!.collapsed }) } : undefined}
               actions={g.actions}
+              endDrop={
+                def.manual && !showDone && g.tasks.length > 0
+                  ? { onDrop: () => dropAtEnd(g), over: overId === `e:${g.key}`, setOver: (v) => setOverId(v ? `e:${g.key}` : null) }
+                  : undefined
+              }
               drop={
                 def.manual && !showDone && g.sectionId !== undefined && dragId
                   ? { onDrop: () => dropInto(g), over: overId === `h:${g.key}`, setOver: (v) => setOverId(v ? `h:${g.key}` : null) }
@@ -341,6 +360,7 @@ export function TaskUpcomingPage() {
 /** One of my projects, in manual order (§12.3, §12.8). */
 export function TaskProjectPage({ id }: { id: string }) {
   const { projects, tasks, sections, loaded, updateProject, updateSection, openCompose } = useTasks();
+  const tasksOnly = useTasksOnly();
   const [editing, setEditing] = useState(false);
   // Naming a new section or renaming one; asking before deleting one.
   const [naming, setNaming] = useState<TaskSection | "new" | null>(null);
@@ -404,7 +424,7 @@ export function TaskProjectPage({ id }: { id: string }) {
                   <Icon name="plus" size={13} /> Add section
                 </button>
               )}
-              {!project.source && (
+              {!project.source && !tasksOnly && (
                 <button
                   type="button"
                   onClick={() => void updateProject(id, { source: NEW_SOURCE })}
@@ -424,7 +444,7 @@ export function TaskProjectPage({ id }: { id: string }) {
               )}
             </>
           ),
-        } : null), [project, id, placed, mine, updateProject, updateSection, openCompose]);
+        } : null), [project, id, placed, mine, updateProject, updateSection, openCompose, tasksOnly]);
   if (!project || !def) {
     return loaded ? <EmptyHint icon="list" title="Project not found" hint="It doesn't exist, or it belongs to someone else." /> : <p className="p-6 text-muted">Loading…</p>;
   }

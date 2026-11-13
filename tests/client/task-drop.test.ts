@@ -1,14 +1,14 @@
 import { describe, expect, it } from "vitest";
 import { dropOutcome } from "@/lib/client/task-drop";
 
-const task = (over: Partial<{ projectId: string | null; dueDate: string | null }> = {}) => ({ projectId: null, dueDate: null, ...over });
+const task = (over: Partial<{ projectId: string | null; dueDate: string | null; sectionId: string | null; position: number }> = {}) => ({ projectId: null, dueDate: null, sectionId: null, position: 0, ...over });
 const TODAY = "2026-10-13";
 
 describe("dropping a task on the sidebar", () => {
   it("a project files it, and undo puts it back", () => {
-    const out = dropOutcome(task({ projectId: "p1" }), [], { kind: "project", id: "p2", name: "Website" }, TODAY)!;
+    const out = dropOutcome(task({ projectId: "p1", sectionId: "s1", position: 3 }), [], { kind: "project", id: "p2", name: "Website" }, TODAY)!;
     expect(out.patch).toEqual({ projectId: "p2" });
-    expect(out.undo).toEqual({ projectId: "p1" });
+    expect(out.undo).toEqual({ projectId: "p1", sectionId: "s1", position: 3 });
     expect(out.message).toBe("Moved to Website");
     expect(dropOutcome(task({ projectId: "p2" }), [], { kind: "project", id: "p2", name: "Website" }, TODAY)).toBeNull();
   });

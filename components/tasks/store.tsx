@@ -4,6 +4,7 @@ import { fetchPreloaded } from "@/lib/client/preload";
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { isUnauthorized } from "@/lib/client/session";
 import { usePoll } from "@/lib/client/poll";
+import { mergeServerTask, optimisticFields } from "@/lib/client/task-optimistic";
 import type { CreateTaskInput, PatchTaskInput, Task, TaskLabel, TaskProject, TaskSection } from "@/lib/tasks/model";
 import { Dialog } from "../ui/dialog";
 import { useToast } from "../ui/toast";
@@ -33,14 +34,15 @@ type TasksCtx = {
   toggleComplete: (task: Task) => void;
   remove: (id: string) => Promise<boolean>;
   reload: () => Promise<void>;
-  createProject: (name: string, color: string) => Promise<TaskProject | null>;
-  updateProject: (id: string, patch: Partial<Omit<TaskProject, "id">>) => Promise<boolean>;
-  createSection: (projectId: string, name: string) => Promise<TaskSection | null>;
-  updateSection: (id: string, patch: Partial<Pick<TaskSection, "name" | "position" | "collapsed">>) => Promise<boolean>;
+  /** `onError`: show the failure there instead of in the banner (dialogs). */
+  createProject: (name: string, color: string, onError?: (message: string) => void) => Promise<TaskProject | null>;
+  updateProject: (id: string, patch: Partial<Omit<TaskProject, "id">>, onError?: (message: string) => void) => Promise<boolean>;
+  createSection: (projectId: string, name: string, onError?: (message: string) => void) => Promise<TaskSection | null>;
+  updateSection: (id: string, patch: Partial<Pick<TaskSection, "name" | "position" | "collapsed">>, onError?: (message: string) => void) => Promise<boolean>;
   /** Its tasks stay in the project, without a section. */
   deleteSection: (id: string) => Promise<boolean>;
-  createLabel: (name: string, color: string) => Promise<TaskLabel | null>;
-  updateLabel: (id: string, patch: Partial<Omit<TaskLabel, "id">>) => Promise<boolean>;
+  createLabel: (name: string, color: string, onError?: (message: string) => void) => Promise<TaskLabel | null>;
+  updateLabel: (id: string, patch: Partial<Omit<TaskLabel, "id">>, onError?: (message: string) => void) => Promise<boolean>;
   deleteLabel: (id: string) => Promise<boolean>;
   /** Both are stable; the compose dialog's own state is in `useComposeState` so opening it re-renders no task list. */
   openCompose: (prefill?: ComposePrefill) => void;
@@ -93,6 +95,8 @@ export function TasksProvider({ children }: { children: ReactNode }) {
   tasksRef.current = tasks;
   const sectionsRef = useRef(sections);
   sectionsRef.current = sections;
+  const labelsRef = useRef(labels);
+  labelsRef.current = labels;
   // Edits in flight: a reload that lands meanwhile must not overwrite them, so
   // it is dropped and repeated once the last edit settles.
   const pending = useRef(0);
@@ -149,10 +153,11 @@ export function TasksProvider({ children }: { children: ReactNode }) {
 
   /**
    * Run a request that changes task data; reports failures in the error
-   * banner. A 409 goes to `onConflict` instead, when given (S9).
+   * banner, or to `onError` when given (a dialog shows its own). A 409 goes to
+   * `onConflict` instead, when given (S9).
    */
   const send = useCallback(
-    async <T,>(url: string, init: RequestInit, what: string, onConflict?: (body: unknown) => void): Promise<T | null> => {
+    async <T,>(url: string, init: RequestInit, what: string, onConflict?: (body: unknown) => void, onError?: (message: string) => void): Promise<T | null> => {
       pending.current++;
       if (loading.current) {
         // Drop the load already on its way; settle() reloads after this edit.
@@ -170,7 +175,10 @@ export function TasksProvider({ children }: { children: ReactNode }) {
         if (!res.ok) throw new Error(await errorOf(res));
         return (await res.json()) as T;
       } catch (e) {
-        setError(`Could not ${what}: ${e instanceof Error ? e.message : String(e)}`);
+        // A dialog that shows the failure itself passes `onError`: the banner sits behind it.
+        const message = e instanceof Error ? e.message : String(e);
+        if (onError) onError(message);
+        else setError(`Could not ${what}: ${message}`);
         return null;
       } finally {
         settle();
@@ -179,16 +187,13 @@ export function TasksProvider({ children }: { children: ReactNode }) {
     [settle],
   );
 
-  /** Put the server's copy of a task in the list, unless a newer write already landed. */
+  /**
+   * Put the server's copy of a task in the list, unless a newer write already
+   * landed. Only a create or a restore may add a task that isn't there: a late
+   * answer for one that was deleted meanwhile must not bring it back (T-15).
+   */
   const replace = useCallback(
-    (task: Task) =>
-      setTasks((prev) => {
-        const cur = prev.find((t) => t.id === task.id);
-        if (!cur) return [...prev, task];
-        // Concurrent PATCHes can answer out of order; keep the later server state.
-        if (cur.updatedAt > task.updatedAt) return prev;
-        return prev.map((t) => (t.id === task.id ? task : t));
-      }),
+    (task: Task, insert = false) => setTasks((prev) => mergeServerTask(prev, task, insert)),
     [],
   );
 
@@ -209,7 +214,7 @@ export function TasksProvider({ children }: { children: ReactNode }) {
     async (input: CreateInput) => {
       const body = await send<{ task: Task }>("/api/tasks", json("POST", input), "create task");
       if (!body) return null;
-      replace(body.task);
+      replace(body.task, true);
       refreshLabels(input.labels);
       return body.task;
     },
@@ -234,20 +239,7 @@ export function TasksProvider({ children }: { children: ReactNode }) {
       const rollback = new Map<string, Partial<Task>>();
       const recurs = Boolean(patch.completed && before?.recurrence && !patch.endRecurrence);
       if (before) {
-        const o: Partial<Task> = {};
-        if (patch.title !== undefined) o.title = patch.title;
-        if (patch.description !== undefined) o.description = patch.description;
-        if (patch.priority !== undefined) o.priority = patch.priority;
-        if (patch.dueDate !== undefined) o.dueDate = patch.dueDate;
-        if (patch.dueTime !== undefined) o.dueTime = patch.dueTime;
-        // No date, no time or recurrence (the server does the same).
-        if (patch.dueDate === null) Object.assign(o, { dueTime: null, recurrence: null });
-        if (patch.recurrence !== undefined) o.recurrence = patch.recurrence;
-        if (patch.projectId !== undefined) o.projectId = patch.projectId;
-        // Another project drops the old section, unless the patch names one (the server does the same).
-        if (patch.sectionId !== undefined) o.sectionId = patch.sectionId;
-        else if (patch.projectId !== undefined && patch.projectId !== before.projectId) o.sectionId = null;
-        if (patch.position !== undefined) o.position = patch.position;
+        const o = optimisticFields(before, patch, labelsRef.current);
         // A recurring task doesn't close: the server moves its date instead (§12.5).
         if (patch.completed !== undefined && !recurs) o.completedAt = patch.completed ? new Date().toISOString() : null;
         optimistic.set(id, o);
@@ -304,7 +296,9 @@ export function TasksProvider({ children }: { children: ReactNode }) {
         }
         return null;
       }
-      replace(body.task);
+      // Another edit of this task is queued behind this one: its answer carries
+      // this edit too, and applying this one now would show the older state.
+      if (queues.current.get(id) === undefined) replace(body.task);
       // Completing a recurring task also reopens its sub-tasks on the server.
       if (recurs) void reload();
       else refreshLabels(patch.labels);
@@ -321,6 +315,9 @@ export function TasksProvider({ children }: { children: ReactNode }) {
   const complete = useCallback(
     async (task: Task, cascade?: boolean) => {
       const closedChildren = cascade ? tasksRef.current.filter((t) => t.parentId === task.id && !t.completedAt).map((t) => t.id) : [];
+      // Completing a recurring task reopens its done sub-tasks for the next
+      // occurrence; Undo must close them again.
+      const reopenedChildren = task.recurrence && task.dueDate ? tasksRef.current.filter((t) => t.parentId === task.id && t.completedAt).map((t) => t.id) : [];
       const res = await update(task.id, cascade === undefined ? { completed: true } : { completed: true, cascade });
       if (!res) return;
       const recurring = Boolean(task.recurrence && task.dueDate);
@@ -331,8 +328,9 @@ export function TasksProvider({ children }: { children: ReactNode }) {
         action: {
           label: "Undo",
           run: async () => {
-            if (recurring) await update(task.id, { undoOccurrence: task.dueDate! });
-            else await update(task.id, { completed: false });
+            if (recurring) {
+              if (await update(task.id, { undoOccurrence: task.dueDate! })) for (const id of reopenedChildren) await update(id, { completed: true });
+            } else await update(task.id, { completed: false });
             for (const id of closedChildren) await update(id, { completed: false });
           },
         },
@@ -359,7 +357,7 @@ export function TasksProvider({ children }: { children: ReactNode }) {
     async (id: string) => {
       const body = await send<{ task: Task }>(`/api/tasks/${id}/restore`, { method: "POST" }, "restore task");
       if (!body) return false;
-      replace(body.task);
+      replace(body.task, true);
       // Sub-tasks, placements and labels come back too: reload the lot.
       void reload();
       return true;
@@ -382,8 +380,8 @@ export function TasksProvider({ children }: { children: ReactNode }) {
   );
 
   const createProject = useCallback(
-    async (name: string, color: string) => {
-      const p = await send<TaskProject>("/api/task-projects", json("POST", { name, color }), "create project");
+    async (name: string, color: string, onError?: (message: string) => void) => {
+      const p = await send<TaskProject>("/api/task-projects", json("POST", { name, color }), "create project", undefined, onError);
       if (p) setProjects((prev) => [...prev, p]);
       return p;
     },
@@ -391,8 +389,8 @@ export function TasksProvider({ children }: { children: ReactNode }) {
   );
 
   const updateProject = useCallback(
-    async (id: string, patch: Partial<Omit<TaskProject, "id">>) => {
-      const p = await send<TaskProject>(`/api/task-projects/${id}`, json("PATCH", patch), "update project");
+    async (id: string, patch: Partial<Omit<TaskProject, "id">>, onError?: (message: string) => void) => {
+      const p = await send<TaskProject>(`/api/task-projects/${id}`, json("PATCH", patch), "update project", undefined, onError);
       if (p) setProjects((prev) => prev.map((x) => (x.id === id ? p : x)).sort((a, b) => a.position - b.position));
       return Boolean(p);
     },
@@ -400,8 +398,8 @@ export function TasksProvider({ children }: { children: ReactNode }) {
   );
 
   const createSection = useCallback(
-    async (projectId: string, name: string) => {
-      const s = await send<TaskSection>("/api/task-sections", json("POST", { projectId, name }), "create section");
+    async (projectId: string, name: string, onError?: (message: string) => void) => {
+      const s = await send<TaskSection>("/api/task-sections", json("POST", { projectId, name }), "create section", undefined, onError);
       if (s) setSections((prev) => [...prev, s].sort((a, b) => a.position - b.position));
       return s;
     },
@@ -409,11 +407,11 @@ export function TasksProvider({ children }: { children: ReactNode }) {
   );
 
   const updateSection = useCallback(
-    async (id: string, patch: Partial<Pick<TaskSection, "name" | "position" | "collapsed">>) => {
+    async (id: string, patch: Partial<Pick<TaskSection, "name" | "position" | "collapsed">>, onError?: (message: string) => void) => {
       // Collapsing and reordering show at once; the server's copy replaces it.
       const before = sectionsRef.current.find((x) => x.id === id);
       setSections((prev) => prev.map((x) => (x.id === id ? { ...x, ...patch } : x)).sort((a, b) => a.position - b.position));
-      const s = await send<TaskSection>(`/api/task-sections/${id}`, json("PATCH", patch), "update section");
+      const s = await send<TaskSection>(`/api/task-sections/${id}`, json("PATCH", patch), "update section", undefined, onError);
       if (s) setSections((prev) => prev.map((x) => (x.id === id ? s : x)).sort((a, b) => a.position - b.position));
       else if (before) setSections((prev) => prev.map((x) => (x.id === id ? before : x)).sort((a, b) => a.position - b.position));
       return Boolean(s);
@@ -434,8 +432,8 @@ export function TasksProvider({ children }: { children: ReactNode }) {
   );
 
   const createLabel = useCallback(
-    async (name: string, color: string) => {
-      const l = await send<TaskLabel>("/api/task-labels", json("POST", { name, color }), "create label");
+    async (name: string, color: string, onError?: (message: string) => void) => {
+      const l = await send<TaskLabel>("/api/task-labels", json("POST", { name, color }), "create label", undefined, onError);
       if (l) setLabels((prev) => [...prev, l].sort((a, b) => a.name.localeCompare(b.name)));
       return l;
     },
@@ -443,8 +441,8 @@ export function TasksProvider({ children }: { children: ReactNode }) {
   );
 
   const updateLabel = useCallback(
-    async (id: string, patch: Partial<Omit<TaskLabel, "id">>) => {
-      const l = await send<TaskLabel>(`/api/task-labels/${id}`, json("PATCH", patch), "update label");
+    async (id: string, patch: Partial<Omit<TaskLabel, "id">>, onError?: (message: string) => void) => {
+      const l = await send<TaskLabel>(`/api/task-labels/${id}`, json("PATCH", patch), "update label", undefined, onError);
       if (l) setLabels((prev) => prev.map((x) => (x.id === id ? l : x)).sort((a, b) => a.name.localeCompare(b.name)));
       return Boolean(l);
     },

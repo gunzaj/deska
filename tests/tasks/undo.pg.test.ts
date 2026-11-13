@@ -70,6 +70,16 @@ describe("undo (Postgres)", () => {
     expect(rows[0]!.n).toBe(0);
   });
 
+  it("only the newest occurrence can be undone (T-1)", async () => {
+    const t = task({ dueDate: "2026-10-16", recurrence: { rule: "FREQ=DAILY", text: "every day", fromCompletion: false } });
+    await repo.insert(t);
+    await updateTask("alice", t.id, { completed: true });
+    await updateTask("alice", t.id, { completed: true });
+    expect(await updateTask("alice", t.id, { undoOccurrence: "2026-10-16" })).toMatchObject({ ok: false, status: 400 });
+    expect((await updateTask("alice", t.id, { undoOccurrence: "2026-10-17" })).ok).toBe(true);
+    expect((await repo.get(t.id))?.dueDate).toBe("2026-10-17");
+  });
+
   it("a refused undo keeps the completion row and the date (v5 1.7)", async () => {
     const t = task({ dueDate: "2026-10-16", recurrence: { rule: "FREQ=WEEKLY", text: "every week", fromCompletion: false } });
     await repo.insert(t);

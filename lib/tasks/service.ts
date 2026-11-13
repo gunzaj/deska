@@ -295,7 +295,13 @@ export async function snoozeTask(me: string, id: string, when: "1h" | "tomorrow"
   const reminders = [
     ...keep.map((r): ReminderInput => (r.kind === "relative" ? { kind: "relative", offsetMin: r.offsetMin } : { kind: "absolute", at: r.at, ...(r.snooze ? { snooze: true as const } : {}) })),
     { kind: "absolute" as const, at: at.toISOString(), snooze: true as const },
-  ].slice(-10);
+  ];
+  // At the cap, the oldest snooze goes, never one of the user's own reminders.
+  while (reminders.length > 10) {
+    const i = reminders.findIndex((r) => r.kind === "absolute" && r.snooze);
+    if (i < 0 || i === reminders.length - 1) return bad("too many reminders to snooze");
+    reminders.splice(i, 1);
+  }
   return updateTask(me, id, { reminders });
 }
 
@@ -324,6 +330,9 @@ async function applyUpdate(repo: TaskRepo, me: string, id: string, patch: PatchT
     if (!prev.recurrence || !prev.dueDate || patch.undoOccurrence >= prev.dueDate || patch.completed !== undefined) {
       return bad("nothing to undo");
     }
+    // Only the newest completion can be taken back (SPEC D13): undoing an older
+    // one would leave later rows that make every next completion a repeat.
+    if (await repo.hasCompletionAfter(id, patch.undoOccurrence)) return bad("only the latest occurrence can be undone");
   }
   if (patch.links !== undefined) {
     const { links, missing } = resolveLinks(patch.links, resolve, prev.links);
@@ -379,12 +388,12 @@ async function applyUpdate(repo: TaskRepo, me: string, id: string, patch: PatchT
     if (following && following <= dueDate) following = nextOccurrence(recurrence.rule, dueDate);
     if (following) {
       completedOccurrence = true;
-      // Already logged (a concurrent request won): don't move the date again.
-      if (await repo.addCompletion(id, me, dueDate)) {
-        next.dueDate = following;
-        next.reminders = shiftAbsolute(next.reminders ?? prev.reminders, daysBetween(dueDate, following), (next.dueTz ?? prev.dueTz) || "UTC", true);
-        for (const c of await repo.children(id)) if (c.completedAt) await repo.update(c.id, { completedAt: null, completedBy: null, updatedAt: now });
-      }
+      // An occurrence that is already logged (a stale row) still moves the
+      // date; otherwise the click would do nothing, every time.
+      await repo.addCompletion(id, me, dueDate);
+      next.dueDate = following;
+      next.reminders = shiftAbsolute(next.reminders ?? prev.reminders, daysBetween(dueDate, following), (next.dueTz ?? prev.dueTz) || "UTC", true);
+      for (const c of await repo.children(id)) if (c.completedAt) await repo.update(c.id, { completedAt: null, completedBy: null, updatedAt: now });
     }
   }
   if (!completedOccurrence && patch.completed !== undefined && patch.completed !== Boolean(prev.completedAt)) {
@@ -426,16 +435,14 @@ export async function deleteTask(_me: string, id: string): Promise<Result<true>>
     const now = new Date().toISOString();
     const children = await repo.children(id);
     await repo.update(id, { deletedAt: now, updatedAt: now });
-    // Sub-tasks go with their parent; comments and notifications go with each.
+    // Sub-tasks go with their parent; comments go with each (notifications stay: they are the reminder dedupe keys, and the bell hides deleted tasks).
     // Everything soft-deleted here carries the same time, so an undo (U1)
     // brings back exactly this delete.
     for (const c of children) {
       await repo.update(c.id, { deletedAt: now, updatedAt: now });
       await repo.deleteCommentsForTask(c.id, now);
-      await repo.deleteNotificationsForTask(c.id);
     }
     await repo.deleteCommentsForTask(id, now);
-    await repo.deleteNotificationsForTask(id);
     return { ok: true, value: true };
   });
   if (r.ok) tasksChanged();
@@ -605,9 +612,8 @@ export async function listCompleted(me: string, now = new Date()): Promise<{ ite
   const [done, occurrences, placements, labelLinks] = await Promise.all([repo.completedSince(since, COMPLETED_CAP), repo.completionsSince(since, COMPLETED_CAP), repo.placements(me), repo.labelLinks(me)]);
   const items: CompletedItem[] = done.map((t) => ({ key: `t:${t.id}`, task: view(t, placements.get(t.id), labelLinks.get(t.id)), at: t.completedAt!, occurrence: null, undoable: true }));
   const seen = new Set<string>();
-  const byId = new Map<string, StoredTask | null>();
+  const byId = new Map((await repo.getMany([...new Set(occurrences.map((o) => o.taskId))])).map((t) => [t.id, t]));
   for (const o of occurrences) {
-    if (!byId.has(o.taskId)) byId.set(o.taskId, await repo.get(o.taskId));
     const t = byId.get(o.taskId);
     if (!t) continue;
     // `occurrences` is newest first: the first one seen for a task is its latest.

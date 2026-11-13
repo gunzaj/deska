@@ -52,6 +52,10 @@ export const COMPLETED_LIMIT = 200;
 
 export interface TaskRepo {
   list(): Promise<StoredTask[]>;
+  /** The Today badge count (`dueCount`'s definition) without loading the tasks. */
+  dueCount(login: string, today: string): Promise<number>;
+  /** Live tasks by ID, in no particular order. */
+  getMany(ids: string[]): Promise<StoredTask[]>;
   get(id: string): Promise<StoredTask | null>;
   /** A soft-deleted task: the undo path. Retention hard-deletes it after RETENTION_DELETED_DAYS (S8). */
   getDeleted(id: string): Promise<StoredTask | null>;
@@ -129,6 +133,7 @@ export interface TaskRepo {
   restoreTask(id: string, deletedAt: string): Promise<void>;
   /** Undo a logged occurrence; true when there was one to remove (U1). */
   removeCompletion(taskId: string, dueDate: string): Promise<boolean>;
+  hasCompletionAfter(taskId: string, dueDate: string): Promise<boolean>;
 
   /**
    * Open tasks that may have a reminder due around now: due between the two
@@ -138,9 +143,10 @@ export interface TaskRepo {
 
   /** Insert unless the dedupe key exists; true when inserted. */
   addNotification(n: NewNotification): Promise<boolean>;
+  /** When the notification with this dedupe key was created, or null. */
+  notificationAt(dedupeKey: string): Promise<string | null>;
   notifications(login: string, limit: number): Promise<{ list: AppNotification[]; unread: number }>;
   markRead(login: string, ids: string[] | "all"): Promise<void>;
-  deleteNotificationsForTask(taskId: string): Promise<void>;
 
   prefs(login: string): Promise<Prefs>;
   setPrefs(login: string, p: Partial<Prefs>): Promise<Prefs>;
@@ -171,6 +177,23 @@ export class MemoryTaskRepo implements TaskRepo {
   notes: (AppNotification & { login: string; dedupeKey: string })[] = [];
   prefMap = new Map<string, Prefs>();
 
+  async dueCount(login: string, today: string) {
+    const archived = new Set((await this.projects(login)).filter((p) => p.archived).map((p) => p.id));
+    let n = 0;
+    for (const t of this.map.values()) {
+      if (t.deletedAt || t.completedAt || !t.dueDate || t.dueDate > today) continue;
+      const projectId = this.place.get(`${t.id}|${login}`)?.projectId ?? null;
+      if (projectId && archived.has(projectId)) continue;
+      n++;
+    }
+    return n;
+  }
+  async getMany(ids: string[]) {
+    return ids.flatMap((id) => {
+      const t = this.map.get(id);
+      return t && !t.deletedAt ? [copy(t)] : [];
+    });
+  }
   async list() {
     return capCompleted([...this.map.values()].filter((t) => !t.deletedAt).map(copy));
   }
@@ -358,6 +381,9 @@ export class MemoryTaskRepo implements TaskRepo {
       }
     }
   }
+  async hasCompletionAfter(taskId: string, dueDate: string) {
+    return this.completions.some((c) => c.taskId === taskId && c.dueDate !== null && c.dueDate > dueDate);
+  }
   async removeCompletion(taskId: string, dueDate: string) {
     const i = this.completions.findIndex((c) => c.taskId === taskId && c.dueDate === dueDate);
     if (i < 0) return false;
@@ -380,6 +406,9 @@ export class MemoryTaskRepo implements TaskRepo {
     this.notes.push({ ...n, id: crypto.randomUUID(), createdAt: new Date().toISOString(), readAt: null });
     return true;
   }
+  async notificationAt(dedupeKey: string) {
+    return this.notes.find((x) => x.dedupeKey === dedupeKey)?.createdAt ?? null;
+  }
   async notifications(login: string, limit: number) {
     // Only notifications for tasks that still exist (a deleted task's drop out).
     const mine = this.notes
@@ -393,9 +422,6 @@ export class MemoryTaskRepo implements TaskRepo {
   async markRead(login: string, ids: string[] | "all") {
     const now = new Date().toISOString();
     for (const n of this.notes) if (n.login === login && !n.readAt && (ids === "all" || ids.includes(n.id))) n.readAt = now;
-  }
-  async deleteNotificationsForTask(taskId: string) {
-    this.notes = this.notes.filter((n) => n.taskId !== taskId);
   }
   async prefs(login: string) {
     return { ...(this.prefMap.get(login) ?? DEFAULT_PREFS) };
@@ -545,6 +571,28 @@ export class PostgresTaskRepo implements TaskRepo {
     const ids = rows.map((r) => r.id);
     const [links, reminders] = await together([() => linksFor(ids), () => remindersFor(ids)]);
     return rows.map((r) => fromRow(r, links.get(r.id), reminders.get(r.id)));
+  }
+  async dueCount(login: string, today: string) {
+    const archived = (await this.projects(login)).filter((p) => p.archived).map((p) => p.id);
+    const rows = await conn()
+      .select({ n: count() })
+      .from(tasksTable)
+      .leftJoin(taskPlacements, and(eq(taskPlacements.taskId, tasksTable.id), eq(taskPlacements.login, login)))
+      .where(
+        and(
+          isNull(tasksTable.deletedAt),
+          isNull(tasksTable.completedAt),
+          lte(tasksTable.dueDate, today),
+          archived.length ? or(isNull(taskPlacements.projectId), sql`${taskPlacements.projectId} NOT IN (${sql.join(archived.map((a) => sql`${a}`), sql`, `)})`) : undefined,
+        ),
+      );
+    return Number(rows[0]?.n ?? 0);
+  }
+  async getMany(ids: string[]) {
+    const valid = ids.filter(isUuid);
+    if (!valid.length) return [];
+    const rows = await conn().select().from(tasksTable).where(and(inArray(tasksTable.id, valid), isNull(tasksTable.deletedAt)));
+    return this.withLinks(rows);
   }
   async list() {
     const db = conn();
@@ -831,6 +879,15 @@ export class PostgresTaskRepo implements TaskRepo {
       }
     });
   }
+  async hasCompletionAfter(taskId: string, dueDate: string) {
+    if (!isUuid(taskId)) return false;
+    const rows = await conn()
+      .select({ id: taskCompletions.id })
+      .from(taskCompletions)
+      .where(and(eq(taskCompletions.taskId, taskId), gt(taskCompletions.dueDate, dueDate)))
+      .limit(1);
+    return rows.length > 0;
+  }
   async removeCompletion(taskId: string, dueDate: string) {
     if (!isUuid(taskId)) return false;
     const gone = await conn()
@@ -863,6 +920,10 @@ export class PostgresTaskRepo implements TaskRepo {
       .onConflictDoNothing({ target: notificationsTable.dedupeKey })
       .returning({ id: notificationsTable.id });
     return rows.length > 0;
+  }
+  async notificationAt(dedupeKey: string) {
+    const rows = await conn().select({ at: notificationsTable.createdAt }).from(notificationsTable).where(eq(notificationsTable.dedupeKey, dedupeKey)).limit(1);
+    return rows[0] ? rows[0].at.toISOString() : null;
   }
   async notifications(login: string, limit: number) {
     const db = conn();
@@ -901,9 +962,6 @@ export class PostgresTaskRepo implements TaskRepo {
       .update(notificationsTable)
       .set({ readAt: new Date() })
       .where(and(eq(notificationsTable.login, login), isNull(notificationsTable.readAt), scope));
-  }
-  async deleteNotificationsForTask(taskId: string) {
-    await conn().delete(notificationsTable).where(eq(notificationsTable.taskId, taskId));
   }
   async prefs(login: string) {
     const rows = await conn().select().from(userPrefs).where(eq(userPrefs.login, login)).limit(1);

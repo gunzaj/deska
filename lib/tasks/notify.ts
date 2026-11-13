@@ -17,18 +17,18 @@ export const DEFAULT_REMINDER_TIME = "09:00";
  * (Q5). Keys include the due date, so a recurring task reminds again for
  * each occurrence.
  */
-export function reminderTimes(t: TaskCore): { key: string; at: Date }[] {
-  const out: { key: string; at: Date }[] = [];
+/** `legacyKey`: the key older versions used for a one-off task's absolute reminder. */
+export function reminderTimes(t: TaskCore): { key: string; at: Date; legacyKey?: string }[] {
+  const out: { key: string; at: Date; legacyKey?: string }[] = [];
   const tz = t.dueTz ?? "UTC";
   const occurrence = `${t.dueDate ?? "nodate"}T${t.dueTime ?? "allday"}`;
   if (t.dueDate && t.dueTime) out.push({ key: `due:${occurrence}`, at: zonedToUtc(t.dueDate, t.dueTime, tz) });
   for (const r of t.reminders) {
-    // A recurring task's absolute reminder keeps its ID as it moves to each
-    // occurrence, so the instant is part of the key: it fires again for the next
-    // one, and an undo that moves it back must not fire it again. A one-off
-    // task's reminder keeps the old key, so an upgrade doesn't fire one that
-    // already fired before it.
-    if (r.kind === "absolute") out.push({ key: t.recurrence ? `abs:${r.id}:${Date.parse(r.at)}` : `abs:${r.id}`, at: new Date(r.at) });
+    // The instant is part of the key whether or not the task recurs, so making a
+    // task recurring (or the reverse) doesn't change it and re-fire the last 24 h.
+    // A one-off task's reminder used to be keyed by its ID alone: `fireReminders`
+    // treats that old key as fired when it was created at or after the instant.
+    if (r.kind === "absolute") out.push({ key: `abs:${r.id}:${Date.parse(r.at)}`, legacyKey: `abs:${r.id}`, at: new Date(r.at) });
     else if (t.dueDate) {
       const base = zonedToUtc(t.dueDate, t.dueTime ?? DEFAULT_REMINDER_TIME, tz);
       out.push({ key: `rel:${r.id}:${occurrence}`, at: new Date(base.getTime() - r.offsetMin * 60_000) });
@@ -49,6 +49,10 @@ export async function fireReminders(now = new Date(), login: string = LOCAL_OWNE
     for (const r of reminderTimes(t)) {
       // Only reminders that came due after the task existed, within catch-up.
       if (r.at > now || r.at <= since || r.at.getTime() <= Date.parse(t.createdAt)) continue;
+      if (r.legacyKey) {
+        const old = await repo.notificationAt(`rem:${t.id}:${r.legacyKey}`);
+        if (old && Date.parse(old) >= r.at.getTime()) continue;
+      }
       const added = await repo.addNotification({ login, kind: "reminder", taskId: t.id, title: t.title, dedupeKey: `rem:${t.id}:${r.key}` });
       if (added) fired++;
     }
