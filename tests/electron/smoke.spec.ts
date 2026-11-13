@@ -243,7 +243,11 @@ type Launched = { app: ElectronApplication; win: Page; origin: string; logs: () 
  * token check uses them until a project is chosen). Without it the app knows
  * only what onboarding step 2 stores (D4).
  */
-async function launch(userData: string, github: MockGitHub, opts: { seed?: string; envTarget?: boolean; ghDir?: string } = {}): Promise<Launched> {
+async function launch(
+  userData: string,
+  github: MockGitHub,
+  opts: { seed?: string; envTarget?: boolean; ghDir?: string; beforeWindow?: (app: ElectronApplication) => Promise<void> } = {},
+): Promise<Launched> {
   const env: Record<string, string> = {};
   for (const [k, v] of Object.entries(process.env)) if (v !== undefined && !k.startsWith("DESKA_") && !k.startsWith("GITHUB_")) env[k] = v;
   Object.assign(env, {
@@ -262,6 +266,7 @@ async function launch(userData: string, github: MockGitHub, opts: { seed?: strin
   let out = "";
   app.process().stdout?.on("data", (d) => (out += String(d)));
   app.process().stderr?.on("data", (d) => (out += String(d)));
+  await opts.beforeWindow?.(app);
   const win = await app.firstWindow();
   await win.waitForURL(/^http:\/\/127\.0\.0\.1:\d+\//, { timeout: 120_000 });
   return { app, win, origin: new URL(win.url()).origin, logs: () => out };
@@ -349,6 +354,29 @@ test.describe("desktop shell", () => {
     rmSync(userData, { recursive: true, force: true });
   });
 
+  test("a Dock click during startup opens exactly one window, once the app is ready (FIX-SPEC D-1)", async () => {
+    // `activate` is what macOS sends for a Dock click; here it arrives before the
+    // server listens, the launch cookie is set or the recovery prompt has run.
+    const { app, win } = await launch(userData, github, {
+      beforeWindow: async (a) => {
+        await a.evaluate(({ app }) => {
+          app.emit("activate");
+        });
+      },
+    });
+    try {
+      await expect(win.locator("body")).not.toBeEmpty({ timeout: 60_000 });
+      const status = await win.evaluate(() => (performance.getEntriesByType("navigation")[0] as PerformanceNavigationTiming & { responseStatus?: number }).responseStatus);
+      expect(status).toBe(200);
+      // Give a second window time to appear, if boot were to open one too.
+      await sleep(3_000);
+      const windows = await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().filter((w) => !w.webContents.getURL().includes("/quick-add")).length);
+      expect(windows).toBe(1);
+    } finally {
+      await app.close();
+    }
+  });
+
   test("first launch opens onboarding; a read-only token connects and reaches the issue list; the token stays in main and memory", async () => {
     const { app, win, origin, logs } = await launch(userData, github);
     try {
@@ -386,9 +414,20 @@ test.describe("desktop shell", () => {
       // Edit controls say why they are off.
       await win.goto(`${origin}/issues?issue=101`);
       const panel = win.getByRole("complementary", { name: "Issue #101" });
-      // The token reads "Read-only token" in Settings (line above); this build is
-      // read-only, so the edit controls name the build's write switch (W0).
-      await expect(panel.getByRole("button", { name: /Close issue/ })).toHaveAttribute("title", "Editing is off for this deployment", { timeout: 60_000 });
+      // The edit controls say why they are off (W0). A read-only build names the
+      // build's write switch; the writes-on build the release job ships (FIX-SPEC
+      // D-4) names the next gate instead, here the mock's read-only token.
+      const gate = await win.evaluate(async () => ((await (await fetch("/api/settings/writes")).json()) as { writes: { buildAllows: boolean; allowed: boolean } }).writes);
+      expect(gate.allowed).toBe(false);
+      const close = panel.getByRole("button", { name: /Close issue/ });
+      if (gate.buildAllows) {
+        await expect(close).toHaveAttribute("title", /\S/, { timeout: 60_000 });
+        await expect(close).not.toHaveAttribute("title", "Editing is off for this deployment");
+      } else {
+        await expect(close).toHaveAttribute("title", "Editing is off for this deployment", { timeout: 60_000 });
+      }
+      // Either way the build's stamp is what the release job asked for.
+      if (process.env.DESKA_WRITES === "on" && !process.env.DESKA_SMOKE_TARGET) expect(gate.buildAllows).toBe(true);
 
       // The server checked the token and discovered the project against the (mock) API with reads only.
       expect(github.requests.length).toBeGreaterThan(0);
@@ -776,7 +815,7 @@ test.describe("desktop shell", () => {
     }
   });
 
-  test("the connection and a saved view survive a relaunch; disconnecting returns to onboarding", async () => {
+  test("the connection, a saved view and the theme survive a relaunch; disconnecting returns to onboarding", async () => {
     const view = { name: "Smoke: open bugs", layout: "list", filters: [{ field: "state", op: "in", values: ["open"] }], sort: [] };
     const first = await launch(userData, github);
     let saved: { id: string };
@@ -788,6 +827,11 @@ test.describe("desktop shell", () => {
         return r.json();
       }, view);
       expect(saved.id).toBeTruthy();
+      // The theme from the user menu (ADR-001): localStorage dies with the port, the database does not.
+      await first.win.locator("[data-user-menu]").first().click();
+      const themeSaved = first.win.waitForResponse((r) => r.url().endsWith("/api/settings/theme") && r.request().method() === "POST");
+      await first.win.getByRole("radio", { name: "Dark" }).click();
+      expect((await themeSaved).status()).toBe(200);
     } finally {
       await first.app.close();
     }
@@ -800,6 +844,7 @@ test.describe("desktop shell", () => {
       const views = await second.win.evaluate(() => fetch("/api/views").then((r) => r.json()));
       const list = (Array.isArray(views) ? views : (views.views ?? [])) as { id: string; name: string }[];
       expect(list.find((v) => v.id === saved.id)?.name).toBe(view.name);
+      await expect(second.win.locator("html")).toHaveAttribute("data-theme", "dark");
 
       // Disconnect: the token file goes, the app is back at onboarding, and the API has no user.
       await second.win.goto(`${second.origin}/settings`);
@@ -1121,6 +1166,25 @@ test.describe("desktop shell", () => {
         fetch("/api/tasks", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ title: "Buy milk" }) }).then((r) => r.status),
       );
       expect(created).toBeLessThan(300);
+      // No GitHub-only controls in tasks-only mode (FIX-SPEC T-13): quick add's
+      // `#1234` hint, the panel's Link issue and a project's Pull in from GitHub.
+      const { win } = session;
+      await win.getByRole("button", { name: "New task" }).first().click();
+      const compose = win.getByRole("dialog", { name: "New task" });
+      await expect(compose.getByText("+label")).toBeVisible();
+      await expect(compose.getByText("#1234")).toHaveCount(0);
+      await expect(compose.getByRole("button", { name: "Link issue" })).toHaveCount(0);
+      await compose.getByRole("combobox", { name: "Task" }).fill("Call the plumber");
+      await compose.getByRole("button", { name: "Add task" }).click();
+      const panel = win.getByRole("complementary", { name: "Task" });
+      await expect(panel).toBeVisible({ timeout: 30_000 });
+      await expect(panel.getByRole("button", { name: "Link issue" })).toHaveCount(0);
+      const project = await win.evaluate(() =>
+        fetch("/api/task-projects", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ name: "Home" }) }).then((r) => r.json() as Promise<{ id: string }>),
+      );
+      await win.goto(`${session.origin}/tasks/p/${project.id}`);
+      await expect(win.getByRole("button", { name: "Add section" })).toBeVisible({ timeout: 30_000 });
+      await expect(win.getByRole("button", { name: "Pull in from GitHub" })).toHaveCount(0);
       // Nothing went to GitHub.
       expect(github.requests).toHaveLength(0);
     } finally {

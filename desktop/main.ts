@@ -5,7 +5,7 @@
 // browser; every other URL and request is blocked (§2.2).
 import { fork, type ChildProcess } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import { accessSync, constants as fsConstants, existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { accessSync, constants as fsConstants, existsSync, mkdirSync, readFileSync, rmSync, statSync } from "node:fs";
 import http from "node:http";
 import net from "node:net";
 import path from "node:path";
@@ -13,6 +13,7 @@ import { app, BrowserWindow, dialog, globalShortcut, ipcMain, Menu, nativeImage,
 import { AI_KEY, CHANNELS, DEFAULT_DESKTOP_PREFS, CLASSIC_TOKEN, type AiKeyStatus, FINE_GRAINED_TOKEN, type DesktopPrefs, type DesktopState, type GithubAuthStatus, type ReminderAction, type ReminderItem, type ServerMessage, type ServerReply, type TokenAuth, type TokenStatus } from "./bridge";
 import { fallbackPath, readGhLogin, readGhToken, resolveLoginPath, serverEnv, type GhRead } from "./gh";
 import { aboutDetails, parseBuildInfo, RELEASES_URL, type BuildInfo } from "./about";
+import { readJsonOrQuarantine, writeAtomic } from "./atomic";
 import { classifyUrl, requestAllowed } from "./navigation";
 import { parseDesktopPrefs, parsePrefsPatch } from "./prefs";
 import { actionAt, actionRequest, reminderOptions } from "./reminder-notification";
@@ -44,6 +45,10 @@ type Server = {
 };
 
 let server: Server | null = null;
+/** Set once boot has finished (token sent, server listening, recovery answered): until then no window may open. */
+let booted = false;
+/** A Dock click (activate) that came before `booted`: boot opens the one window. */
+let earlyActivation = false;
 let launchSecret = "";
 let mainWindow: BrowserWindow | null = null;
 let quitting = false;
@@ -377,8 +382,9 @@ async function applyGh(s: Server, source: "launch" | "user", opts: { force?: boo
   const read = await readGhToken(loginPath);
   const token = read.state === "ok" ? read.token : null;
   const same = ghSent?.state === read.state && ghSent.token === token;
-  ghSent = { state: read.state, token };
   if (!same || opts.force) await sendToken(s, token, source, { auth: { source: "gh", cli: read.state }, reread: opts.reread });
+  // Only once the server took it: a timed-out send is tried again by the next wake.
+  ghSent = { state: read.state, token };
   return read;
 }
 
@@ -465,15 +471,11 @@ let shortcutActive = false;
 let badgeCount = 0;
 
 function loadPrefs(): DesktopPrefs {
-  try {
-    return parseDesktopPrefs(JSON.parse(readFileSync(prefsFile(), "utf8")));
-  } catch {
-    return parseDesktopPrefs(null);
-  }
+  return parseDesktopPrefs(readJsonOrQuarantine(prefsFile()));
 }
 
 function savePrefs() {
-  writeFileSync(prefsFile(), JSON.stringify(prefs, null, 2), { mode: 0o600 });
+  writeAtomic(prefsFile(), JSON.stringify(prefs, null, 2));
 }
 
 /** Launch at login only makes sense for the installed app; in dev it would register the Electron binary. */
@@ -551,7 +553,7 @@ let quickWindow: BrowserWindow | null = null;
 
 /** A small floating window over whatever app is in front; Enter saves and closes, Esc closes. */
 function openQuickAdd() {
-  if (!server) return;
+  if (!server || !booted) return;
   if (quickWindow && !quickWindow.isDestroyed()) {
     quickWindow.show();
     quickWindow.focus();
@@ -596,7 +598,7 @@ function openQuickAdd() {
 const shown = new Set<Notification>();
 
 function showMainWindow(taskId?: string) {
-  if (!server) return;
+  if (!server || !booted) return;
   if (!mainWindow) {
     createWindow(server.origin, taskId ? `/tasks?task=${encodeURIComponent(taskId)}` : "/");
     return;
@@ -664,7 +666,7 @@ function registerIpc() {
     const value = typeof token === "string" ? token.trim() : "";
     if (!FINE_GRAINED_TOKEN.test(value) && !CLASSIC_TOKEN.test(value)) throw new Error("Deska needs a GitHub personal access token. It starts with github_pat_ (fine-grained) or ghp_ (classic).");
     if (!safeStorage.isEncryptionAvailable()) throw new Error("The system keychain is not available.");
-    writeFileSync(tokenFile(), safeStorage.encryptString(value), { mode: 0o600 });
+    writeAtomic(tokenFile(), safeStorage.encryptString(value));
     setAuthSource("token");
     await sendToken(server, value, "user", { auth: { source: "token" } });
     return tokenStatus();
@@ -684,7 +686,7 @@ function registerIpc() {
     const value = typeof key === "string" ? key.trim() : "";
     if (!AI_KEY.test(value)) throw new Error("That does not look like an API key (8–512 characters, no spaces).");
     if (!safeStorage.isEncryptionAvailable()) throw new Error("The system keychain is not available.");
-    writeFileSync(aiKeyFile(), safeStorage.encryptString(value), { mode: 0o600 });
+    writeAtomic(aiKeyFile(), safeStorage.encryptString(value));
     await sendAiKey(server, value);
     return aiKeyStatus();
   });
@@ -700,7 +702,7 @@ function registerIpc() {
     const value = typeof key === "string" ? key.trim() : "";
     if (!AI_KEY.test(value)) throw new Error("That does not look like an API key (8–512 characters, no spaces).");
     if (!safeStorage.isEncryptionAvailable()) throw new Error("The system keychain is not available.");
-    writeFileSync(transcribeKeyFile(), safeStorage.encryptString(value), { mode: 0o600 });
+    writeAtomic(transcribeKeyFile(), safeStorage.encryptString(value));
     await sendTranscribeKey(server, value);
     return transcribeKeyStatus();
   });
@@ -720,8 +722,8 @@ function registerIpc() {
     // The stored token goes first: with this source nothing of the token is on disk.
     rmSync(tokenFile(), { force: true });
     setAuthSource("gh");
-    ghSent = { state: "ok", token: read.token };
     await sendToken(server, read.token, "user", { auth: { source: "gh", cli: "ok" } });
+    ghSent = { state: "ok", token: read.token };
     return githubAuthStatus(read);
   });
   ipcMain.handle(CHANNELS.githubRecheck, async (e) => {
@@ -853,8 +855,9 @@ async function boot() {
   await aiKeyReady;
   await transcribeKeyReady;
   await offerRecovery(s.origin, secret);
+  booted = true;
   // Opened by "launch at login": stay in the background; the Dock icon opens a window.
-  if (!app.getLoginItemSettings().wasOpenedAtLogin) createWindow(s.origin);
+  if (earlyActivation || !app.getLoginItemSettings().wasOpenedAtLogin) createWindow(s.origin);
   registerShortcut();
   applyBadge();
   applyLoginItem();
@@ -880,6 +883,10 @@ app.on("window-all-closed", () => {
 });
 
 app.on("activate", () => {
+  if (!booted) {
+    earlyActivation = true;
+    return;
+  }
   if (!mainWindow && server) createWindow(server.origin);
 });
 

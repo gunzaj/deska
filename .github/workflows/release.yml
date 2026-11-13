@@ -29,7 +29,13 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - name: The tag matches package.json
         run: test "v$(node -p "require('./package.json').version")" = "$GITHUB_REF_NAME"
+      # Unit and database tests run before the dmg is built, and the desktop
+      # smoke runs against the writes-on build that ships (it reads the build's
+      # write switch, so the same spec covers CI's writes-off build).
+      - run: pnpm typecheck
+      - run: pnpm test
       - run: pnpm desktop:build
+      - run: pnpm test:desktop
       - name: Draft release with the .dmg
         env:
           GH_TOKEN: ${{ github.token }}

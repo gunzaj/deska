@@ -11,6 +11,7 @@ import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, 
 import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
+import { scrubEnvFiles } from "./desktop-env.mjs";
 
 const require = createRequire(import.meta.url);
 const root = process.cwd();
@@ -90,6 +91,7 @@ function stage() {
   for (const e of readdirSync(standalone)) {
     if (e !== "node_modules") execFileSync("cp", ["-R", path.join(standalone, e), path.join(server, e)]);
   }
+  scrubEnvFiles(server);
   flattenNodeModules(path.join(standalone, "node_modules"), path.join(server, "node_modules"));
   if (findSymlink(server)) throw new Error(`staged server still has a symlink: ${findSymlink(server)}`);
   cpSync(path.join(root, DIST_DIR, "static"), path.join(server, DIST_DIR, "static"), { recursive: true });
