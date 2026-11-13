@@ -47,8 +47,8 @@ export type AskAnswerView = {
 export type AskView = { answer: AskAnswerView | null; ai: AiStatus };
 
 /** The issue as triage reads it, plus the question: everything a suggestion is built from. */
-export async function askIssueInput(number: number, question: string): Promise<AskIssueInput | null> {
-  const input = await triageInput(number);
+export async function askIssueInput(number: number, question: string, opts: { forHash?: boolean } = {}): Promise<AskIssueInput | null> {
+  const input = await triageInput(number, opts);
   return input ? { ...input, question } : null;
 }
 
@@ -142,7 +142,7 @@ export async function latestIssueAnswer(number: number): Promise<AskView | null>
   if (!row) return { answer: null, ai };
   const stored = storedAnswer(row);
   if (!stored) return { answer: null, ai };
-  const input = await askIssueInput(number, stored.question);
+  const input = await askIssueInput(number, stored.question, { forHash: true });
   if (!input) return null;
   const settings = await readAiSettings();
   const fresh = row.inputHash === inputHash(askIssueTask(input), settings.extraInstructions);

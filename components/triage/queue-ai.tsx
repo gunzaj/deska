@@ -13,10 +13,18 @@ import { Dialog } from "../ui/dialog";
 import { btn } from "../ui/popover";
 
 type Status = { ready: boolean; reason: string | null };
-type Phase = "closed" | "status" | "confirm" | "running" | "finished";
+type Phase = "closed" | "status" | "confirm" | "starting" | "running" | "finished";
 
 /** Above this many issues the batch asks once more before sending (SPEC §4.9). */
 export const QUEUE_CONFIRM_ABOVE = 20;
+
+/** The most issues one batch takes (the route's limit); a longer queue sends its first ones. */
+export const QUEUE_MAX = 200;
+
+/** The issues one batch sends: the queue's first `QUEUE_MAX`. */
+export function queueBatch(numbers: number[]): number[] {
+  return numbers.slice(0, QUEUE_MAX);
+}
 
 async function call(url: string, method: "GET" | "POST", body?: unknown): Promise<Record<string, unknown>> {
   const res = await fetch(url, { method, cache: "no-store", headers: body === undefined ? undefined : { "content-type": "application/json" }, body: body === undefined ? undefined : JSON.stringify(body) });
@@ -34,7 +42,19 @@ export function QueueAi({ label, numbers }: { label: string; numbers: number[] }
   const [jobs, setJobs] = useState<Map<string, Job>>(new Map());
   const [message, setMessage] = useState<string | null>(null);
 
+  // Whether the dialog is showing: a batch keeps running when it is closed, and
+  // an answer that arrives then must not open it again.
+  const shown = useRef(false);
+  const starting = useRef(false);
+  const jobsRef = useRef(jobs);
+  jobsRef.current = jobs;
+
   const open = useCallback(async () => {
+    shown.current = true;
+    // A batch from before the dialog was closed is still going: show it, with
+    // its Cancel, instead of forgetting it and offering to send the queue again.
+    if (starting.current) return setPhase("starting");
+    if (batch.current && [...jobsRef.current.values()].some((j) => !finished(j))) return setPhase("running");
     setPhase("status");
     setStatus(null);
     setMessage(null);
@@ -42,30 +62,45 @@ export function QueueAi({ label, numbers }: { label: string; numbers: number[] }
     setBatchId(null);
     try {
       const s = (await call("/api/ai/status", "GET")) as unknown as Status;
+      if (!shown.current) return;
       setStatus(s);
       setPhase("confirm");
     } catch (e) {
+      if (!shown.current) return;
       setMessage(e instanceof Error ? e.message : String(e));
       setPhase("finished");
     }
   }, []);
 
-  const close = useCallback(() => setPhase("closed"), []);
+  const close = useCallback(() => {
+    shown.current = false;
+    setPhase("closed");
+  }, []);
+
+  const sending = useMemo(() => queueBatch(numbers), [numbers]);
 
   const start = useCallback(async () => {
+    // One batch per click: while the server builds the inputs (a read per
+    // issue) a second click used to queue every issue again.
+    if (starting.current) return;
+    starting.current = true;
     setMessage(null);
+    setPhase("starting");
     try {
-      const body = (await call("/api/ai/triage-queue", "POST", { numbers })) as unknown as { batchId: string; jobs: Job[] };
+      const body = (await call("/api/ai/triage-queue", "POST", { numbers: sending })) as unknown as { batchId: string; jobs: Job[] };
       const map = new Map<string, Job>();
       for (const j of body.jobs) map.set(j.id, j);
       setJobs(map);
       setBatchId(body.batchId);
-      setPhase(map.size && [...map.values()].every(finished) ? "finished" : "running");
+      // Closed meanwhile: the batch runs on, and opening the dialog shows it.
+      if (shown.current) setPhase(map.size && [...map.values()].every(finished) ? "finished" : "running");
     } catch (e) {
       setMessage(e instanceof Error ? e.message : String(e));
-      setPhase("finished");
+      if (shown.current) setPhase("finished");
+    } finally {
+      starting.current = false;
     }
-  }, [numbers]);
+  }, [sending]);
 
   const batch = useRef<string | null>(null);
   batch.current = batchId;
@@ -99,8 +134,8 @@ export function QueueAi({ label, numbers }: { label: string; numbers: number[] }
         .map((j) => call(`/api/ai/jobs/${j.id}/cancel`, "POST").catch(() => null)),
     );
     setPhase("finished");
-    setMessage(`Cancelled after ${done} of ${numbers.length}.`);
-  }, [done, jobs, numbers.length]);
+    setMessage(`Cancelled after ${done} of ${jobs.size}.`);
+  }, [done, jobs]);
 
   const title = `Suggest for this queue`;
   return (
@@ -142,15 +177,20 @@ export function QueueAi({ label, numbers }: { label: string; numbers: number[] }
               <p className="text-[12.5px] text-muted">
                 One suggestion per issue, one at a time. Each issue and its comments go to the model you chose; nothing changes on GitHub.
               </p>
-              {numbers.length > QUEUE_CONFIRM_ABOVE && (
+              {sending.length > QUEUE_CONFIRM_ABOVE && (
                 <p className="rounded-lg bg-banner-warning px-3 py-2 text-[12.5px] text-warning" data-ai-queue-big>
-                  That is a big batch: {numbers.length} issues, so it can take a while. Deska asks each one in turn.
+                  That is a big batch: {sending.length} issues, so it can take a while. Deska asks each one in turn.
+                </p>
+              )}
+              {numbers.length > sending.length && (
+                <p className="text-[12.5px] text-muted" data-ai-queue-capped>
+                  Only the first {sending.length} of {numbers.length} issues are sent. Run it again for the rest once these are triaged.
                 </p>
               )}
               <div className="flex flex-wrap items-center gap-1.5">
                 <button type="button" onClick={() => void start()} className={btn.primary} data-ai-queue-confirm>
                   <Icon name="zap" size={13} />
-                  Send {numbers.length} to the model
+                  Send {sending.length} to the model
                 </button>
                 <button type="button" onClick={close} className={btn.ghost}>
                   Cancel
@@ -159,10 +199,16 @@ export function QueueAi({ label, numbers }: { label: string; numbers: number[] }
             </div>
           )}
 
+          {phase === "starting" && (
+            <p role="status" className="text-[12.5px] text-muted" data-ai-queue-starting>
+              Reading {sending.length} {sending.length === 1 ? "issue" : "issues"}…
+            </p>
+          )}
+
           {phase === "running" && (
             <div className="space-y-2">
               <p role="status" className="text-[12.5px] text-muted" data-ai-queue-progress>
-                {done + failed + cancelled} of {numbers.length} done
+                {done + failed + cancelled} of {list.length} done
                 {active.length > 0 ? " · one at a time" : ""}
                 {list[0] ? <> · <Elapsed since={list[0].createdAt} /></> : null}
               </p>

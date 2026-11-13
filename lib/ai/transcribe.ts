@@ -22,6 +22,11 @@ export function transcribeBaseUrl(settings: AiSettings): string | null {
   return settings.provider === "openai" ? settings.baseUrl : null;
 }
 
+/** Whether the recording goes to the chat endpoint because no transcription endpoint is set. */
+export function usesChatEndpoint(settings: AiSettings): boolean {
+  return settings.transcribeApi !== "local" && !settings.transcribeBaseUrl && settings.provider === "openai";
+}
+
 /** The transcription key: its own, else the chat endpoint's when both point at the same host. */
 export function transcribeKeyFor(settings: AiSettings): string | null {
   if (settings.transcribeApi === "local") return null;

@@ -51,6 +51,28 @@ describe("Claude Code provider", () => {
     fake.cleanup();
   });
 
+  it("keeps a character whose bytes arrive in two chunks", async () => {
+    // The CLI's answer in two writes, cut in the middle of a 3-byte character.
+    const text = JSON.stringify(claudeOk({ ok: true, note: "Příliš žluťoučký kůň ✓" }));
+    const bytes = Buffer.from(text, "utf8");
+    const cut = bytes.indexOf(Buffer.from("✓", "utf8")) + 1;
+    const { chmodSync, writeFileSync } = await import("node:fs");
+    const file = `${fake.dir}/claude`;
+    writeFileSync(
+      file,
+      `#!${process.execPath}
+const out = Buffer.from(${JSON.stringify(bytes.toString("base64"))}, "base64");
+process.stdin.resume();
+process.stdin.on("end", () => {
+  process.stdout.write(out.subarray(0, ${cut}), () => setTimeout(() => process.stdout.write(out.subarray(${cut}), () => process.exit(0)), 150));
+});
+`,
+    );
+    chmodSync(file, 0o755);
+    const res = await callClaude({ model: "sonnet", system: "s", user: "u", schema: SCHEMA, timeoutMs: 10_000 });
+    expect(res).toMatchObject({ ok: true, output: { ok: true, note: "Příliš žluťoučký kůň ✓" } });
+  });
+
   it("calls `claude -p` with the SPEC arguments, the prompt on stdin, and returns structured_output and cost", async () => {
     fake.reply({ ...claudeOk({ ok: true }, 0.037), duration_ms: 4_200, duration_api_ms: 3_100 });
     const res = await callClaude({ model: "sonnet", system: "SYSTEM TEXT", user: "USER TEXT", schema: SCHEMA, timeoutMs: 10_000 });

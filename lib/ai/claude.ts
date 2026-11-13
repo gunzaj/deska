@@ -68,11 +68,15 @@ function run(file: string, args: string[], stdin: string, o: { cwd: string; time
     }
     if (o.signal?.aborted) return onAbort();
     o.signal?.addEventListener("abort", onAbort, { once: true });
-    child.stdout?.on("data", (d: Buffer) => {
-      if (stdout.length < MAX_OUTPUT) stdout += d.toString("utf8");
+    // Decoded as a stream: a multi-byte character split across two chunks
+    // (Czech text, emoji) decoded chunk by chunk came out as U+FFFD.
+    child.stdout?.setEncoding("utf8");
+    child.stderr?.setEncoding("utf8");
+    child.stdout?.on("data", (d: string) => {
+      if (stdout.length < MAX_OUTPUT) stdout += d;
     });
-    child.stderr?.on("data", (d: Buffer) => {
-      if (stderr.length < 64 * 1024) stderr += d.toString("utf8");
+    child.stderr?.on("data", (d: string) => {
+      if (stderr.length < 64 * 1024) stderr += d;
     });
     child.on("error", (e) => done({ ok: false, reason: "spawn", stdout, stderr, message: e.message }));
     child.on("close", (code) => done(code === 0 ? { ok: true, stdout, stderr } : { ok: false, reason: "exit", stdout, stderr, message: `exit code ${code}` }));

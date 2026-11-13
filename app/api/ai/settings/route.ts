@@ -1,3 +1,4 @@
+import { cancelActiveJobs } from "@/lib/ai/runner";
 import { aiKey, transcribeKey } from "@/lib/ai/key";
 import { claudeCapabilities } from "@/lib/ai/claude";
 import { AI_DESTINATIONS, AI_FEATURES, AI_NEVER_SENT } from "@/lib/ai/features";
@@ -58,6 +59,10 @@ export const POST = route({ auth: "public", body: aiSettingsBody, invalid: "Thos
   const next = { ...body, baseUrl, transcribeBaseUrl, transcribeLocalUrl };
   const before = await readAiSettings();
   await saveAiSettings(next);
-  if (verifyId(before) !== verifyId(next)) await saveAiVerified(null);
+  if (verifyId(before) !== verifyId(next)) {
+    await saveAiVerified(null);
+    // Jobs queued or running for the previous provider stop here (§4.9).
+    cancelActiveJobs();
+  }
   return view();
 });

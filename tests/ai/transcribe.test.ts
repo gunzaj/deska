@@ -128,3 +128,15 @@ describe("transcription (item 13)", () => {
     expect(await transcribe({ settings: settings(), audio: new ArrayBuffer(0), mime: "audio/webm", timeoutMs: 5_000 })).toMatchObject({ ok: false, message: expect.stringContaining("empty") });
   });
 });
+
+describe("where a recording goes without its own endpoint", () => {
+  it("is the chat endpoint only for the OpenAI-compatible provider with no transcription URL", async () => {
+    const { usesChatEndpoint } = await import("@/lib/ai/transcribe");
+    const { DEFAULT_AI_SETTINGS } = await import("@/lib/ai/types");
+    const base = { ...DEFAULT_AI_SETTINGS, provider: "openai" as const, baseUrl: "https://api.example.com/v1" };
+    expect(usesChatEndpoint(base)).toBe(true);
+    expect(usesChatEndpoint({ ...base, transcribeBaseUrl: "https://stt.example.com/v1" })).toBe(false);
+    expect(usesChatEndpoint({ ...base, transcribeApi: "local" })).toBe(false);
+    expect(usesChatEndpoint({ ...base, provider: "claude-code" })).toBe(false);
+  });
+});

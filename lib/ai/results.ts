@@ -1,6 +1,6 @@
 // `ai_results` (SPEC §4.9): a cache of what the model said, with when and by whom.
 // Not data: not in backups or exports; "Reset GitHub cache" clears the issue-based rows (lib/backup/local-data.ts).
-import { and, desc, eq, isNull } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 import { dbDir, getDb } from "@/db";
 import { aiResults } from "@/db/schema";
 
@@ -13,18 +13,19 @@ export async function saveResult(r: { feature: string; subjectKind: string; subj
 }
 
 /**
- * The newest result for a subject that was not dismissed, or null. A dismissed
- * suggestion is not shown again.
+ * The newest result for a subject, or null when there is none or it was
+ * dismissed. Only the newest counts: skipping a dismissed row to the one before
+ * it brought back an older, outdated suggestion the user had already replaced.
  */
 export async function latestResultRow(feature: string, subject: string): Promise<StoredResult | null> {
   if (!dbDir()) return null;
   const [row] = await getDb()
     .select()
     .from(aiResults)
-    .where(and(eq(aiResults.feature, feature), eq(aiResults.subject, subject), isNull(aiResults.dismissedAt)))
-    .orderBy(desc(aiResults.createdAt))
+    .where(and(eq(aiResults.feature, feature), eq(aiResults.subject, subject)))
+    .orderBy(desc(aiResults.createdAt), desc(aiResults.id))
     .limit(1);
-  return row ?? null;
+  return row && !row.dismissedAt ? row : null;
 }
 
 /** The newest result for a subject; `fresh` says whether its input hash still matches. */

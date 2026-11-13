@@ -118,6 +118,79 @@ describe("suggestions", () => {
     expect(changed.suggestion).toMatchObject({ id, fresh: false });
   });
 
+  it("Run again, then Dismiss: nothing is shown, not the suggestion from before", async () => {
+    await configure();
+    fake.reply(claudeOk(await answer(102)));
+    for (let i = 0; i < 2; i++) {
+      const started = (await (await issueAiPost(json("/api/issues/102/ai"), withParams({ number: "102" }))).json()).job;
+      await finish(started.id);
+    }
+    expect(Number((await getDb().execute(sql`SELECT count(*)::int AS n FROM ai_results`)).rows[0]!.n)).toBe(2);
+    const view = await (await issueAiGet(get("/api/issues/102/ai"), withParams({ number: "102" }))).json();
+    const id = view.suggestion.id as string;
+    await outcomePost(json(`/api/ai/results/${id}/outcome`, { outcome: "dismissed" }), withParams({ id }));
+    const after = await (await issueAiGet(get("/api/issues/102/ai"), withParams({ number: "102" }))).json();
+    expect(after.suggestion).toBeNull();
+  });
+
+  it("an accepted suggestion is not offered again", async () => {
+    await configure();
+    fake.reply(claudeOk(await answer(102)));
+    const started = (await (await issueAiPost(json("/api/issues/102/ai"), withParams({ number: "102" }))).json()).job;
+    await finish(started.id);
+    const view = await (await issueAiGet(get("/api/issues/102/ai"), withParams({ number: "102" }))).json();
+    await (await import("@/lib/ai/results")).markResult(view.suggestion.id, "accepted");
+    const after = await (await issueAiGet(get("/api/issues/102/ai"), withParams({ number: "102" }))).json();
+    expect(after.suggestion).toBeNull();
+  });
+
+  it("Accept is refused for a suggestion made before the issue changed, and for one already accepted", async () => {
+    const { saveWriteAccess, saveWrites } = await import("@/lib/settings");
+    await configure();
+    fake.reply(claudeOk(await answer(102)));
+    const started = (await (await issueAiPost(json("/api/issues/102/ai"), withParams({ number: "102" }))).json()).job;
+    await finish(started.id);
+    const view = await (await issueAiGet(get("/api/issues/102/ai"), withParams({ number: "102" }))).json();
+    const id = view.suggestion.id as string;
+    process.env.DESKA_WRITES = "on";
+    await saveWrites(true);
+    await saveWriteAccess({ state: "yes", message: null, checkedAt: new Date().toISOString() });
+    try {
+      await getDb().execute(sql`UPDATE issues SET updated_at = now() + interval '2 minutes' WHERE number = 102`);
+      invalidateReadCache();
+      const stale = await outcomePost(json(`/api/ai/results/${id}/outcome`, { outcome: "accepted" }), withParams({ id }));
+      expect(stale.status).toBe(409);
+      expect((await stale.json()).error).toMatch(/changed since/);
+
+      await (await import("@/lib/ai/results")).markResult(id, "accepted");
+      const again = await outcomePost(json(`/api/ai/results/${id}/outcome`, { outcome: "accepted" }), withParams({ id }));
+      expect(again.status).toBe(409);
+      expect((await again.json()).error).toMatch(/already accepted/);
+    } finally {
+      delete process.env.DESKA_WRITES;
+      await saveWrites(false);
+    }
+  });
+
+  it("showing a stored suggestion asks GitHub for nothing: \"Outdated\" needs no comments", async () => {
+    const { setLocalToken } = await import("@/lib/github/local-token");
+    await configure();
+    fake.reply(claudeOk(await answer(102)));
+    const started = (await (await issueAiPost(json("/api/issues/102/ai"), withParams({ number: "102" }))).json()).job;
+    await finish(started.id);
+    // With a token, building the full input reads the issue's comments live.
+    setLocalToken(["github", "pat", "TRIAGE", "FAKE", "0".repeat(24)].join("_"), "launch");
+    const fetched = vi.spyOn(globalThis, "fetch").mockRejectedValue(new Error("no network in this test"));
+    try {
+      const view = await (await issueAiGet(get("/api/issues/102/ai"), withParams({ number: "102" }))).json();
+      expect(view.suggestion).toMatchObject({ fresh: true });
+      expect(fetched).not.toHaveBeenCalled();
+    } finally {
+      fetched.mockRestore();
+      setLocalToken(null, "launch");
+    }
+  });
+
   it("Dismiss removes it; Accept is refused while writes are off, with the reason", async () => {
     await configure();
     fake.reply(claudeOk(await answer(102)));

@@ -1,6 +1,8 @@
 import { z } from "zod";
 import { acceptTriageSuggestion, SUGGESTION_PARTS, type SuggestionPart } from "@/lib/ai/accept";
 import { markResult, resultById } from "@/lib/ai/results";
+import { TRIAGE_FEATURE } from "@/lib/ai/triage";
+import { triageSuggestionFresh } from "@/lib/ai/triage-service";
 import { HttpError, route } from "@/lib/server/route";
 import { writeGate, WRITE_MESSAGES } from "@/lib/writes/gate";
 
@@ -42,6 +44,12 @@ export const POST = route(
     }
     const gate = await writeGate();
     if (!gate.allowed) throw new HttpError(409, gate.reason ?? WRITE_MESSAGES.settingOff);
+    // Accepting writes the suggested values. One accepted before, or made for an
+    // older version of the issue, would write them over what changed since.
+    if (row.acceptedAt) throw new HttpError(409, "This suggestion was already accepted.");
+    if (row.feature === TRIAGE_FEATURE && !(await triageSuggestionFresh(row))) {
+      throw new HttpError(409, "The issue changed since this suggestion was made. Run it again.");
+    }
     const applied = await acceptTriageSuggestion(row, { parts: body.parts as SuggestionPart[] | undefined });
     await markResult(params.id, "accepted");
     return { outcome: "accepted", ...applied };
