@@ -46,6 +46,11 @@ const INBOX = "__inbox";
 
 export function ProjectPicker({ value, onChange }: { value: string | null; onChange: (id: string | null) => void }) {
   const { projects } = useTasks();
+  return <ProjectPickerFor projects={projects} value={value} onChange={onChange} />;
+}
+
+/** The project picker over a given list (the quick-add window loads its own, outside the task store). */
+export function ProjectPickerFor({ projects, value, onChange }: { projects: TaskProject[]; value: string | null; onChange: (id: string | null) => void }) {
   const anchor = useRef<HTMLButtonElement>(null);
   const [open, setOpen] = useState(false);
   const active = projects.filter((p) => !p.archived);
@@ -78,6 +83,11 @@ export function ProjectPicker({ value, onChange }: { value: string | null; onCha
 /** Multi-select over the viewer's labels; typing a new name offers to create it. */
 export function LabelPicker({ value, onChange }: { value: string[]; onChange: (names: string[]) => void }) {
   const { labels } = useTasks();
+  return <LabelPickerFor labels={labels} value={value} onChange={onChange} />;
+}
+
+/** The label picker over a given list (the quick-add window loads its own, outside the task store). */
+export function LabelPickerFor({ labels, value, onChange }: { labels: TaskLabel[]; value: string[]; onChange: (names: string[]) => void }) {
   const anchor = useRef<HTMLButtonElement>(null);
   const [open, setOpen] = useState(false);
   const [q, setQ] = useState("");
