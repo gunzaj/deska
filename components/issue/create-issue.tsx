@@ -82,8 +82,20 @@ export function CreateIssue() {
             .map(([field, next]) => ({ field, next })),
         }),
       });
-      const out = (await res.json().catch(() => null)) as { entry?: { status?: string; result?: { number?: number } }; error?: string } | null;
-      if (!res.ok) throw new Error(out?.error ?? `Request failed (${res.status})`);
+      const out = (await res.json().catch(() => null)) as { entry?: { status?: string; error?: string | null; result?: { number?: number } | null }; error?: string } | null;
+      if (!res.ok) {
+        const made = out?.entry?.result?.number;
+        // GitHub made the issue and a later step failed (adding it to the
+        // project, a field): the issue exists, so the form closes. Left open, the
+        // only thing to do was Create again, which made a second issue.
+        if (made) {
+          setOpen(false);
+          await refresh();
+          toast({ message: createdWithProblem(made, out?.entry?.error) });
+          return;
+        }
+        throw new Error(out?.error ?? out?.entry?.error ?? `Request failed (${res.status})`);
+      }
       setOpen(false);
       // The create job re-read the issue into the cache: the list shows it once.
       await refresh();
@@ -296,4 +308,9 @@ function CheckGroup({
       </div>
     </fieldset>
   );
+}
+
+/** What the form says when the issue was created but a later step of the job failed. */
+export function createdWithProblem(number: number, error: string | null | undefined): string {
+  return `Created #${number}, but not everything was set${error ? `: ${error}` : "."} Open the issue to finish it.`;
 }

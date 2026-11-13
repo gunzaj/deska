@@ -159,6 +159,25 @@ describe("switching source (§3.4: counts as a token change)", () => {
     expect(tokenState().generation).toBe(start.generation + 2);
   });
 
+  it("another account arriving on a wake (gh auth switch) turns GitHub writes off; the same account does not", async () => {
+    const { readWrites, resetSettingsCache, saveWrites } = await import("@/lib/settings");
+    resetSettingsCache();
+    // An earlier test's user token change is not part of this one.
+    (await import("@/lib/writes/token-change")).takeTokenChange();
+    // The same account as last time: the switch stays as the user left it.
+    await getDb().execute(sql`INSERT INTO sync_state (key, value) VALUES ('github.login', 'alice')`);
+    await saveWrites(true);
+    setLocalToken(FRESH, "launch", GH_OK);
+    expect((await connectionStatus({ refresh: true })).login).toBe("alice");
+    expect(await readWrites()).toBe(true);
+    // The install last saw bob; the CLI now answers as alice.
+    await getDb().execute(sql`UPDATE sync_state SET value = 'bob' WHERE key = 'github.login'`);
+    resetConnectionCache();
+    await connectionStatus({ refresh: true });
+    expect(await readWrites()).toBe(false);
+    await saveWrites(false);
+  });
+
   it("a re-read or a wake is not a user change", () => {
     setLocalToken(STALE, "launch", GH_OK);
     setLocalToken(FRESH, "launch", GH_OK, true);

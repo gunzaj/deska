@@ -12,7 +12,8 @@ describe("the write gate (W0, SPEC §3.4)", async () => {
   const { getDb } = await import("@/db");
   const { setLocalToken } = await import("@/lib/github/local-token");
   const { resetSettingsCache, saveWriteAccess, saveWrites } = await import("@/lib/settings");
-  const { consumeTokenChangeReset, setWritesOn, writeGate } = await import("@/lib/writes/gate");
+  const { accountChanged, consumeTokenChangeReset, setWritesOn, writeGate } = await import("@/lib/writes/gate");
+  const { drainOutbox, enqueueEdit, getEdit, SIGN_IN_CHANGED } = await import("@/lib/outbox/store");
   const { noteTokenChange } = await import("@/lib/writes/token-change");
   const { writeContext } = await import("@/lib/outbox/http");
   const { importFull } = await import("@/lib/sync/import");
@@ -29,6 +30,39 @@ describe("the write gate (W0, SPEC §3.4)", async () => {
     await getDb().execute(sql`DELETE FROM app_settings WHERE key IN (${WRITES_KEY}, ${ACCESS_KEY})`);
     await getDb().execute(sql`TRUNCATE issues, project_items, project_scan_seen, field_options, iterations, project_fields, labels, milestones, gh_users, issue_types, sync_state RESTART IDENTITY CASCADE`);
     await importFull(fixtureSnapshot(), new PostgresStore());
+  });
+
+  it("a token change fails the edits still waiting: they are not sent later under the new sign-in", async () => {
+    process.env.DESKA_WRITES = "on";
+    await getDb().execute(sql`TRUNCATE outbox, audit_log`);
+    // An edit on backoff (GitHub was flaky), and a create.
+    const waiting = await enqueueEdit({ userId: "alice", issueNodeId: "I_bug", op: "update", field: "labels", base: null, next: { added: ["bug"], removed: [] }, idempotencyKey: "alice:waiting" });
+    const create = await enqueueEdit({ userId: "alice", issueNodeId: "", op: "create", field: null, base: null, next: { title: "New" }, idempotencyKey: "alice:create" });
+    await getDb().execute(sql`UPDATE outbox SET next_attempt_at = now() + interval '30 seconds', attempts = 1 WHERE id = ${waiting.id}`);
+    noteTokenChange();
+    await writeGate();
+    for (const id of [waiting.id, create.id]) expect(await getEdit(id)).toMatchObject({ status: "failed", error: SIGN_IN_CHANGED });
+    expect(Number((await getDb().execute(sql`SELECT count(*)::int AS n FROM audit_log WHERE result = 'failed'`)).rows[0]!.n)).toBe(2);
+    // Writes come back on, with the new token: nothing is left to send.
+    await saveWriteAccess({ state: "yes", message: null, checkedAt: new Date().toISOString() });
+    await setWritesOn(true);
+    const applyField = vi.fn();
+    const { processed } = await drainOutbox(async () => ({ client: { applyField, readField: vi.fn(), closeIssue: vi.fn(), reopenIssue: vi.fn() }, doneStatusOptionId: "" }));
+    expect(processed).toEqual([]);
+    expect(applyField).not.toHaveBeenCalled();
+    delete process.env.DESKA_WRITES;
+  });
+
+  it("another account behind the same sign-in source: writes go off and waiting edits fail", async () => {
+    await getDb().execute(sql`TRUNCATE outbox, audit_log`);
+    await saveWrites(true);
+    await saveWriteAccess({ state: "yes", message: null, checkedAt: new Date().toISOString() });
+    const waiting = await enqueueEdit({ userId: "alice", issueNodeId: "I_bug", op: "update", field: "priority", base: null, next: "b0000003", idempotencyKey: "alice:account" });
+    await accountChanged();
+    const gate = await writeGate();
+    // The new token's permissions stay as the check recorded them; the switch is what goes off.
+    expect(gate).toMatchObject({ settingOn: false, tokenAccess: "yes" });
+    expect((await getEdit(waiting.id))?.status).toBe("failed");
   });
 
   it("build off: nothing is written, whatever the setting and token say", async () => {

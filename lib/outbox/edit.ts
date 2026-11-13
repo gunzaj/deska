@@ -1,6 +1,5 @@
 // One edit to one issue (W1): validation against the discovered metadata,
-// the durable outbox, and the fast path. Shared by POST
-// /api/issues/[number]/edit and the board's POST /api/issues/edit.
+// the durable outbox, and the fast path, for POST /api/issues/[number]/edit.
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { dimFieldId, isDimKey } from "@/lib/sync/field-map";
@@ -76,7 +75,10 @@ export async function submitEdit(args: {
   let op: "update" | "close" | "reopen" = "update";
   let next: unknown = body.next;
   let base: unknown = body.base === undefined ? cachedValue(store, issueNodeId, field) : body.base;
-  let done = "";
+  // Every request resolves the Done Status, not only a close: this request may
+  // also run a close queued behind its own edit (processFollowers).
+  const doneStatus = await doneStatusOption(store);
+  const done = doneStatus.ok ? doneStatus.id : "";
 
   if (field === "state") {
     if (next !== "open" && next !== "closed") return bad("state must be open or closed");
@@ -84,9 +86,7 @@ export async function submitEdit(args: {
     if (op === "close") {
       // SPEC §4.8: nothing is written unless closing can also move Status to
       // the Done Status chosen in Settings.
-      const d = await doneStatusOption(store);
-      if (!d.ok) return { status: 422, body: { error: d.reason } };
-      done = d.id;
+      if (!doneStatus.ok) return { status: 422, body: { error: doneStatus.reason } };
     }
   } else if (field === "labels" || field === "assignees") {
     const parsed = delta.safeParse(next);

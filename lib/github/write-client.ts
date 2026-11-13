@@ -330,6 +330,8 @@ export class GitHubWriteClient implements WriteClient {
 
   async applyField(issueNodeId: string, field: string | null, next: unknown): Promise<void> {
     if (field === "type") {
+      // By node ID, so GitHub would take it for an issue transferred elsewhere.
+      await this.assertInRepo(issueNodeId);
       await this.mutate(
         `mutation($issue:ID!, $type:ID) { updateIssueIssueType(input:{issueId:$issue, issueTypeId:$type}) { issue { id } } }`,
         { issue: issueNodeId, type: next ?? null },
@@ -369,6 +371,7 @@ export class GitHubWriteClient implements WriteClient {
     const ref = this.refFor(field);
     const def = meta.fields.get(ref.id);
     if (!def) throw new NonRetryableError(`the ${ref.name} field is no longer in the project`);
+    await this.assertInRepo(issueNodeId);
     const itemId = await this.itemFor(issueNodeId);
     if (next == null) {
       await this.mutate(
@@ -410,6 +413,7 @@ export class GitHubWriteClient implements WriteClient {
       throw new NonRetryableError("GitHub created the issue but returned no node ID; nothing else was written");
     }
     this.items.set(data.node_id, "");
+    this.inRepo.add(data.node_id);
     return { nodeId: data.node_id, number: data.number };
   }
 
@@ -468,6 +472,18 @@ export class GitHubWriteClient implements WriteClient {
     });
   }
 
+  /** Issues this client has seen in the configured repo (it lives a few minutes). */
+  private inRepo = new Set<string>();
+
+  /**
+   * Writes by node ID (Type, project fields) reach the issue wherever it lives:
+   * one transferred to another repository must be refused like the REST writes.
+   */
+  private async assertInRepo(issueNodeId: string): Promise<void> {
+    if (this.inRepo.has(issueNodeId)) return;
+    await this.issueNumber(issueNodeId);
+  }
+
   /**
    * The issue's number in the configured repo. REST writes address `owner/repo`
    * plus a number, so an issue transferred to another repo would send the write
@@ -484,6 +500,7 @@ export class GitHubWriteClient implements WriteClient {
     if (actual.toLowerCase() !== expected.toLowerCase()) {
       throw new NonRetryableError(`this issue now lives in ${actual || "another repository"}, not ${expected}; nothing was written`);
     }
+    this.inRepo.add(issueNodeId);
     return node.number;
   }
 }
