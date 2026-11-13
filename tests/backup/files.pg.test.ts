@@ -1,5 +1,5 @@
 // SPEC §4.7 / D8: automatic backup files, rotation, the pre-migration backup.
-import { chmodSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, copyFileSync, mkdtempSync, utimesSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -224,5 +224,45 @@ describe("backup health", () => {
     process.env.DESKA_BACKUP_DIR = real;
     await writeBackup("daily", day(1));
     expect(backupHealth().error).toBeNull();
+  });
+});
+
+describe("second folder shared by two Macs (B-4)", () => {
+  it("does not copy back a weekly backup the other Mac's newer one displaced", async () => {
+    const now = new Date("2026-11-13T09:00:00Z");
+    // This Mac's Monday backup; the other Mac's Wednesday of the same week is already in the shared folder.
+    const mine = await writeBackup("daily", new Date("2026-09-14T09:00:00Z"));
+    const theirs = "deska-backup-20260916T090000Z-daily.json";
+    copyFileSync(path.join(dir, mine!.name), path.join(mirror, theirs));
+    setMirrorDir(mirror);
+    await writeBackup("daily", now);
+    expect(listBackups(mirror).map((b) => b.name)).toContain(theirs);
+    expect(listBackups(mirror).map((b) => b.name)).not.toContain(mine!.name);
+    // Stable: the next hourly check neither copies nor deletes anything, and Settings does not report it missing.
+    expect(syncMirror(now)).toMatchObject({ copied: [], error: null });
+    expect(listBackups(mirror).map((b) => b.name)).toContain(theirs);
+    expect(backupHealth().missing).toBe(0);
+  });
+});
+
+describe("backup durability (B-5)", () => {
+  it("rotation removes stale temp files and leaves fresh ones", async () => {
+    await writeBackup("daily", day(0));
+    const stale = path.join(dir, ".deska-backup-20260101T000000Z-daily.json.tmp");
+    const fresh = path.join(dir, ".deska-backup-20260102T000000Z-daily.json.uuid.tmp");
+    writeFileSync(stale, "{");
+    writeFileSync(fresh, "{");
+    const old = new Date(Date.now() - 2 * 3_600_000);
+    utimesSync(stale, old, old);
+    rotateBackups(dir, day(0));
+    expect(readdirSync(dir).filter((f) => f.endsWith(".tmp"))).toEqual([path.basename(fresh)]);
+  });
+
+  it("an empty newest file does not suppress the next daily backup", async () => {
+    await writeBackup("daily", day(0));
+    writeFileSync(path.join(dir, "deska-backup-20261102T080000Z-daily.json"), "");
+    const made = await backupIfDue(new Date("2026-11-02T10:00:00Z"));
+    expect(made?.name).toBe("deska-backup-20261102T100000Z-daily.json");
+    expect(readBackup(made!.name).kind).toBe("deska-backup");
   });
 });

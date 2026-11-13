@@ -148,6 +148,8 @@ const documentSchema = z.object({
 });
 
 const MAX_ROWS = 500_000;
+/** The biggest import file the server reads; next.config.ts raises Next's own 10 MB body limit to this. */
+export const MAX_IMPORT_BYTES = 100 * 1024 * 1024;
 
 /** Checks a parsed document; throws `LocalDataError` with a message fit for the user. */
 export function parseLocalData(value: unknown): LocalData {
@@ -165,7 +167,34 @@ export function parseLocalData(value: unknown): LocalData {
   return doc as LocalData;
 }
 
-export type ImportResult = { tables: Record<string, { rows: number; added: number }>; added: number };
+/** Per table: rows in the file, rows inserted, rows left out (`skipped`), and projects/labels mapped onto an existing one of the same name (`remapped`). */
+export type ImportResult = { tables: Record<string, { rows: number; added: number; skipped: number; remapped: number }>; added: number };
+
+/** Which column of a child table points at a project or label, so a remapped parent reaches its children. */
+const REMAPPED_REFS: Record<string, { table: "task_projects" | "task_labels"; column: string }[]> = {
+  task_sections: [{ table: "task_projects", column: "project_id" }],
+  task_placements: [{ table: "task_projects", column: "project_id" }],
+  task_label_links: [{ table: "task_labels", column: "label_id" }],
+};
+
+type Tx = Parameters<Parameters<ReturnType<typeof getDb>["transaction"]>[0]>[0];
+
+/**
+ * File ID -> existing ID for rows of `table` whose ID is new but whose name
+ * (per owner, case-insensitive: the unique index) is taken by another row.
+ */
+async function nameCollisions(tx: Tx, table: "task_projects" | "task_labels", rows: Record<string, unknown>[]): Promise<Map<string, string>> {
+  const existing = (await tx.execute(sql.raw(`SELECT id::text AS id, owner_login, lower(name) AS name FROM ${table}`))).rows as { id: string; owner_login: string; name: string }[];
+  const ids = new Set(existing.map((e) => e.id));
+  const byName = new Map(existing.map((e) => [`${e.owner_login}\u0000${e.name}`, e.id]));
+  const map = new Map<string, string>();
+  for (const r of rows) {
+    if (typeof r.id !== "string" || typeof r.name !== "string" || typeof r.owner_login !== "string" || ids.has(r.id)) continue;
+    const hit = byName.get(`${r.owner_login}\u0000${r.name.toLowerCase()}`);
+    if (hit && hit !== r.id) map.set(r.id, hit);
+  }
+  return map;
+}
 
 /**
  * Merge a document into the database, by primary key: a row that already
@@ -179,6 +208,7 @@ export async function importLocalData(value: unknown): Promise<ImportResult> {
   const { viewSchema } = await import("../views/view");
   const { taskViewSchema } = await import("../tasks/views");
   const result: ImportResult = { tables: {}, added: 0 };
+  const remaps = new Map<string, Map<string, string>>();
   try {
     await db.transaction(async (tx) => {
       for (const t of LOCAL_TABLES) {
@@ -195,6 +225,18 @@ export async function importLocalData(value: unknown): Promise<ImportResult> {
           });
         }
         if (!rows.length) continue;
+        let remapped = 0;
+        if (t.name === "task_projects" || t.name === "task_labels") {
+          const map = await nameCollisions(tx, t.name, rows);
+          remaps.set(t.name, map);
+          remapped = map.size;
+        }
+        // Children of a project or label that was skipped on a name collision join the existing one.
+        for (const ref of REMAPPED_REFS[t.name] ?? []) {
+          const map = remaps.get(ref.table);
+          if (!map?.size) continue;
+          rows = rows.map((r) => (typeof r[ref.column] === "string" && map.has(r[ref.column] as string) ? { ...r, [ref.column]: map.get(r[ref.column] as string) } : r));
+        }
         const json = JSON.stringify(rows);
         const cond = t.where ? `WHERE ${t.where}` : "";
         // `r.*` is the table's own row type: jsonb_populate_recordset reads the
@@ -208,7 +250,7 @@ export async function importLocalData(value: unknown): Promise<ImportResult> {
         );
         const res = (await tx.execute(stmt)) as unknown as { affectedRows?: number };
         const added = res.affectedRows ?? 0;
-        result.tables[t.name] = { rows: rows.length, added };
+        result.tables[t.name] = { rows: rows.length, added, skipped: rows.length - added, remapped };
         result.added += added;
       }
     });
@@ -259,14 +301,21 @@ export async function resetGithubCache(): Promise<void> {
  * another repository or project: the old cursors and rows must not carry over.
  */
 export async function clearGithubCache(): Promise<void> {
+  await withSyncPaused(clearGithubCacheLocked);
+}
+
+/**
+ * The same, for a caller that already paused the sync and holds its lock
+ * ("Change project": the clear and the new target must be one locked unit, or
+ * a cycle between them imports the old repository again).
+ */
+export async function clearGithubCacheLocked(): Promise<void> {
   const db = requireDb();
-  await withSyncPaused(async () => {
-    await db.transaction(async (tx) => {
-      await tx.execute(sql.raw(`TRUNCATE ${CACHE_TABLES.join(", ")} CASCADE`));
-      await tx.execute(sql.raw(`DELETE FROM sync_state WHERE ${KEPT_STATE}`));
-      // AI results about issues are a cache of the cache (SPEC §4.9); the ones about tasks and days stay.
-      await tx.execute(sql`DELETE FROM ai_results WHERE subject_kind IN ('issue', 'list')`);
-    });
+  await db.transaction(async (tx) => {
+    await tx.execute(sql.raw(`TRUNCATE ${CACHE_TABLES.join(", ")} CASCADE`));
+    await tx.execute(sql.raw(`DELETE FROM sync_state WHERE ${KEPT_STATE}`));
+    // AI results about issues are a cache of the cache (SPEC §4.9); the ones about tasks and days stay.
+    await tx.execute(sql`DELETE FROM ai_results WHERE subject_kind IN ('issue', 'list')`);
   });
   afterLocalDataChange();
 }

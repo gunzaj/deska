@@ -5,6 +5,7 @@
 // (tasks, views, snoozes, watches, settings); none of it carries the token.
 import { useCallback, useEffect, useState } from "react";
 import { Icon } from "../icons";
+import { importSummary } from "@/lib/client/import-summary";
 
 type Backup = { name: string; createdAt: string; reason: string; bytes: number };
 type Health = { error: string | null; failedAt: string | null; mirrorError: string | null; mirrorDir: string | null; mirrored: number; missing: number };
@@ -70,8 +71,7 @@ export function LocalDataSettings() {
       } catch {
         throw new Error("This file is not valid JSON.");
       }
-      const out = (await post("/api/local-data/import", doc)) as { added?: number };
-      return `Imported ${out.added ?? 0} new ${out.added === 1 ? "row" : "rows"}. Rows that already exist were kept as they are.`;
+      return importSummary((await post("/api/local-data/import", doc)) as Parameters<typeof importSummary>[0]);
     });
   }
 

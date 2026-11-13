@@ -12,6 +12,7 @@ import { POST as resetAll } from "@/app/api/local-data/reset-all/route";
 import { POST as resetCache } from "@/app/api/local-data/reset-cache/route";
 import { POST as backupNow } from "@/app/api/local-data/backup/route";
 import { POST as recover } from "@/app/api/local-data/recover/route";
+import { MAX_IMPORT_BYTES } from "@/lib/backup/local-data";
 
 const post = (url: string, body?: unknown, headers: Record<string, string> = {}) =>
   new Request(`http://127.0.0.1:3000${url}`, { method: "POST", headers: { "content-type": "application/json", ...headers }, body: body === undefined ? undefined : JSON.stringify(body) });
@@ -74,5 +75,26 @@ describe("/api/local-data", () => {
   it("recover refuses while the database is fine", async () => {
     expect((await recover(post("/api/local-data/recover", { mode: "restore" }))).status).toBe(409);
     expect((await recover(post("/api/local-data/recover", { mode: "other" }))).status).toBe(400);
+  });
+});
+
+describe("B-3: large import files", () => {
+  it("reads a valid export of 11 MB (past Next's 10 MB default) and imports it", async () => {
+    const doc = await (await exportRoute(new Request("http://127.0.0.1:3000/api/local-data/export"))).json();
+    doc.tables.tasks[0].description = "x".repeat(11 * 1024 * 1024);
+    const body = JSON.stringify(doc);
+    expect(body.length).toBeGreaterThan(10 * 1024 * 1024);
+    await getDb().execute(sql`TRUNCATE tasks CASCADE`);
+    const res = await importRoute(new Request("http://127.0.0.1:3000/api/local-data/import", { method: "POST", headers: { "content-type": "application/json" }, body }));
+    expect(res.status).toBe(200);
+    expect(await tasks()).toBe(1);
+  });
+
+  it("answers a file over the limit with a distinct error, and next.config raises Next's body limit to match", async () => {
+    const res = await importRoute(post("/api/local-data/import", {}, { "content-length": String(MAX_IMPORT_BYTES + 1) }));
+    expect(res.status).toBe(413);
+    expect((await res.json()).error).toMatch(/too large/);
+    const { default: config } = await import("../../next.config");
+    expect(config.experimental?.middlewareClientMaxBodySize).toBe(`${MAX_IMPORT_BYTES / 1024 / 1024}mb`);
   });
 });

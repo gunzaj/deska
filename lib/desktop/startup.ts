@@ -1,6 +1,8 @@
 // What the desktop server does once it is up (instrumentation-node.ts, and
 // again after a database recovery): open the database, then run the sync, the
 // daily backup check and the reminder loop.
+import { sql } from "drizzle-orm";
+import { dbDir, getDb } from "@/db";
 import { prepareDatabase } from "../db-bootstrap";
 import { backupDir, backupIfDue, syncMirror } from "../backup/files";
 import { setDbState } from "../backup/recover";
@@ -15,7 +17,12 @@ const MIRROR_SYNC = Symbol.for("deska.backupMirrorSync");
 
 /** Opens (and migrates) the database and records whether that worked. */
 export async function openDatabase(): Promise<boolean> {
+  let step = "could not open";
   try {
+    // Opening and migrating fail for different reasons (a damaged folder, a full
+    // disk, a broken migration); the recovery dialog says which.
+    if (dbDir()) await getDb().execute(sql`SELECT 1`);
+    step = "migration failed";
     const { seeded } = await prepareDatabase();
     if (seeded) console.log("deska: seeded the sample dataset into an empty database");
     setDbState(true);
@@ -23,7 +30,7 @@ export async function openDatabase(): Promise<boolean> {
   } catch (e) {
     // Drizzle wraps the real reason ("PGlite failed to initialize...") as the cause.
     const cause = e instanceof Error && e.cause instanceof Error ? e.cause.message : null;
-    const message = cause ?? (e instanceof Error ? e.message : String(e));
+    const message = `Database ${step}: ${cause ?? (e instanceof Error ? e.message : String(e))}`;
     console.error(`deska: could not prepare the database: ${message}`);
     setDbState(false, message);
     return false;

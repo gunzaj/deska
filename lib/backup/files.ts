@@ -9,7 +9,7 @@
 // by the desktop shell, never stored in the database) gets a copy of every
 // backup, so one lost disk does not take the data and its backups together.
 import { randomUUID } from "node:crypto";
-import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { closeSync, copyFileSync, existsSync, fsyncSync, mkdirSync, openSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeSync } from "node:fs";
 import path from "node:path";
 import { sql } from "drizzle-orm";
 import { getDb } from "@/db";
@@ -64,7 +64,8 @@ export function backupsToKeep(items: BackupInfo[], now = new Date()): Set<string
   const weeklyFrom = dailyFrom - KEEP_WEEKLY_WEEKS * 7 * DAY_MS;
   const seenWeeks = new Set<number>();
   // Newest first, so the first one seen in a week is the one that stays.
-  for (const b of [...items].sort((x, y) => (x.name < y.name ? 1 : -1))) {
+  // An empty file (a write cut short by a crash) is no backup: it neither stays nor displaces one.
+  for (const b of [...items].filter((x) => x.bytes > 0).sort((x, y) => (x.name < y.name ? 1 : -1))) {
     const t = new Date(b.createdAt).getTime();
     if (keep.size === 0 || t >= dailyFrom) keep.add(b.name);
     else if (t >= weeklyFrom && !seenWeeks.has(weekOf(t))) keep.add(b.name);
@@ -73,8 +74,45 @@ export function backupsToKeep(items: BackupInfo[], now = new Date()): Set<string
   return keep;
 }
 
-/** Deletes the backups in `dir` that retention no longer wants; returns their names. */
+/** Writes `data` and forces it to disk, so a rename after it never publishes a file that power loss can leave empty. */
+function writeFileDurable(file: string, data: string, mode: number): void {
+  const fd = openSync(file, "w", mode);
+  try {
+    writeSync(fd, data);
+    fsyncSync(fd);
+  } finally {
+    closeSync(fd);
+  }
+}
+
+function fsyncFile(file: string): void {
+  const fd = openSync(file, "r+");
+  try {
+    fsyncSync(fd);
+  } finally {
+    closeSync(fd);
+  }
+}
+
+/** Temp files older than this are leftovers of a crashed write or copy (a live one is seconds old). */
+const STALE_TMP_MS = 60 * 60 * 1000;
+
+/** Removes temp files a crash left behind. Uses the real clock: it is about file ages on disk. */
+function removeStaleTemp(dir: string): void {
+  for (const name of readdirSync(dir)) {
+    if (!name.startsWith(".") || !name.endsWith(".tmp")) continue;
+    try {
+      const st = statSync(path.join(dir, name));
+      if (st.isFile() && Date.now() - st.mtimeMs > STALE_TMP_MS) rmSync(path.join(dir, name), { force: true });
+    } catch {
+      // gone already
+    }
+  }
+}
+
+/** Deletes the backups in `dir` that retention no longer wants, and stale temp files; returns the backup names. */
 export function rotateBackups(dir: string, now = new Date()): string[] {
+  removeStaleTemp(dir);
   const items = listBackups(dir);
   const keep = backupsToKeep(items, now);
   const gone = items.filter((b) => !keep.has(b.name));
@@ -83,6 +121,18 @@ export function rotateBackups(dir: string, now = new Date()): string[] {
 }
 
 // --- second folder (the mirror) -------------------------------------------
+
+/**
+ * Which of the local backups belong in the second folder: retention applied to
+ * what is there plus what is local. Two Macs sharing one folder then agree: a
+ * weekly backup the other Mac's newer one displaced is not copied back, so
+ * neither deletes and re-copies the other's file every hour.
+ */
+function mirrorWanted(local: BackupInfo[], there: BackupInfo[], now: Date): BackupInfo[] {
+  const names = new Set(there.map((b) => b.name));
+  const keep = backupsToKeep([...there, ...local.filter((b) => !names.has(b.name))], now);
+  return local.filter((b) => keep.has(b.name));
+}
 
 const MIRROR = Symbol.for("deska.backupMirror");
 const HEALTH = Symbol.for("deska.backupHealth");
@@ -117,9 +167,9 @@ function health(patch?: Partial<HealthSlot>): Health {
 export function backupHealth(): Health & { mirrorDir: string | null; mirrored: number; missing: number } {
   const dir = mirrorDir();
   const local = listBackups();
-  const there = dir ? new Set(listBackups(dir).map((b) => b.name)) : new Set<string>();
-  const keep = backupsToKeep(local);
-  const wanted = local.filter((b) => keep.has(b.name));
+  const thereList = dir ? listBackups(dir) : [];
+  const there = new Set(thereList.map((b) => b.name));
+  const wanted = dir ? mirrorWanted(local, thereList, new Date()) : local.filter((b) => backupsToKeep(local).has(b.name));
   return { ...health(), mirrorDir: dir, mirrored: wanted.filter((b) => there.has(b.name)).length, missing: dir ? wanted.filter((b) => !there.has(b.name)).length : 0 };
 }
 
@@ -143,14 +193,16 @@ export function syncMirror(now = new Date()): { copied: string[]; error: string 
   try {
     if (path.resolve(to) === path.resolve(from)) throw new Error("The second folder must be a different folder than the local backups.");
     if (!existsSync(to) || !statSync(to).isDirectory()) throw new Error("The second backup folder is not available. Is the drive connected?");
-    const there = new Set(listBackups(to).map((b) => b.name));
-    for (const b of listBackups(from).reverse()) {
+    const thereList = listBackups(to);
+    const there = new Set(thereList.map((b) => b.name));
+    for (const b of mirrorWanted(listBackups(from), thereList, now).reverse()) {
       if (there.has(b.name)) continue;
       // A temp name of its own: two runs at once (a backup and the hourly
       // check) must not rename each other's file away.
       const tmp = path.join(to, `.${b.name}.${randomUUID()}.tmp`);
       try {
         copyFileSync(path.join(from, b.name), tmp);
+        fsyncFile(tmp);
         renameSync(tmp, path.join(to, b.name));
       } catch (e) {
         rmSync(tmp, { force: true });
@@ -182,7 +234,7 @@ export async function writeBackup(reason: BackupReason, now = new Date(), data?:
     while (existsSync(path.join(dir, `deska-backup-${stamp(when)}-${reason}.json`))) when = new Date(when.getTime() + 1000);
     const name = `deska-backup-${stamp(when)}-${reason}.json`;
     const tmp = path.join(dir, `.${name}.tmp`);
-    writeFileSync(tmp, JSON.stringify(doc), { mode: 0o600 });
+    writeFileDurable(tmp, JSON.stringify(doc), 0o600);
     renameSync(tmp, path.join(dir, name));
     rotateBackups(dir, now);
     noteBackupResult(null);
@@ -204,7 +256,8 @@ export function readBackup(name: string): LocalData {
 /** Backups are taken at most this often by the daily check. */
 export async function backupIfDue(now = new Date()): Promise<BackupInfo | null> {
   if (!backupDir()) return null;
-  const newest = listBackups()[0];
+  // An empty newest file (a crash between create and write) must not hold the next backup off.
+  const newest = listBackups().find((b) => b.bytes > 0);
   if (newest && now.getTime() - new Date(newest.createdAt).getTime() < DAY_MS) {
     syncMirror(now); // not due, but a drive plugged in since the last check catches up
     return null;
