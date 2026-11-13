@@ -5,7 +5,7 @@
 //                        after onboarding, or set DESKA_DEMO_SEED=demo for sample data
 //   pnpm desktop:stage   build the Next standalone server and the Electron code
 //                        into desktop/build (enough to run `electron .`)
-//   pnpm desktop:build   stage, then package an unsigned universal .dmg in release/
+//   pnpm desktop:build   stage, then package an ad-hoc signed universal .dmg in release/
 import { execFileSync, spawn } from "node:child_process";
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";

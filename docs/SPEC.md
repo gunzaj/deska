@@ -150,7 +150,7 @@ GitHub stays the shared source of truth. Anyone without Deska can open every iss
 - Multiple repositories or projects at once; user-owned (non-org) projects.
 - Deleting issues, ever. Creating, renaming or deleting project fields, options or iterations. Removing project items.
 - Editing issue title/body, posting GitHub comments, editing parent/sub-issue relationships.
-- Auto-update. Code signing/notarization (added later when the maintainer has a Developer ID).
+- Auto-update. Developer ID code signing/notarization (added later when the maintainer has a Developer ID). Until then the bundle is signed ad hoc (§5 D14).
 
 ## 1.4 Starting point
 
@@ -476,7 +476,7 @@ Steps:
 - Electron main, preload and a utilityProcess running the Next standalone build. §2.2 complete.
 - `db/` uses PGlite via Drizzle (remove the `pg` pool). Migrations run on PGlite, including `pg_trgm`; if it won't load, Possible duplicates uses the existing in-memory similarity fallback.
 - Advisory sync lock → in-process mutex. Postgres-backed tests run on PGlite (no Docker).
-- `pnpm desktop:dev`; `pnpm desktop:build` (unsigned universal `.dmg`). Demo data until D5 (in-process sync).
+- `pnpm desktop:dev`; `pnpm desktop:build` (universal `.dmg`, no Developer ID). Demo data until D5 (in-process sync).
 - **Acceptance:** the built app opens with demo data and no server started by hand; a saved view survives relaunch; a request without the secret cookie or with a wrong `Host` gets 403; GitHub links open the default browser, other external URLs are blocked; a Playwright `_electron` smoke test launches the app and loads the issue list.
 
 ### D3 — Local identity and token
@@ -529,7 +529,7 @@ Steps:
 - **Acceptance:** sections survive restart, reorder and backup/restore; un-completing from the Completed view returns the task to its project and section; ⌘K finds a task by a word only in its description.
 
 ### D14 — macOS release v1.0 (read-only)
-- `electron-builder` universal `.dmg`, hardened runtime, built with `DESKA_WRITES=off`, unsigned. Release notes include "how to open an unsigned app" steps.
+- `electron-builder` universal `.dmg`, hardened runtime, built with `DESKA_WRITES=off`, no Developer ID. The bundle is signed ad hoc with the microphone entitlement (`desktop/assets/entitlements.mac.plist`): without a sealed signature macOS cannot keep a privacy grant and asks for the microphone on every use. An ad-hoc grant belongs to one build, so macOS asks once after each update. Release notes include "how to open an unsigned app" steps.
 - About window: version + link to Releases. No auto-update.
 - `docs/handoff.md`: install and run, read and write permissions, what's read-only, where data and backups live, known limitations.
 - A GitHub Actions workflow builds the `.dmg` on a `v*` tag.

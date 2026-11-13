@@ -15,7 +15,7 @@ Needs Node 24 and pnpm on macOS.
 ```bash
 pnpm install
 pnpm desktop:dev     # the app with hot reload, on fictional demo data
-pnpm desktop:build   # an unsigned universal .dmg in release/
+pnpm desktop:build   # an ad-hoc signed universal .dmg in release/ (no Developer ID)
 ```
 
 `pnpm dev` still serves the same UI in a browser on the demo data, which is handy for UI work.
