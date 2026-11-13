@@ -4,7 +4,8 @@
 // stored locally (lib/settings.ts) with the project's node ID pinned, and the
 // project's fields go into the cache so the read model knows them right away.
 import { dbDir, getDb } from "@/db";
-import { clearGithubCache, LocalDataError } from "../backup/local-data";
+import { clearGithubCacheLocked } from "../backup/local-data";
+import { failPendingEdits, PROJECT_CHANGED } from "../outbox/store";
 import { githubApiBase } from "../config";
 import { createReadOnlyClient, type ReadOnlyClient } from "../github/probe";
 import { checkRepo, fetchProjectDetail, listOrgProjects, ProjectReadError, type OrgProject, type ProjectDetail } from "../github/projects";
@@ -100,14 +101,28 @@ export async function previewProject(repo: string, org: string, number: number):
   return { project, fields: project.fields.map(setupField), suggestion: same && stored ? followRenames(stored, project.fields) : suggestMapping(project.fields) };
 }
 
-/** Put a project's whole field list into the cache: renames land, deleted fields are marked missing. */
+/**
+ * Run `fn` as one unit no sync cycle can interleave with: a running cycle stops
+ * after its current page (its checkpoint resumes it), and the sync lock is held
+ * while `fn` runs. A cycle keeps the field map and target it started with, so
+ * a remap or a project change in the middle of one was overwritten by its
+ * remaining pages, or imported the old repository into the new target's cache.
+ * Without a database (demo data) there is no sync to pause.
+ */
+async function withSyncPaused<T>(fn: () => Promise<T>): Promise<T> {
+  if (!dbDir()) return fn();
+  await syncService().interrupt();
+  const res = await withLockedSyncKv(fn, { waitMs: 30_000, retryMs: 250 });
+  // The lock never came free: nothing was stored, so this must not report success.
+  if (!res.ran) throw new HttpError(409, "A sync is running, try again");
+  return res.value;
+}
+
+/** Put a project's whole field list into the cache: renames land, deleted fields are marked missing. The caller holds the sync lock. */
 async function importFields(projectId: string, fields: SnapshotField[]): Promise<void> {
   const snapshot = partialSnapshot({ projectId, fields });
-  if (dbDir()) {
-    const res = await withLockedSyncKv(() => importFull(snapshot, new PostgresStore()), { waitMs: 30_000, retryMs: 250 });
-    // The lock never came free: the fields are not cached, so this must not report success.
-    if (!res.ran) throw new HttpError(409, "A sync is running, try again");
-  } else {
+  if (dbDir()) await importFull(snapshot, new PostgresStore());
+  else {
     const { getDemoStore } = await import("../demo/store");
     await importFull(snapshot, await getDemoStore());
   }
@@ -142,7 +157,7 @@ async function reproject(prev: FieldMapping | null, next: FieldMapping): Promise
   invalidateReadCache();
 }
 
-/** Validate a mapping against the fields and store it. */
+/** Validate a mapping against the fields and store it. The caller holds the sync lock. */
 async function storeMapping(mapping: FieldMapping, fields: { id: string; name: string; dataType?: string; options?: { id: string; name: string }[] }[]): Promise<FieldMapping> {
   const errors = validateMapping(mapping, fields);
   if (errors.length) throw new HttpError(400, errors[0]!, { errors });
@@ -168,15 +183,20 @@ export async function chooseProject(input: { repo: string; org: string; projectN
   // Another repository or project: the cached issues, items and sync cursors
   // belong to the old one. Keeping them made the next poll skip the first
   // import and fetch only what changed after the old repo's cursor.
-  const prev = await readTarget();
-  if (prev && dbDir() && (prev.repo.toLowerCase() !== input.repo.toLowerCase() || prev.projectId !== project.id)) {
-    await clearGithubCache().catch((e) => {
-      throw e instanceof LocalDataError ? new HttpError(e.status, e.message) : e;
-    });
-  }
-  await importFields(project.id, project.fields);
-  await saveTarget({ repo: input.repo, org: input.org, projectNumber: project.number, projectId: project.id, projectTitle: project.title });
-  await storeMapping(input.mapping, project.fields);
+  // The clear, the fields, the new target and the mapping are one locked unit:
+  // a cycle that started between the clear and the new target read the old
+  // target, found no cursor and imported the old repository again.
+  await withSyncPaused(async () => {
+    const prev = await readTarget();
+    if (prev && dbDir() && (prev.repo.toLowerCase() !== input.repo.toLowerCase() || prev.projectId !== project.id)) {
+      await clearGithubCacheLocked();
+      // Edits still waiting were made for the old repository and project.
+      await failPendingEdits(PROJECT_CHANGED);
+    }
+    await importFields(project.id, project.fields);
+    await saveTarget({ repo: input.repo, org: input.org, projectNumber: project.number, projectId: project.id, projectTitle: project.title });
+    await storeMapping(input.mapping, project.fields);
+  });
   // Choosing a project ends "tasks only".
   await saveTasksOnly(false);
   // First connect: the import starts now; the app shows its progress (D5).
@@ -187,7 +207,9 @@ export async function chooseProject(input: { repo: string; org: string; projectN
 /** Settings → remap: a new mapping for the fields already known (the cache's). */
 export async function remap(mapping: FieldMapping): Promise<SetupState> {
   const store = await getStore();
-  await storeMapping(mapping, store.listFields());
+  await withSyncPaused(() => storeMapping(mapping, store.listFields()));
+  // A cycle this stopped picks up where it was, with the new mapping.
+  if (dbDir() && localToken()) void syncService().request("project");
   return setupState();
 }
 
@@ -202,7 +224,8 @@ export async function reloadFields(): Promise<SetupState> {
   const project = await fetchProjectDetail(readOnlyClient(), target.org, target.projectNumber).catch(asHttp);
   // The project number now names a different project: refuse, like writes do (§3.2).
   if (project.id !== target.projectId) throw new HttpError(409, `Project ${target.projectNumber} in "${target.org}" is no longer the project Deska pinned. Choose the project again.`);
-  await importFields(project.id, project.fields);
+  await withSyncPaused(() => importFields(project.id, project.fields));
+  if (dbDir() && localToken()) void syncService().request("project");
   return setupState();
 }
 

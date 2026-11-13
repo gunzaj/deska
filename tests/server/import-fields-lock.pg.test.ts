@@ -52,6 +52,22 @@ describe("caching fields while a sync holds the lock", async () => {
     expect(await q(`SELECT id FROM project_fields`)).toEqual([]);
   });
 
+  it("switching project while the lock is held changes nothing: no cleared cache under the old target", async () => {
+    const { saveTarget } = await import("@/lib/settings");
+    await saveTarget({ repo: "acme/gadgets", org: "acme", projectNumber: 3, projectId: "PVT_acme_ops_board", projectTitle: "Ops Board" });
+    await q(`INSERT INTO issues (gh_node_id, number, title, state) VALUES ('I_gadgets_1', 1, 'Old repo issue', 'open')`);
+    await expect(chooseProject({ repo: "acme/widgets", org: "acme", projectNumber: 7, mapping })).rejects.toMatchObject({ status: 409 });
+    expect((await readTarget())?.repo).toBe("acme/gadgets");
+    expect(await q(`SELECT gh_node_id FROM issues`)).toEqual([{ gh_node_id: "I_gadgets_1" }]);
+  });
+
+  it("remap answers 409 and keeps the stored mapping", async () => {
+    const { remap } = await import("@/lib/server/project-setup");
+    const { readMapping } = await import("@/lib/settings");
+    await expect(remap(mapping)).rejects.toMatchObject({ status: 409 });
+    expect(await readMapping()).toBeNull();
+  });
+
   it("reloadFields answers 409", async () => {
     const { saveTarget } = await import("@/lib/settings");
     await saveTarget({ repo: "acme/widgets", org: "acme", projectNumber: 7, projectId: "PVT_acme_widgets_roadmap", projectTitle: "Widgets Roadmap" });

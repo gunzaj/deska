@@ -143,6 +143,24 @@ describe("nightly reconcile (Postgres)", async () => {
     expect(source.fetchMetadata).not.toHaveBeenCalled();
   });
 
+  it("a run that failed waits an hour before the next try, not one cycle", async () => {
+    const kv = new MapKv();
+    const source = fakeSource();
+    source.fetchMetadata.mockRejectedValue(new Error("boom"));
+    await expect(runNightly(source, new PostgresStore(), kv, { now: NOW })).rejects.toThrow("boom");
+    expect(kv.get("reconcile.lastRun")).toBeNull();
+    // The next cycle, a minute later: not tried again.
+    expect(await runNightly(source, new PostgresStore(), kv, { now: new Date(NOW.getTime() + 60_000) })).toEqual({ ran: false, reason: "not-due" });
+    expect(source.fetchMetadata).toHaveBeenCalledTimes(1);
+    // An hour later it is, and a run that works clears the wait.
+    source.fetchMetadata.mockReset();
+    const good = fakeSource();
+    source.fetchMetadata.mockImplementation(good.fetchMetadata);
+    expect((await runNightly(source, new PostgresStore(), kv, { now: new Date(NOW.getTime() + 3600_000) })).ran).toBe(true);
+    expect(kv.get("reconcile.failedAt")).toBe("");
+    expect(kv.get("reconcile.lastRun")).toBeTruthy();
+  });
+
   it("runs once a day", async () => {
     const kv = new MapKv();
     expect((await runNightly(fakeSource(), new PostgresStore(), kv, { now: NOW })).ran).toBe(true);

@@ -157,10 +157,20 @@ export class GitHubSource implements SyncSource {
     const out = new Map<string, IssueExtras>();
     for (let i = 0; i < nodeIds.length; i += 100) {
       const ids = nodeIds.slice(i, i + 100);
-      const res = await this.gql(
-        `query DeskaIssueExtras($ids:[ID!]!) { nodes(ids:$ids) { ... on Issue { id issueType { id } parent { id } subIssuesSummary { total completed } } } }`,
-        { ids },
-      );
+      let res: { nodes?: unknown[] } | null;
+      try {
+        res = await this.gql(
+          `query DeskaIssueExtras($ids:[ID!]!) { nodes(ids:$ids) { ... on Issue { id issueType { id } parent { id } subIssuesSummary { total completed } } } }`,
+          { ids },
+        );
+      } catch (e) {
+        // A deleted issue in the batch: GitHub answers with the others plus a
+        // NOT_FOUND error, which the client throws. Same rule as fetchNodes:
+        // only NOT_FOUND with data is tolerated.
+        const partial = (e as { data?: { nodes?: unknown[] } } | null)?.data;
+        if (!partial?.nodes || isRateLimitError(e) || !isNotFoundError(e)) throw e;
+        res = partial;
+      }
       for (const n of (res?.nodes ?? []) as ({ id?: string; issueType?: { id: string } | null; parent?: { id: string } | null; subIssuesSummary?: { total: number; completed: number } | null } | null)[]) {
         if (!n?.id) continue;
         out.set(n.id, {
@@ -376,7 +386,10 @@ export class GitHubSource implements SyncSource {
       } }`,
       { org: this.org, num: this.projectNumber, after: cursor },
     );
-    const conn: GqlItemConnection = res.organization.projectV2.items;
+    const conn: GqlItemConnection | undefined = res?.organization?.projectV2?.items;
+    // The owner was renamed or deleted, or the project is gone: GitHub answers
+    // null without an error. Not a network problem, so it must not read as one.
+    if (!conn) throw new ProjectNotFoundError(this.org, this.projectNumber);
     const items: SnapshotProjectItem[] = conn.nodes.flatMap((n) => {
       const issueNodeId = n.content?.id;
       if (!issueNodeId) return [];
@@ -509,6 +522,14 @@ export function isRateLimitError(e: unknown): boolean {
 }
 
 /** GitHub's "no such node" GraphQL error, which still carries partial data. */
+/** GitHub no longer finds the pinned project under its owner (renamed or deleted). */
+export class ProjectNotFoundError extends Error {
+  constructor(owner: string, number: number) {
+    super(`GitHub can't find project ${number} of "${owner}". It may have been renamed or deleted: choose the project again in Settings.`);
+    this.name = "ProjectNotFoundError";
+  }
+}
+
 export function isNotFoundError(e: unknown): boolean {
   const gqlErrors = (e as { errors?: { type?: string }[] } | null)?.errors;
   return Array.isArray(gqlErrors) && gqlErrors.some((x) => x?.type === "NOT_FOUND");

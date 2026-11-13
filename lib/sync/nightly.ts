@@ -18,7 +18,8 @@ export function retentionDue(kv: Kv, nowMs = Date.now()): boolean {
 
 /**
  * Reconcile when due (or forced). `reconcile.lastRun` is only advanced by a
- * run that finished, so a rate-limited run is retried on the next trigger. That
+ * run that finished, so a rate-limited run is retried on the next trigger, and
+ * one that threw after an hour (`reconcile.failedAt`). That
  * retry must not re-run retention each time: while GitHub is rate limited it has
  * nothing to do with retention, which runs on its own schedule (F8).
  */
@@ -26,7 +27,15 @@ export async function runNightly(source: ReconcileSource, store: ImportStore, kv
   const now = opts.now ?? new Date();
   if (!opts.force && !reconcileDue(kv, now.getTime())) return { ran: false, reason: "not-due" };
   const started = Date.now();
-  const res = await reconcile(source, store, kv, { closedCutoff: importClosedCutoff(now.getTime()), now });
+  let res: ReconcileResult;
+  try {
+    res = await reconcile(source, store, kv, { closedCutoff: importClosedCutoff(now.getTime()), now });
+  } catch (e) {
+    // The caller reports the failure; the next try waits (reconcileDue).
+    kv.set("reconcile.failedAt", now.toISOString());
+    throw e;
+  }
+  kv.set("reconcile.failedAt", "");
   // Retention needs no GitHub, so a rate-limited reconcile doesn't hold it up.
   let retention: RetentionResult | null = null;
   if (opts.force || retentionDue(kv, now.getTime())) {

@@ -115,14 +115,17 @@ class SyncService {
     // A database seeded with sample data (tests, dev, preview) never mixes with GitHub's.
     if (demoSeed()) return { kind: "idle", reason: "sample-data" };
     if (!dbDir()) return { kind: "idle", reason: "no-database" };
-    const target = await currentTarget();
-    if (!target || (target.source === "settings" && !(await readMapping()))) return { kind: "idle", reason: "no-project" };
     const generation = tokenState().generation;
     if (reason !== "manual" && this.refusedGeneration === generation) return { kind: "idle", reason: "token-refused" };
 
-    const store = new PostgresStore();
-    const fields = await currentFieldMap(store);
+    // The settings reads are inside the try: the loop discards this promise, so
+    // a database error here (a reset or restore under way) must end as a
+    // recorded failure, not an unhandled rejection.
     try {
+      const target = await currentTarget();
+      if (!target || (target.source === "settings" && !(await readMapping()))) return { kind: "idle", reason: "no-project" };
+      const store = new PostgresStore();
+      const fields = await currentFieldMap(store);
       const out = await triggerSync(new GitHubSource(token, store, fields, target), store, {
         manual: reason === "manual",
         importer: new GitHubImportSource(token, target, fields),

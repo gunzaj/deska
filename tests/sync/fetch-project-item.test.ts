@@ -5,7 +5,8 @@
 // `login` comes back only when the query asks for it on that owner's type.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { EMPTY_FIELD_MAP } from "@/lib/sync/field-map";
-import { GitHubSource } from "@/lib/sync/source-github";
+import { syncFailure } from "@/lib/sync/health";
+import { GitHubSource, ProjectNotFoundError } from "@/lib/sync/source-github";
 
 const TOKEN = ["github", "pat", "TEST", "ITEM", "0".repeat(24)].join("_");
 
@@ -45,5 +46,21 @@ describe("fetchProjectItem", () => {
     const source = new GitHubSource(TOKEN, undefined, EMPTY_FIELD_MAP, target);
     const row = await source.fetchProjectItem("I_1");
     expect(row).toMatchObject({ itemId: "item-1", issueNodeId: "I_1" });
+  });
+});
+
+describe("a project GitHub no longer finds", () => {
+  it("is its own error, not a network problem", async () => {
+    // A renamed or deleted owner: GitHub answers null, with no error.
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ data: { organization: null } }), { status: 200, headers: { "content-type": "application/json" } })));
+    const source = new GitHubSource(TOKEN, undefined, EMPTY_FIELD_MAP, target);
+    const err = await source.scanProjectItems(null).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(ProjectNotFoundError);
+    expect(syncFailure(err)).toBe("other");
+  });
+
+  it("only a failed fetch reads as offline, not every TypeError", () => {
+    expect(syncFailure(new TypeError("fetch failed"))).toBe("offline");
+    expect(syncFailure(new TypeError("Cannot read properties of null (reading 'projectV2')"))).toBe("other");
   });
 });

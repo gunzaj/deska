@@ -156,6 +156,56 @@ describe("sub-issue summary sync (Postgres)", async () => {
       expect((await row("I_epic")).subSummaryAt).toEqual(before);
     });
 
+    it("the app's own reconcile source reads the counts (it used to leave the method out)", async () => {
+      const { githubReconcileSource } = await import("@/lib/sync/live");
+      const ids = { labelId: async (n: string) => n, userId: async (l: string) => l, milestoneId: async () => null };
+      expect(typeof githubReconcileSource(TOKEN, ids, EMPTY_FIELD_MAP, githubTarget()).fetchSubSummaries).toBe("function");
+    });
+
+    it("a deleted issue in the batch does not fail the others", async () => {
+      process.env.DESKA_GITHUB_API_URL = "http://127.0.0.1:9";
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async () =>
+          new Response(
+            JSON.stringify({
+              data: { nodes: [{ id: "I_epic", issueType: null, parent: null, subIssuesSummary: { total: 5, completed: 2 } }, null] },
+              errors: [{ type: "NOT_FOUND", path: ["nodes", 1], message: "Could not resolve to a node with the global id of 'I_gone'." }],
+            }),
+            { status: 200, headers: { "content-type": "application/json" } },
+          ),
+        ),
+      );
+      try {
+        const ids = { labelId: async (n: string) => n, userId: async (l: string) => l, milestoneId: async () => null };
+        const found = await new GitHubSource(TOKEN, ids, EMPTY_FIELD_MAP, githubTarget()).fetchSubSummaries(["I_epic", "I_gone"]);
+        expect([...found]).toEqual([["I_epic", { subTotal: 5, subCompleted: 2 }]]);
+      } finally {
+        vi.unstubAllGlobals();
+        delete process.env.DESKA_GITHUB_API_URL;
+      }
+    });
+
+    it("an error that is not a missing node still fails", async () => {
+      process.env.DESKA_GITHUB_API_URL = "http://127.0.0.1:9";
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async () =>
+          new Response(JSON.stringify({ data: { nodes: [null] }, errors: [{ type: "FORBIDDEN", message: "Resource not accessible by personal access token" }] }), {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          }),
+        ),
+      );
+      try {
+        const ids = { labelId: async (n: string) => n, userId: async (l: string) => l, milestoneId: async () => null };
+        await expect(new GitHubSource(TOKEN, ids, EMPTY_FIELD_MAP, githubTarget()).fetchSubSummaries(["I_epic"])).rejects.toThrow();
+      } finally {
+        vi.unstubAllGlobals();
+        delete process.env.DESKA_GITHUB_API_URL;
+      }
+    });
+
     it("a source without summaries leaves the stored counts alone", async () => {
       const { fetchSubSummaries: _f, ...plain } = source({});
       await reconcile(plain, new PostgresStore(), new MapKv(), { closedCutoff: "2026-07-15T00:00:00Z", now: new Date("2026-10-13T03:00:00Z") });

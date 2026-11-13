@@ -98,6 +98,8 @@ export function syncFailure(e: unknown): SyncFailure {
   if (gql.includes("FORBIDDEN")) return "forbidden";
   if (status !== null && status >= 500) return "offline";
   // fetch itself failed (no HTTP answer at all).
-  if (status === null && (e instanceof TypeError || /fetch failed|ECONNREFUSED|ENOTFOUND|ETIMEDOUT|ECONNRESET|network/i.test(String(err?.message ?? "")))) return "offline";
+  // Only a failed fetch: any other TypeError is a bug or an unexpected answer,
+  // and calling it "Can't reach GitHub" would blame the network for good.
+  if (status === null && /fetch failed|ECONNREFUSED|ENOTFOUND|ETIMEDOUT|ECONNRESET|network/i.test(String(err?.message ?? ""))) return "offline";
   return "other";
 }

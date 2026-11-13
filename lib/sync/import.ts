@@ -40,6 +40,14 @@ export interface ImportStore {
    */
   pruneUnseenProjectItems(scanId: string, startedAt?: string): MaybePromise<number>;
   /**
+   * A fingerprint of the label, milestone, option and iteration IDs that issues
+   * and project items point at but the metadata tables don't hold (created on
+   * GitHub since the last metadata fetch), or null when there are none. The
+   * sync refreshes the metadata when it changes. Optional: a store without it
+   * waits for the daily reconcile.
+   */
+  unresolvedRefs?(): MaybePromise<string | null>;
+  /**
    * Point each child at its parent where both are cached (by node ID); returns
    * the pairs whose child or parent isn't cached yet. The first import uses it
    * for parents that arrive on a later page. A store that keeps parents by

@@ -3,14 +3,16 @@
 // reconcile when due. The in-process sync service (lib/sync/service.ts) calls
 // it on an interval, on launch, on wake and on "Sync now"; "Sync now" is
 // throttled so pressing it repeatedly can't run scan after scan.
-import { runSyncCycle, type CycleResult, type CycleSource } from "./cycle";
+import { rateLimitAware, runSyncCycle, type CycleResult, type CycleSource } from "./cycle";
 import { runFirstImport, type ImportResult, type ImportSource } from "./first-import";
-import { recordCycle } from "./health";
-import type { ImportStore } from "./import";
+import { recordCycle, redactError } from "./health";
+import { importFull, type ImportStore } from "./import";
 import { runNightly, type NightlyResult } from "./nightly";
 import type { Kv } from "./poll";
 import type { ReconcileSource } from "./reconcile";
 import { readSharedKv, withLockedSyncKv } from "./runtime";
+import { partialSnapshot } from "./types";
+
 
 /** "Sync now" right after another run is answered with "Synced just now". */
 export function syncNowMinIntervalMs(raw = process.env.SYNC_NOW_MIN_INTERVAL_MS): number {
@@ -43,6 +45,35 @@ export type TriggerOptions = {
   onProgress?: () => void;
 };
 
+/**
+ * A label, milestone, Status option or sprint created on GitHub since the last
+ * metadata fetch reaches the cache as a bare ID: no name, colour or dates until
+ * the daily reconcile. When a cycle leaves such IDs behind, read the metadata
+ * now. The fingerprint of what is still unknown afterwards is remembered, so an
+ * ID GitHub's metadata never explains (a deleted label still on a cached issue)
+ * costs one fetch, not one per cycle. A failure here never fails the cycle.
+ */
+export async function refreshUnknownMetadata(source: Pick<ReconcileSource, "fetchMetadata">, store: ImportStore, kv: Kv, opts: { fetched?: boolean } = {}): Promise<boolean> {
+  if (!store.unresolvedRefs) return false;
+  try {
+    const before = await store.unresolvedRefs();
+    if (before === (kv.get("metadata.unresolved") || null)) return false;
+    let fetched = false;
+    // The reconcile of this same run has just read the metadata: only note what is left.
+    if (before && !opts.fetched) {
+      const meta = await rateLimitAware(kv, () => source.fetchMetadata());
+      if (!meta) return false;
+      await importFull(partialSnapshot(meta), store);
+      fetched = true;
+    }
+    kv.set("metadata.unresolved", (fetched ? await store.unresolvedRefs() : before) ?? "");
+    return fetched;
+  } catch (e) {
+    console.error(`deska: metadata refresh failed: ${redactError(e)}`);
+    return false;
+  }
+}
+
 /** One locked run. A skip never calls GitHub. */
 export async function triggerSync(source: CycleSource, store: ImportStore, opts: TriggerOptions): Promise<TriggerOutcome> {
   if (opts.manual) {
@@ -62,6 +93,7 @@ export async function triggerSync(source: CycleSource, store: ImportStore, opts:
       // Not while rate limited or before the first import.
       const reached = result.issues.applied || result.issues.reason === "not-modified";
       const nightly = opts.reconciler && reached ? await runNightly(opts.reconciler, store, kv) : null;
+      if (opts.reconciler && reached) await refreshUnknownMetadata(opts.reconciler, store, kv, { fetched: !!nightly?.ran });
       return { kind: "ran", result, nightly };
     }),
   );

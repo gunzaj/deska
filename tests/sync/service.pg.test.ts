@@ -213,6 +213,26 @@ describe("cycles after the import", () => {
   });
 });
 
+describe("a database error before the run starts", () => {
+  it("ends as a recorded failure, not a rejected promise", async () => {
+    await imported();
+    const { resetSettingsCache } = await import("@/lib/settings");
+    const quiet = vi.spyOn(console, "error").mockImplementation(() => {});
+    // The settings read fails (a reset or restore is rewriting the database).
+    await getDb().execute(sql`ALTER TABLE app_settings RENAME TO app_settings_gone`);
+    resetSettingsCache();
+    try {
+      const out = await syncService().request("interval");
+      expect(out.kind).toBe("failed");
+      expect(syncService().state.lastFailure).not.toBeNull();
+    } finally {
+      await getDb().execute(sql`ALTER TABLE app_settings_gone RENAME TO app_settings`);
+      resetSettingsCache();
+      quiet.mockRestore();
+    }
+  });
+});
+
 describe("when not to sync", () => {
   it("without a token, or on a database seeded with sample data, nothing reaches GitHub", async () => {
     setLocalToken(null, "user");

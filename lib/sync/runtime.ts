@@ -98,6 +98,8 @@ const SHARED_KEYS = [
   "project.scanId",
   "project.scanStartedAt",
   "reconcile.lastRun",
+  "reconcile.failedAt",
+  "metadata.unresolved",
   "retention.lastRun",
   ...Object.values(IMPORT_KEYS),
 ];
