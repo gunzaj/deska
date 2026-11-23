@@ -22,6 +22,17 @@ const DB_PORT = 3101;
 const SETTINGS_PORT = 3102;
 const SHARED_SETTINGS = /(ai-settings|user-menu|filters|release-team|settings-timezone)\.spec\.ts/;
 
+// `E2E_PROJECT=mocks pnpm test:e2e` runs one project and starts only its
+// server (each server below carries its project's name). A warmed `next dev`
+// holds about 4 GB and the mocked one grows to 7 GB while the specs run: the
+// three together filled a 16 GB CI runner, which then died without a message.
+// CI runs the projects one after another (ci.yml); a local run without the
+// variable runs everything together, as before.
+const PROJECTS = ["mocks", "mocks-settings", "e2e-db"];
+const ONLY = process.env.E2E_PROJECT;
+if (ONLY && !PROJECTS.includes(ONLY)) throw new Error(`E2E_PROJECT=${ONLY}: expected one of ${PROJECTS.join(", ")}`);
+const wanted = (x: { name?: string }) => !ONLY || x.name === ONLY;
+
 export default defineConfig({
   testDir: "tests/e2e",
   globalSetup: "./tests/e2e/warmup.ts",
@@ -33,7 +44,10 @@ export default defineConfig({
   expect: { timeout: 15_000 },
   retries: process.env.CI ? 1 : 0,
   forbidOnly: !!process.env.CI,
-  reporter: process.env.CI ? [["github"], ["html", { open: "never" }]] : "list",
+  // CI keeps the list too, so its log names each spec with its time. Each
+  // project's run keeps its own report and traces.
+  reporter: process.env.CI ? [["list"], ["github"], ["html", { open: "never", outputFolder: ONLY ? `playwright-report/${ONLY}` : "playwright-report" }]] : "list",
+  outputDir: ONLY ? `test-results/${ONLY}` : "test-results",
   use: { trace: "on-first-retry" },
   projects: [
     // local-data needs a database: it runs in e2e-db only.
@@ -44,9 +58,10 @@ export default defineConfig({
       testMatch: /(smoke|tasks|local-data)\.spec\.ts/,
       use: { baseURL: `http://localhost:${DB_PORT}` },
     },
-  ],
+  ].filter(wanted),
   webServer: [
     {
+      name: "mocks",
       command: "pnpm dev --port 3100",
       url: "http://localhost:3100/onboarding",
       timeout: 180_000,
@@ -61,6 +76,7 @@ export default defineConfig({
       },
     },
     {
+      name: "e2e-db",
       command: `pnpm dev --port ${DB_PORT}`,
       url: `http://localhost:${DB_PORT}/onboarding`,
       timeout: 180_000,
@@ -68,11 +84,12 @@ export default defineConfig({
       env: { ...e2eEnv, PORT: String(DB_PORT), DESKA_DB_DIR: "memory://", DESKA_DEMO_SEED: "fixtures", NEXT_DIST_DIR: ".next-e2e" },
     },
     {
+      name: "mocks-settings",
       command: `pnpm dev --port ${SETTINGS_PORT}`,
       url: `http://localhost:${SETTINGS_PORT}/onboarding`,
       timeout: 180_000,
       reuseExistingServer: !process.env.CI,
       env: { ...e2eEnv, PORT: String(SETTINGS_PORT), DESKA_DB_DIR: "", NEXT_DIST_DIR: ".next-e2e-settings" },
     },
-  ],
+  ].filter(wanted),
 });

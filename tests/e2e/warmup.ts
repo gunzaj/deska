@@ -1,3 +1,5 @@
+import type { FullConfig } from "@playwright/test";
+
 // Playwright global setup.
 //
 // `next dev` compiles each route on first request, and the app shell pulls in
@@ -28,10 +30,16 @@ async function warmAnonymous(base: string) {
   }
 }
 
-export default async function warmup() {
-  await warmAnonymous("http://localhost:3100");
-  await warm("http://localhost:3100");
-  await warm("http://localhost:3101");
-  await warmAnonymous("http://localhost:3102");
-  await warm("http://localhost:3102");
+// Only the servers this run started (playwright.config.ts, E2E_PROJECT).
+export default async function warmup(config: FullConfig) {
+  const running = (project: string) => config.projects.some((p) => p.name === project);
+  if (running("mocks")) {
+    await warmAnonymous("http://localhost:3100");
+    await warm("http://localhost:3100");
+  }
+  if (running("e2e-db")) await warm("http://localhost:3101");
+  if (running("mocks-settings")) {
+    await warmAnonymous("http://localhost:3102");
+    await warm("http://localhost:3102");
+  }
 }

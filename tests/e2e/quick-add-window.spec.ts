@@ -1,4 +1,5 @@
 import { expect, test, type Browser } from "@playwright/test";
+import { fillQuickAdd } from "./helpers";
 
 // D12: the floating quick-add page (/quick-add) in a plain browser: the same
 // parser as in-app quick add, no app shell, Enter saves. (Inside the desktop
@@ -16,8 +17,7 @@ test("Enter saves the parsed task; the page has no app shell", async ({ browser 
   const title = unique("Call the dentist");
   await page.goto("/quick-add");
   await expect(page.getByRole("navigation")).toHaveCount(0);
-  const input = page.getByRole("combobox", { name: "Task" });
-  await input.fill(`${title} tomorrow 3pm high`);
+  const input = await fillQuickAdd(page, `${title} tomorrow 3pm high`);
   const saved = page.waitForResponse((r) => r.url().endsWith("/api/tasks") && r.request().method() === "POST");
   await input.press("Enter");
   expect((await saved).status()).toBe(201);
@@ -32,12 +32,11 @@ test("Enter saves the parsed task; the page has no app shell", async ({ browser 
 test("an empty title is not saved; Esc outside the desktop app does nothing", async ({ browser }) => {
   const { context, page } = await asAlice(browser);
   await page.goto("/quick-add");
-  const input = page.getByRole("combobox", { name: "Task" });
   let posted = false;
   page.on("request", (r) => {
     if (r.url().endsWith("/api/tasks") && r.method() === "POST") posted = true;
   });
-  await input.fill("tomorrow");
+  const input = await fillQuickAdd(page, "tomorrow");
   await input.press("Enter");
   await input.press("Escape");
   await page.waitForTimeout(300);
@@ -54,9 +53,9 @@ test("every property can be set with the mouse; a pick wins over the typed word"
   const label = (await (await page.request.post("/api/task-labels", { data: { name: labelName } })).json()) as { id: string };
   const title = unique("Water the plants");
   await page.goto("/quick-add");
-  const input = page.getByRole("combobox", { name: "Task" });
   // "low" is parsed; the priority picker below overrides it.
-  await input.fill(`${title} low`);
+  await fillQuickAdd(page, `${title} low`);
+  await expect(page.getByLabel("Recognised properties")).toContainText("P4 Low");
   await expect(page.getByRole("button", { name: "Priority: P4 Low" })).toBeVisible();
 
   await page.getByLabel("Due date").fill("2030-03-04");

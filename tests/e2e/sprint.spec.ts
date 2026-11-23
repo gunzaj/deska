@@ -94,8 +94,13 @@ test("[ and ] step to the previous and next sprint", async ({ browser }) => {
   const { context, page } = await as(browser);
   await page.goto(`/releases/${CURRENT}`);
   await expect(page.getByRole("button", { name: "Next sprint" })).toBeDisabled();
-  await page.keyboard.press("[");
-  await expect(page).toHaveURL(new RegExp(`/releases/${PREVIOUS}$`));
+  // The key handler attaches in an effect, after the buttons are on screen: on a
+  // slow machine the press came first and was lost (CI failed here on every
+  // first attempt). Press again only while the page is still the current sprint.
+  await expect(async () => {
+    if (page.url().endsWith(`/releases/${CURRENT}`)) await page.keyboard.press("[");
+    await expect(page).toHaveURL(new RegExp(`/releases/${PREVIOUS}$`), { timeout: 2_000 });
+  }).toPass();
   // The new page has to mount its key handler before the next press.
   await expect(page.getByRole("heading", { name: /Release Sprint 22/ })).toBeVisible();
   await page.keyboard.press("]");
