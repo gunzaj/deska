@@ -73,15 +73,22 @@ jobs:
       # that runs out of memory dies without a message, so the log keeps a
       # memory line per minute. Every project runs, also after a failure.
       - name: pnpm test:e2e
+        env:
+          # `next dev` restarts itself at 80 % of its heap limit, which it sets
+          # to half the RAM (so at 6.4 GB here), and a restart mid-run drops
+          # the mocked data and the warmed routes. The mocked server ends the
+          # run at 7.9 GB resident; alone on the runner it can have 12 GB.
+          NODE_OPTIONS: --max-old-space-size=12288
         run: |
           (while sleep 60; do
             echo "[memory] $(free -m | awk '/Mem:/{printf "used %s MB, available %s MB, ", $3, $7} /Swap:/{printf "swap %s MB", $3}'), largest process $(ps -eo rss=,comm= --sort=-rss | awk 'NR==1{printf "%d MB (%s)", $1/1024, $2}')"
           done) &
+          memory=$!
           failed=0
           for project in mocks e2e-db mocks-settings; do
             E2E_PROJECT=$project pnpm test:e2e || failed=1
           done
-          kill $!
+          kill $memory
           exit $failed
       - name: Upload the Playwright report and traces
         if: failure()
