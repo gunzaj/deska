@@ -114,9 +114,10 @@ test("the issue panel answers a question and its references open inside Deska", 
     await expect(section.locator("[data-ask-outdated]")).toHaveCount(0);
     expect(posted).toHaveLength(2);
 
-    // A reference chip opens the issue inside Deska, not on GitHub.
+    // A reference chip opens the issue inside Deska (the side panel over this page), not on GitHub.
     await section.locator("[data-ask-references] button").click();
-    await expect(page).toHaveURL(/\/issues\/100$/);
+    await expect(page).toHaveURL(/\/issues\/102\?issue=100$/);
+    await expect(page.getByRole("complementary", { name: "Issue #100" })).toBeVisible();
     expect(page.url()).not.toContain("github.com");
   } finally {
     await context.close();

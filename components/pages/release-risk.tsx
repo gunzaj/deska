@@ -66,7 +66,7 @@ function Group({ id, title, hint, issues, href }: { id: string; title: string; h
         <ul className="mt-1 space-y-0.5">
           {issues.slice(0, 6).map((i) => (
             <li key={i.nodeId} className="truncate text-[12.5px]">
-              <button type="button" onClick={() => open(i.number)} className="text-left hover:underline">
+              <button type="button" data-tab-issue={i.number} onClick={() => open(i.number)} className="text-left hover:underline">
                 <span className="text-faint">#{i.number}</span> {i.title}
               </button>
             </li>

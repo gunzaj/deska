@@ -17,6 +17,7 @@ import { openTask } from "../tasks/open-task";
 import { useTasks } from "../tasks/store";
 import { Dialog } from "../ui/dialog";
 import { PEEK_PARAM, recentIssues, useOpenIssue } from "./open-issue";
+import { useOpenIssueInTab } from "./tabs";
 import { useApp } from "./provider";
 import { CUSTOMIZE_SIDEBAR_EVENT } from "./sidebar-customize";
 
@@ -31,7 +32,7 @@ type Item = {
   task?: Task;
   /** Where a task's words were found, when not in its title. */
   taskIn?: SearchHit["in"];
-  run: (opts: { meta: boolean }) => void;
+  run: (opts: { meta: boolean; shift: boolean; alt: boolean }) => void;
 };
 
 export const PALETTE_EVENT = "deska:palette";
@@ -68,6 +69,7 @@ export function CommandPalette() {
   const { openCompose, tasks } = useTasks();
   const router = useRouter();
   const openIssue = useOpenIssue();
+  const openInTab = useOpenIssueInTab();
   const [open, setOpen] = useState(false);
   const [q, setQ] = useState("");
   const [active, setActive] = useState(0);
@@ -235,9 +237,14 @@ export function CommandPalette() {
       label: i.title,
       icon: null,
       issue: i,
-      run: ({ meta }) => {
-        if (meta) {
+      // ⌘ opens a background tab (⌘⇧ switches to it); ⌥ opens it on GitHub.
+      run: ({ meta, shift, alt }) => {
+        if (alt) {
           if (!data.meta.demo) window.open(i.url, "_blank", "noopener");
+          return;
+        }
+        if (meta) {
+          openInTab(i.number, shift);
           return;
         }
         openIssue(i.number);
@@ -275,18 +282,19 @@ export function CommandPalette() {
     return isNumber ? [...issues, ...cmds, ...taskItems, searchAll] : [...cmds, ...issues, ...taskItems, searchAll];
     // openIssue and router are used above: without them the memo keeps a stale
     // openIssue after a client-side navigation.
-  }, [q, commands, data.issues, data.meta.demo, recent, byNumber, tasks, remote, targetActions, openIssue, router]);
+  }, [q, commands, data.issues, data.meta.demo, recent, byNumber, tasks, remote, targetActions, openIssue, openInTab, router]);
 
   useEffect(() => setActive(0), [q]);
   useEffect(() => {
     listRef.current?.querySelector(`[data-idx="${active}"]`)?.scrollIntoView({ block: "nearest" });
   }, [active]);
 
-  const run = (it: Item | undefined, meta = false) => {
+  const run = (it: Item | undefined, mods: { meta?: boolean; shift?: boolean; alt?: boolean } = {}) => {
     if (!it) return;
     setOpen(false);
-    it.run({ meta });
+    it.run({ meta: !!mods.meta, shift: !!mods.shift, alt: !!mods.alt });
   };
+  const mods = (e: React.KeyboardEvent | React.MouseEvent) => ({ meta: e.metaKey || e.ctrlKey, shift: e.shiftKey, alt: e.altKey });
 
   return (
     <Dialog open={open} onClose={() => setOpen(false)} label="Command palette" width={640}>
@@ -305,7 +313,7 @@ export function CommandPalette() {
               setActive((a) => Math.max(a - 1, 0));
             } else if (e.key === "Enter") {
               e.preventDefault();
-              run(items[active], e.metaKey || e.ctrlKey);
+              run(items[active], mods(e));
             }
           }}
           role="combobox"
@@ -333,7 +341,12 @@ export function CommandPalette() {
                 aria-selected={idx === active}
                 data-idx={idx}
                 onMouseMove={() => setActive(idx)}
-                onClick={(e) => run(it, e.metaKey || e.ctrlKey)}
+                onClick={(e) => run(it, mods(e))}
+                onAuxClick={(e) => {
+                  if (e.button !== 1 || !it.issue) return;
+                  e.preventDefault();
+                  run(it, { meta: true, shift: e.shiftKey });
+                }}
                 className={`flex h-9 w-full items-center gap-2.5 rounded-lg px-2.5 text-left text-[13.5px] ${idx === active ? "bg-hover" : ""}`}
               >
                 {it.issue ? (
@@ -362,6 +375,10 @@ export function CommandPalette() {
         </span>
         <span className="flex items-center gap-1">
           <Kbd>⌘</Kbd>
+          <Kbd>↵</Kbd> open in new tab
+        </span>
+        <span className="flex items-center gap-1">
+          <Kbd>⌥</Kbd>
           <Kbd>↵</Kbd> open in GitHub
         </span>
       </div>

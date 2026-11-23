@@ -105,7 +105,7 @@ export function SubIssues({ issue }: { issue: ClientIssue }) {
                     {s.title}
                   </a>
                 ) : (
-                  <button type="button" onClick={() => open(s.number)} className={`min-w-0 flex-1 truncate text-left ${s.state === "closed" ? "text-muted line-through decoration-faint" : ""}`}>
+                  <button type="button" data-tab-issue={s.number} onClick={() => open(s.number)} className={`min-w-0 flex-1 truncate text-left ${s.state === "closed" ? "text-muted line-through decoration-faint" : ""}`}>
                     {s.title}
                   </button>
                 )}

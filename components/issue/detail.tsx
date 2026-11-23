@@ -8,7 +8,7 @@ import { formatDate, longAgo, plainName } from "@/lib/client/format";
 import type { ClientIssue, IssueDetail } from "@/lib/client/types";
 import { MISSING_FIELD } from "@/lib/sync/field-map";
 import { useAppData } from "../app/provider";
-import { useOpenIssue } from "../app/open-issue";
+import { panelBack, useOpenIssue, usePanelBack } from "../app/open-issue";
 import { useCells } from "../explorer/cells";
 import { Icon } from "../icons";
 import { Avatar, EmptyHint, OptionDot } from "../props";
@@ -227,6 +227,19 @@ function Comment({ author, avatarUrl, createdAt, html, text, url }: { author: st
   );
 }
 
+/** The issue's parents in the cache, outermost first (a loop or a missing parent ends it). */
+function ancestry(issue: ClientIssue, byNodeId: Map<string, ClientIssue>): ClientIssue[] {
+  const out: ClientIssue[] = [];
+  const seen = new Set([issue.nodeId]);
+  let cur = issue.parentNodeId ? byNodeId.get(issue.parentNodeId) : undefined;
+  while (cur && !seen.has(cur.nodeId) && out.length < 6) {
+    out.unshift(cur);
+    seen.add(cur.nodeId);
+    cur = cur.parentNodeId ? byNodeId.get(cur.parentNodeId) : undefined;
+  }
+  return out;
+}
+
 export function IssueDetailView({ number, mode, onClose }: { number: number; mode: "peek" | "page"; onClose?: () => void }) {
   const { data, byNumber, byNodeId, avatarOf } = useAppData();
   // A description image opens larger (improvement 2); the dialog closes on Esc.
@@ -236,6 +249,7 @@ export function IssueDetailView({ number, mode, onClose }: { number: number; mod
   const issue = byNumber.get(number);
   const { detail, error, loading } = useIssueDetail(issue ? number : null);
   const [copied, setCopied] = useState(false);
+  const back = usePanelBack(number);
 
   if (!issue) {
     return (
@@ -252,7 +266,7 @@ export function IssueDetailView({ number, mode, onClose }: { number: number; mod
     );
   }
 
-  const parent = issue.parentNodeId ? byNodeId.get(issue.parentNodeId) : undefined;
+  const ancestors = ancestry(issue, byNodeId);
   const copy = () => {
     void navigator.clipboard?.writeText(demo ? window.location.href : issue.url);
     setCopied(true);
@@ -262,14 +276,31 @@ export function IssueDetailView({ number, mode, onClose }: { number: number; mod
   return (
     <div className="flex h-full min-h-0 flex-col">
       <div className="flex h-12 shrink-0 items-center gap-1 border-b border-line px-3">
-        {parent ? (
-          <button type="button" onClick={() => openIssue(parent.number)} className="flex min-w-0 items-center gap-1.5 rounded-md px-1.5 py-1 text-[12.5px] text-muted hover:bg-hover hover:text-fg" title="Open epic">
-            <Icon name="epic" size={13} className="shrink-0 text-violet" />
-            <span className="truncate">{parent.title.replace(/^Epic:\s*/i, "")}</span>
-            <Icon name="chevronRight" size={12} className="shrink-0 text-faint" />
+        {mode === "peek" && back != null ? (
+          <button type="button" onClick={panelBack} aria-label={`Back to #${back}`} title={`Back to #${back}${byNumber.get(back) ? ` ${byNumber.get(back)!.title}` : ""}`} className={`${btn.icon} shrink-0`} data-panel-back>
+            <Icon name="chevronLeft" size={16} />
           </button>
         ) : null}
-        <span className="font-mono text-[12px] text-faint">#{issue.number}</span>
+        {ancestors.length ? (
+          <nav aria-label="Parent issues" className="flex min-w-0 items-center" data-ancestry>
+            {ancestors.map((a, i) => (
+              <span key={a.nodeId} className={`flex min-w-0 items-center ${i === ancestors.length - 1 ? "shrink" : "shrink-[2]"}`}>
+                <button
+                  type="button"
+                  data-tab-issue={a.number}
+                  onClick={() => openIssue(a.number)}
+                  className="flex min-w-0 max-w-[14rem] items-center gap-1.5 rounded-md px-1.5 py-1 text-[12.5px] text-muted hover:bg-hover hover:text-fg"
+                  title={`#${a.number} ${a.title} (⌘-click: new tab)`}
+                >
+                  {i === 0 ? <Icon name="epic" size={13} className="shrink-0 text-violet" /> : null}
+                  <span className="truncate">{a.title.replace(/^Epic:\s*/i, "")}</span>
+                </button>
+                <Icon name="chevronRight" size={12} className="shrink-0 text-faint" />
+              </span>
+            ))}
+          </nav>
+        ) : null}
+        <span className="shrink-0 font-mono text-[12px] text-faint">#{issue.number}</span>
         <span className="flex-1" />
         <WatchStar kind="issue" id={issue.nodeId} />
         <SeenOnOpen kind="issue" id={issue.nodeId} />

@@ -14,6 +14,7 @@ import type { ClientIssue } from "@/lib/client/types";
 import { useAppData } from "../app/provider";
 import { Elapsed } from "./elapsed";
 import { useOpenIssue } from "../app/open-issue";
+import { useOpenIssueInTab } from "../app/tabs";
 import { Icon } from "../icons";
 import { Dialog } from "../ui/dialog";
 import { btn } from "../ui/popover";
@@ -268,24 +269,28 @@ function AskAnswer({
   const { byNumber } = useAppData();
   const openIssue = useOpenIssue();
   const open = onOpenIssue ?? openIssue;
+  const openInTab = useOpenIssueInTab();
   // The only clickable links are https://github.com/…: an issue link opens inside
   // Deska instead of a browser tab (SPEC §4.9, AI4).
+  // ⌘-click or middle-click opens it in a tab instead (⌘⇧ switches to it).
   const onClick = useCallback(
     (e: React.MouseEvent<HTMLDivElement>) => {
+      if (e.button !== 0 && e.button !== 1) return;
       const anchor = (e.target as Element | null)?.closest?.("a");
       const match = anchor ? ISSUE_LINK.exec(anchor.getAttribute("href") ?? "") : null;
       if (!match) return;
       e.preventDefault();
-      open(Number(match[1]));
+      if (e.button === 1 || e.metaKey || e.ctrlKey) openInTab(Number(match[1]), e.shiftKey);
+      else open(Number(match[1]));
     },
-    [open],
+    [open, openInTab],
   );
   return (
     <div className="space-y-2">
       <p className="text-[12.5px] text-muted" data-ask-question>
         {view.question}
       </p>
-      <div className="gh-markdown" data-ask-answer onClick={onClick} dangerouslySetInnerHTML={{ __html: view.answerHtml }} />
+      <div className="gh-markdown" data-ask-answer onClick={onClick} onAuxClick={onClick} dangerouslySetInnerHTML={{ __html: view.answerHtml }} />
       {view.references.length > 0 && (
         <div data-ask-references aria-label="Issues in this answer" className="flex flex-wrap items-center gap-1.5">
           {view.references.map((n) => {
@@ -294,6 +299,7 @@ function AskAnswer({
               <button
                 key={n}
                 type="button"
+                data-tab-issue={n}
                 onClick={() => open(n)}
                 title={issue ? `Open #${n}: ${issue.title}` : `Open #${n} in Deska`}
                 className="inline-flex h-6 max-w-full items-center rounded-full border border-line bg-surface px-2 text-[12px] text-muted transition-colors hover:bg-hover hover:text-fg"

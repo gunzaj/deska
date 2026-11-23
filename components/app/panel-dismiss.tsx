@@ -12,6 +12,8 @@ const SIDE_PANEL = "data-side-panel";
 const PEEK_ROW = "data-peek-row";
 /** The title inside such a row: the only part that opens an item while a panel is open. */
 const PEEK_TITLE = "data-peek-title";
+/** The tab strip: switching tabs keeps each tab's panel as it was. */
+const TAB_STRIP = "data-tab-strip";
 
 const CONTROL = 'button, a, input, select, textarea, label, [role="checkbox"]';
 
@@ -42,7 +44,7 @@ export function PanelDismiss() {
       // A click on a row is ours even while a picker is open: it must never open
       // the issue under the picker (improvement 1), only close the panel.
       const inRow = Boolean(el?.closest?.(`[${PEEK_ROW}]`));
-      dismiss = Boolean(el?.closest) && !el!.closest(`[${SIDE_PANEL}]`) && e.button === 0 && (inRow || !document.querySelector('[role="dialog"]'));
+      dismiss = Boolean(el?.closest) && !el!.closest(`[${SIDE_PANEL}]`) && !el!.closest(`[${TAB_STRIP}]`) && e.button === 0 && (inRow || !document.querySelector('[role="dialog"]'));
     };
     const onClick = (e: MouseEvent) => {
       if (!dismiss) return;

@@ -35,6 +35,18 @@ const GROUPS: { title: string; keys: [string[], string][] }[] = [
     ],
   },
   {
+    title: "Tabs",
+    keys: [
+      [["⌘", "click"], "Open an issue or page in a background tab (also middle-click)"],
+      [["⌘", "⇧", "click"], "Open in a new tab and switch to it"],
+      [["⌘", "W"], "Close tab"],
+      [["⌘", "⇧", "T"], "Reopen closed tab"],
+      [["⌘", "1", "–", "9"], "Go to tab"],
+      [["⌘", "⇧", "[ ]"], "Previous / next tab"],
+      [["⌘", "[ ]"], "Back / forward in the tab"],
+    ],
+  },
+  {
     title: "Issue lists",
     keys: ISSUE_LIST_HELP.map((h): [string[], string] => [h.keys, h.label]),
   },

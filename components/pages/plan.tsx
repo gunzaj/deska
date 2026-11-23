@@ -183,7 +183,7 @@ export function ReleasePlanPage() {
                   {canWrite && <input type="checkbox" aria-label={`Select #${i.number}`} checked={picked.has(i.nodeId)} onChange={() => toggle(i.nodeId)} className="size-3.5 accent-brand" />}
                   {c.status(i)}
                   <span className="w-14 shrink-0">{c.id(i)}</span>
-                  <button type="button" onClick={() => openIssue(i.number)} className="min-w-0 flex-1 truncate text-left hover:underline">
+                  <button type="button" data-tab-issue={i.number} onClick={() => openIssue(i.number)} className="min-w-0 flex-1 truncate text-left hover:underline">
                     {i.title}
                   </button>
                   <span className="hidden shrink-0 items-center gap-1.5 sm:flex">
