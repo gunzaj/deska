@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { as } from "./helpers";
+import { as, fillQuickAdd } from "./helpers";
 
 // SPEC §4.9, AI2: task assist in the in-app quick add, the global quick-add
 // window and "Tidy Inbox". The AI routes are mocked in the browser (like AI1's
@@ -318,8 +318,7 @@ test("the global quick-add window shows AI chips and Enter saves them", async ({
   });
   try {
     await page.goto("/quick-add");
-    const input = page.getByRole("combobox", { name: "Task" });
-    await input.fill(title);
+    const input = await fillQuickAdd(page, title);
     await page.locator("[data-ai-assist]").click();
     const chips = page.locator("[data-ai-chips]");
     await expect(chips).toContainText(projectName);
