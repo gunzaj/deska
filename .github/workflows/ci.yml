@@ -68,7 +68,16 @@ jobs:
       # The e2e servers run `next dev`: the test-only identity is compiled out
       # of production builds on purpose (lib/e2e-bypass.ts), so `next start`
       # has no user for the specs.
-      - run: pnpm test:e2e
+      - name: pnpm test:e2e
+        run: |
+          # DIAGNOSTIC (temporary): memory, load and the largest processes every 20 s.
+          nproc; free -m; swapon --show || true
+          (while sleep 20; do
+            echo "[mem] $(date -u +%T) load=$(cut -d' ' -f1-3 /proc/loadavg) $(free -m | awk '/Mem:/{printf "used=%s free=%s avail=%s ", $3, $4, $7} /Swap:/{printf "swap=%s", $3}')"
+            ps -eo rss,pid,ppid,args --sort=-rss | head -9 | tail -8 | awk '{printf "[mem]   %5d MB pid=%s ppid=%s %s\n", $1/1024, $2, $3, substr($0, index($0,$4), 110)}'
+            sudo dmesg 2>/dev/null | grep -iE "out of memory|oom-kill|killed process" | tail -3 | sed 's/^/[mem] dmesg: /'
+          done) &
+          pnpm test:e2e --reporter=list
       - name: Upload the Playwright report and traces
         if: failure()
         uses: actions/upload-artifact@v4
