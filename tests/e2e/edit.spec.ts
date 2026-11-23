@@ -104,6 +104,49 @@ test("labels are added and removed as deltas, never the full set", async ({ brow
   await context.close();
 });
 
+test("the labels picker lists the issue's labels, then the most used ones, and keeps its order while open", async ({ browser }) => {
+  const { context, page } = await as(browser);
+  await writesOn(page);
+  // "dashboard" is the label added most often; the fixture order is UI, dashboard.
+  await page.route("**/api/me/frequent", (route) => route.fulfill({ contentType: "application/json", json: { labels: ["LA_2"], assignees: [] } }));
+  const sent = await editRoute(page, done);
+  const panel = await openBug(page);
+  const trigger = panel.getByRole("button", { name: "Labels: change" });
+  await trigger.click();
+  const options = page.getByRole("option");
+  await expect(options).toHaveText(["dashboard", "UI"]);
+  // Ticking UI doesn't move it under the pointer.
+  await options.filter({ hasText: "UI" }).click();
+  await expect.poll(() => sent.length).toBe(1);
+  await expect(options).toHaveText(["dashboard", "UI"]);
+  // Reopened, the issue's own label leads.
+  await page.keyboard.press("Escape");
+  await trigger.click();
+  await expect(options).toHaveText(["UI", "dashboard"]);
+  await context.close();
+});
+
+test("a picker opens with the caret in its search field and keeps it there between picks", async ({ browser }) => {
+  const { context, page } = await as(browser);
+  await writesOn(page);
+  const sent = await editRoute(page, done);
+  const panel = await openBug(page);
+  const trigger = panel.getByRole("button", { name: "Labels: change" });
+  await trigger.click();
+  const search = page.getByPlaceholder("Set labels…");
+  await expect(search).toBeFocused();
+  // Typing filters at once, with no click into the field first.
+  await page.keyboard.type("UI");
+  await expect(page.getByRole("option")).toHaveCount(1);
+  await page.getByRole("option", { name: "UI" }).click();
+  await expect.poll(() => sent.length).toBe(1);
+  await expect(search).toBeFocused();
+  // Escape hands focus back to the property.
+  await page.keyboard.press("Escape");
+  await expect(trigger).toBeFocused();
+  await context.close();
+});
+
 test("with writes off every picker is disabled with the tooltip and nothing is sent", async ({ browser }) => {
   const { context, page } = await as(browser);
   const sent = await editRoute(page, done);

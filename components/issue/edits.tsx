@@ -6,7 +6,8 @@
 // GET /api/outbox), rollback and a toast on failure, and the SPEC §5
 // conflict dialog.
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { EDITING_OFF, editRequest, wirePatch, type EditField } from "@/lib/client/edit";
+import { EDITING_OFF, editRequest, wirePatch, type Delta, type EditField } from "@/lib/client/edit";
+import { loadFrequent, refreshFrequentSoon } from "@/lib/client/frequent";
 import { isUnauthorized } from "@/lib/client/session";
 import { dimFieldId, isDimKey } from "@/lib/sync/field-map";
 import { composed, dropEdit, overlayKeys, pushEdit, settleEdit, type IssueOverlay } from "@/lib/client/overlay";
@@ -49,6 +50,8 @@ export function useIssueEdits(): EditsCtx {
 }
 
 const fieldKey = (nodeId: string, field: string) => `${nodeId}:${field}`;
+/** A label or assignee was added: the pickers' frequent choices may have changed. */
+const isAdd = (field: string | null, next: unknown) => (field === "labels" || field === "assignees") && ((next as Delta | null)?.added?.length ?? 0) > 0;
 const POLL_MS = 10_000;
 /** Longest the UI waits on one edit request. */
 const EDIT_TIMEOUT_MS = 20_000;
@@ -147,6 +150,8 @@ export function EditsProvider({ children }: { children: ReactNode }) {
     const gone = [...queuedRef.current].filter((k) => !keys.has(k));
     setQueued(keys);
     if (!gone.length) return;
+    // A queued add may be written now.
+    refreshFrequentSoon();
     await refresh();
     // The server keys an edit by `<login>:<client id>`; done rows are not listed.
     const byClientId = new Map<string, Entry>();
@@ -183,6 +188,7 @@ export function EditsProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     void loadQueued();
   }, [loadQueued]);
+  useEffect(() => void loadFrequent(), []);
   // Only while something is queued; not in a hidden tab, not after the session expired.
   usePoll(loadQueued, { every: POLL_MS, enabled: queued.size > 0, immediate: false });
 
@@ -239,6 +245,7 @@ export function EditsProvider({ children }: { children: ReactNode }) {
         }
         // Written: the value is final, so it goes into the loaded row itself.
         settle(issue.nodeId, id, true);
+        if (isAdd(field, next)) refreshFrequentSoon();
         return "done";
       }
       // Anything else puts the old value back: the loaded row was never
