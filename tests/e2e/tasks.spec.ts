@@ -201,10 +201,14 @@ test("projects, labels and Today: quick add files the task; archiving hides it f
   await expect(dialog.getByLabel("Recognised properties").getByText("specwork", { exact: true })).toBeVisible();
   await dialog.getByRole("combobox", { name: "Task" }).press("Enter");
   await expect(page.getByRole("complementary", { name: "Task" }).getByLabel("Title")).toHaveValue(name);
-  await page.keyboard.press("Escape");
   // Closing the panel rewrites the URL; a link clicked before that lands can be
   // overtaken by it on a slow server (issue #6), so wait for the panel to go.
-  await expect(page.getByRole("complementary", { name: "Task" })).toHaveCount(0);
+  // The panel's Escape handler mounts in an effect, just after the panel is on
+  // screen: a press that comes first is lost, so press until the panel is gone.
+  await expect(async () => {
+    await page.keyboard.press("Escape");
+    await expect(page.getByRole("complementary", { name: "Task" })).toHaveCount(0, { timeout: 2_000 });
+  }).toPass();
 
   await nav.getByRole("link", { name: /^Today( \d+)?$/ }).click();
   await expect(page.getByRole("listitem").filter({ hasText: name })).toBeVisible();
