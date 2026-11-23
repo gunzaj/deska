@@ -104,6 +104,27 @@ test("labels are added and removed as deltas, never the full set", async ({ brow
   await context.close();
 });
 
+test("a picker opens with the caret in its search field and keeps it there between picks", async ({ browser }) => {
+  const { context, page } = await as(browser);
+  await writesOn(page);
+  const sent = await editRoute(page, done);
+  const panel = await openBug(page);
+  const trigger = panel.getByRole("button", { name: "Labels: change" });
+  await trigger.click();
+  const search = page.getByPlaceholder("Set labels…");
+  await expect(search).toBeFocused();
+  // Typing filters at once, with no click into the field first.
+  await page.keyboard.type("UI");
+  await expect(page.getByRole("option")).toHaveCount(1);
+  await page.getByRole("option", { name: "UI" }).click();
+  await expect.poll(() => sent.length).toBe(1);
+  await expect(search).toBeFocused();
+  // Escape hands focus back to the property.
+  await page.keyboard.press("Escape");
+  await expect(trigger).toBeFocused();
+  await context.close();
+});
+
 test("with writes off every picker is disabled with the tooltip and nothing is sent", async ({ browser }) => {
   const { context, page } = await as(browser);
   const sent = await editRoute(page, done);

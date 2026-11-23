@@ -103,18 +103,35 @@ export function Popover({
     };
   }, [open, anchor, place, isTop]);
 
+  // Focus moved into the panel (its search field) on open. When the panel goes
+  // away with focus still inside, hand it back to the trigger, not to <body>.
+  const anchorRef = useRef(anchor);
+  anchorRef.current = anchor;
+  useEffect(() => {
+    if (!open) return;
+    // The trigger as it was on open: some callers clear their anchor as they close.
+    const opener = anchorRef.current.current;
+    return () => {
+      const at = document.activeElement;
+      if (opener?.isConnected && (!at || at === document.body)) opener.focus({ preventScroll: true });
+    };
+  }, [open]);
+
   if (!open || typeof document === "undefined") return null;
   return createPortal(
     <div
       ref={panel}
       role="dialog"
       className="anim-pop fixed z-50 flex flex-col overflow-hidden rounded-xl border border-line bg-popover shadow-pop"
+      // Until it is placed the panel is transparent, not `visibility: hidden`:
+      // a hidden input can't take focus, so `autoFocus` inside would be lost.
       style={{
-        top: pos?.top ?? -9999,
-        left: pos?.left ?? -9999,
+        top: pos?.top ?? 0,
+        left: pos?.left ?? 0,
         width,
         maxHeight: pos?.maxH,
-        visibility: pos ? "visible" : "hidden",
+        opacity: pos ? undefined : 0,
+        pointerEvents: pos ? undefined : "none",
       }}
     >
       {children}
@@ -214,6 +231,8 @@ export function PickList({
                 aria-selected={it.checked ?? false}
                 data-idx={idx}
                 onMouseEnter={() => setActive(idx)}
+                // Keep the caret in the search field, so the next pick can be typed straight away.
+                onMouseDown={(e) => e.preventDefault()}
                 onClick={() => onPick(it.id)}
                 className={`flex h-8 w-full items-center gap-2 rounded-md px-2 text-left text-[13px] ${idx === active ? "bg-hover" : ""}`}
               >
