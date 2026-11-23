@@ -34,6 +34,7 @@ const KEYS = {
   aiVerified: "ai.verified",
   aiEndpointModes: "ai.endpoint-modes",
   theme: "ui.theme",
+  tabs: "ui.tabs",
 } as const;
 
 type Cache = { loaded: Promise<void> | null; values: Map<string, unknown>; version: number };
@@ -123,6 +124,19 @@ export async function readTheme(): Promise<Theme> {
 
 export async function saveTheme(theme: Theme): Promise<void> {
   await setCosmetic(KEYS.theme, theme);
+}
+
+/** The open in-app tabs (ADR-001, cosmetic): restored on the next launch. Validated by the caller; any read error is none. */
+export async function readTabs(): Promise<unknown> {
+  try {
+    return await get(KEYS.tabs);
+  } catch {
+    return null;
+  }
+}
+
+export async function saveTabs(tabs: unknown): Promise<void> {
+  await setCosmetic(KEYS.tabs, tabs);
 }
 
 /** Bumped by every save: part of the data ETag, so a remap reaches the browser. */

@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import { getViewerLogin } from "@/lib/session";
-import { readTasksOnly } from "@/lib/settings";
+import { readTabs, readTasksOnly } from "@/lib/settings";
 import { TasksOnlyProvider } from "@/components/app/tasks-only";
 import { desktopGuard } from "@/lib/desktop/guard";
 import { needsFirstImport, needsProjectSetup } from "@/lib/server/project-setup";
@@ -31,10 +31,16 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   // The first import (D5): its progress, never a half-filled list.
   if (!tasksOnly && desktopGuard() && (await needsFirstImport())) redirect("/importing");
 
+  // Tabs come back after a relaunch in the desktop app only: the browser preview and e2e start fresh.
+  const persistTabs = desktopGuard() !== null;
+  const savedTabs = persistTabs ? await readTabs() : null;
+
   return (
     <TasksOnlyProvider value={tasksOnly}>
       <AppProvider viewer={viewer}>
-        <AppShell>{children}</AppShell>
+        <AppShell savedTabs={savedTabs} persistTabs={persistTabs}>
+          {children}
+        </AppShell>
       </AppProvider>
     </TasksOnlyProvider>
   );

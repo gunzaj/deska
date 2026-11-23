@@ -140,6 +140,7 @@ const BoardCard = memo(function BoardCard({
       aria-roledescription={canDrag ? "draggable issue" : undefined}
       aria-label={`#${issue.number} ${issue.title}`}
       data-issue={issue.number}
+      data-tab-issue={issue.number}
       data-peek-row
       data-peeked={peeked ? "" : undefined}
       onClick={() => onOpen(issue)}

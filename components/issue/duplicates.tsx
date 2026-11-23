@@ -37,7 +37,7 @@ export function PossibleDuplicates({ number }: { number: number }) {
         {list.map((d) => (
           <li key={d.number} className="flex items-center gap-2 text-[13px]">
             <Icon name={d.state === "open" ? "circleDot" : "circleCheck"} size={13} className={d.state === "open" ? "text-faint" : "text-violet"} />
-            <button type="button" onClick={() => open(d.number)} className="min-w-0 truncate text-left hover:underline">
+            <button type="button" data-tab-issue={d.number} onClick={() => open(d.number)} className="min-w-0 truncate text-left hover:underline">
               <span className="text-faint">#{d.number}</span> {d.title}
             </button>
             <span className="shrink-0 text-[11.5px] text-faint">{d.state === "closed" ? "closed · " : ""}{Math.round(d.similarity * 100)}% alike</span>

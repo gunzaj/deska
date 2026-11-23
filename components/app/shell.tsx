@@ -21,18 +21,20 @@ import { Sidebar } from "./sidebar";
 import { StatusBanners } from "./status-banner";
 import { ConnectionBanner, ConnectionProvider } from "./connection";
 import { useTasksOnly } from "./tasks-only";
+import { TabsProvider, TabStrip, TabUrlSync } from "./tabs";
 
 /**
  * Linear-style frame: a quiet sidebar on the page colour and the content in an
  * inset raised panel. On narrow screens the sidebar becomes a drawer.
  */
-export function AppShell({ children }: { children: ReactNode }) {
+export function AppShell({ children, savedTabs = null, persistTabs = false }: { children: ReactNode; savedTabs?: unknown; persistTabs?: boolean }) {
   const [drawer, setDrawer] = useState(false);
   const path = usePathname();
   const tasksOnly = useTasksOnly();
   useEffect(() => setDrawer(false), [path]);
 
   return (
+    <TabsProvider saved={savedTabs} persist={persistTabs}>
     <ConnectionProvider>
       <EditsProvider>
         <TasksProvider>
@@ -59,6 +61,7 @@ export function AppShell({ children }: { children: ReactNode }) {
                   <Logo size={20} />
                   <span className="font-semibold">Deska</span>
                 </div>
+                <TabStrip />
                 <main className="flex min-h-0 flex-1 flex-col overflow-hidden bg-surface md:rounded-xl md:border md:border-line md:shadow-raised">
                   <StatusBanners />
                   {!tasksOnly && <ConnectionBanner />}
@@ -67,6 +70,7 @@ export function AppShell({ children }: { children: ReactNode }) {
                 </main>
               </div>
               <Suspense>
+                <TabUrlSync />
                 <IssuePeek />
                 <TaskPeek />
                 <PanelDismiss />
@@ -83,6 +87,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         </TasksProvider>
       </EditsProvider>
     </ConnectionProvider>
+    </TabsProvider>
   );
 }
 

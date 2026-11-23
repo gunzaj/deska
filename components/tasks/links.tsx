@@ -27,6 +27,7 @@ export function LinkChip({ link, compact = false, onRemove }: { link: TaskLink; 
     return (
       <button
         type="button"
+        data-tab-issue={link.number}
         onClick={(e) => {
           e.stopPropagation();
           openIssue(link.number);
@@ -45,7 +46,7 @@ export function LinkChip({ link, compact = false, onRemove }: { link: TaskLink; 
   return (
     <div className="group flex min-h-9 items-center gap-2 rounded-lg border border-line px-2 py-1.5">
       {issue ? cells.status(issue) : <Icon name="link" size={14} className="text-faint" />}
-      <button type="button" onClick={() => openIssue(link.number)} className="min-w-0 flex-1 text-left" title="Open in the side panel">
+      <button type="button" data-tab-issue={link.number} onClick={() => openIssue(link.number)} className="min-w-0 flex-1 text-left" title="Open in the side panel (⌘-click: new tab)">
         <span className="font-mono text-[12px] tabular-nums text-faint">#{link.number}</span>{" "}
         <span className={`text-[13px] ${issue ? "" : "text-faint"}`}>{title}</span>
       </button>

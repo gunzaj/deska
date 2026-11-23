@@ -268,7 +268,7 @@ export function IssueAiSuggestion({ number }: { number: number }) {
             )}
             {duplicate && (
               <Row label="Duplicate">
-                <button type="button" onClick={() => open(duplicate.number)} className="truncate text-left hover:underline">
+                <button type="button" data-tab-issue={duplicate.number} onClick={() => open(duplicate.number)} className="truncate text-left hover:underline">
                   <span className="text-faint">#{duplicate.number}</span> {duplicate.title}
                 </button>
               </Row>

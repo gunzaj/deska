@@ -29,6 +29,7 @@ function ChangeList({ changes }: { changes: FieldChange[] }) {
             {issue ? (
               <button
                 type="button"
+                data-tab-issue={issue.number}
                 className="min-w-0 max-w-[24rem] truncate text-left hover:underline"
                 onClick={() => {
                   openIssue(issue.number);
@@ -68,7 +69,7 @@ function Row({ w }: { w: WatchItem }) {
         <Icon name={w.kind === "view" ? "eye" : "circleDot"} size={14} className="text-faint" />
         {w.kind === "issue" ? (
           issue ? (
-            <button type="button" className="min-w-0 flex-1 truncate text-left text-[13.5px] font-medium hover:underline" onClick={() => { openIssue(issue.number); void markSeen("issue", w.targetId); }}>
+            <button type="button" data-tab-issue={issue.number} className="min-w-0 flex-1 truncate text-left text-[13.5px] font-medium hover:underline" onClick={() => { openIssue(issue.number); void markSeen("issue", w.targetId); }}>
               <span className="text-faint">#{issue.number}</span> {issue.title}
             </button>
           ) : (

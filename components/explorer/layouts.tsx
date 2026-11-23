@@ -142,6 +142,8 @@ export const IssueRow = memo(function IssueRow({
       tabIndex={tabbable ? 0 : -1}
       aria-current={focused ? "true" : undefined}
       data-issue={issue.number}
+      data-tab-issue={issue.number}
+      data-tab-title-only
       data-row-id={issue.nodeId}
       data-row-key={key}
       data-peek-row
@@ -157,10 +159,10 @@ export const IssueRow = memo(function IssueRow({
       {focused && <span aria-hidden className="absolute inset-y-0 left-0 w-0.5 bg-brand" />}
       {selection && <SelectBox issue={issue} rowKey={key} selection={selection} />}
       {has("priority") && c.priority(issue)}
-      {has("id") && <span className="w-[3.75rem] shrink-0">{c.id(issue)}</span>}
+      {has("id") && <span className="w-[3.75rem] shrink-0" data-tab-title>{c.id(issue)}</span>}
       {has("status") && c.status(issue)}
       <span className={`min-w-0 flex-1 truncate font-medium ${issue.state === "closed" ? "text-muted" : ""}`}>
-        <span data-peek-title>{issue.title}</span>
+        <span data-peek-title data-tab-title>{issue.title}</span>
       </span>
       {has("subissues") && c.subissues(issue)}
       <span className="hidden min-w-0 shrink items-center gap-1.5 lg:flex">
@@ -481,6 +483,8 @@ export function TableLayout({
               aria-current={focused ? "true" : undefined}
               onFocus={() => onFocus(key)}
               data-issue={i.number}
+              data-tab-issue={i.number}
+              data-tab-title-only
               data-row-id={i.nodeId}
               data-row-key={key}
               data-peek-row
@@ -500,10 +504,10 @@ export function TableLayout({
                 </div>
               )}
               <div role="cell" className="w-[76px] shrink-0 pl-4">
-                {c.id(i)}
+                <span data-tab-title>{c.id(i)}</span>
               </div>
               <div role="cell" className={`min-w-[360px] flex-1 truncate px-2 text-[13px] font-medium ${i.state === "closed" ? "text-muted" : ""}`}>
-                <span data-peek-title>{i.title}</span>
+                <span data-peek-title data-tab-title>{i.title}</span>
               </div>
               {cols.map((p) => (
                 <div key={p} role="cell" className="flex shrink-0 items-center overflow-hidden px-2" style={{ width: colWidth(p) }}>
