@@ -8,11 +8,13 @@
 import { useRef, useState } from "react";
 import { bulkConfirmText, bulkEdit, describeChange, type BulkChange, type BulkSetField } from "@/lib/client/bulk";
 import { dimensionOf, sprintOn } from "@/lib/client/explorer";
+import { rankChoices } from "@/lib/client/frequent";
 import { isDimKey } from "@/lib/sync/field-map";
 import type { ClientIssue, ClientMeta, DimKey } from "@/lib/client/types";
 import { useAppData } from "../app/provider";
 import { Icon, type IconName } from "../icons";
 import { useIssueEdits } from "../issue/edits";
+import { useFrequentChoices } from "../issue/use-frequent";
 import { Avatar, OptionDot, PriorityIcon, StatusIcon } from "../props";
 import { Dialog } from "../ui/dialog";
 import { PickList, Popover, btn, type PickItem } from "../ui/popover";
@@ -52,6 +54,7 @@ export function BulkBar({
   const byNodeRef = useRef(byNodeId);
   byNodeRef.current = byNodeId;
   const { edit } = useIssueEdits();
+  const frequent = useFrequentChoices();
   const { toast } = useToast();
   const meta = data.meta;
   const [menu, setMenu] = useState<Menu | null>(null);
@@ -86,12 +89,21 @@ export function BulkBar({
           ...[...meta.releases].reverse().map((r) => ({ id: r.id, label: r.title, hint: r.id === meta.currentReleaseId ? "current" : r.id === meta.nextReleaseId ? "next" : undefined })),
           { id: NONE, label: "No release", icon: <Icon name="x" size={12} className="text-faint" /> },
         ];
+      // Adding: the choices added most often come first (§4.8). Removing keeps the plain order.
       case "label+":
       case "label-":
-        return meta.labels.map((l) => ({ id: l.id, label: l.name, icon: <OptionDot color={l.color} /> }));
+        return rankChoices(
+          meta.labels.map((l) => ({ id: l.id, label: l.name, icon: <OptionDot color={l.color} /> })),
+          m === "label+" ? frequent.labels : [],
+          (i) => i.id,
+        );
       case "assign":
       case "unassign":
-        return meta.users.map((u) => ({ id: u.login, label: u.login, icon: <Avatar login={u.login} url={avatarOf(u.login)} size={16} /> }));
+        return rankChoices(
+          meta.users.map((u) => ({ id: u.login, label: u.login, icon: <Avatar login={u.login} url={avatarOf(u.login)} size={16} /> })),
+          m === "assign" ? frequent.assignees : [],
+          (i) => i.id.toLowerCase(),
+        );
     }
   };
 

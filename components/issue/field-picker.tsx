@@ -4,6 +4,7 @@
 // the discovered metadata, by ID, shown with their current names.
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { EditField } from "@/lib/client/edit";
+import { inOrder, rankChoices } from "@/lib/client/frequent";
 import { dimensionOf } from "@/lib/client/explorer";
 import { dimFieldId, isDimKey } from "@/lib/sync/field-map";
 import type { ClientIssue } from "@/lib/client/types";
@@ -12,6 +13,7 @@ import { Icon } from "../icons";
 import { Avatar, OptionDot, PriorityIcon, StatusIcon } from "../props";
 import { PickList, Popover, type PickItem } from "../ui/popover";
 import { useIssueEdits } from "./edits";
+import { useFrequentChoices } from "./use-frequent";
 
 const NONE = "__none";
 
@@ -23,6 +25,7 @@ export function openPicker(nodeId: string, field: EditField) {
 
 export function usePickItems(issue: ClientIssue, field: EditField): { items: PickItem[]; multi: boolean } {
   const { data, avatarOf } = useAppData();
+  const frequent = useFrequentChoices();
   const meta = data.meta;
   const none = (label: string, checked: boolean): PickItem => ({ id: NONE, label, checked, icon: <Icon name="x" size={12} className="text-faint" /> });
   if (isDimKey(field)) {
@@ -76,20 +79,27 @@ export function usePickItems(issue: ClientIssue, field: EditField): { items: Pic
           none("No milestone", issue.milestoneId == null),
         ],
       };
+    // Labels and assignees: the issue's own first, then the ones added most often (§4.8).
     case "labels":
       return {
         multi: true,
-        items: meta.labels
-          .map((l) => ({ id: l.id, label: l.name, checked: issue.labelIds.includes(l.id), icon: <OptionDot color={l.color} /> }))
-          .sort((a, b) => Number(b.checked) - Number(a.checked)),
+        items: rankChoices(
+          meta.labels.map((l): PickItem => ({ id: l.id, label: l.name, checked: issue.labelIds.includes(l.id), icon: <OptionDot color={l.color} /> })),
+          frequent.labels,
+          (i) => i.id,
+          (i) => !!i.checked,
+        ),
       };
     case "assignees": {
       const mine = new Set(issue.assignees.map((a) => a.toLowerCase()));
       return {
         multi: true,
-        items: meta.users
-          .map((u) => ({ id: u.login, label: u.login, checked: mine.has(u.login.toLowerCase()), icon: <Avatar login={u.login} url={avatarOf(u.login)} size={16} /> }))
-          .sort((a, b) => Number(b.checked) - Number(a.checked)),
+        items: rankChoices(
+          meta.users.map((u): PickItem => ({ id: u.login, label: u.login, checked: mine.has(u.login.toLowerCase()), icon: <Avatar login={u.login} url={avatarOf(u.login)} size={16} /> })),
+          frequent.assignees,
+          (i) => i.id.toLowerCase(),
+          (i) => !!i.checked,
+        ),
       };
     }
     default:
@@ -113,13 +123,22 @@ export function FieldPicker({ issue, field, label, children }: { issue: ClientIs
   const anchor = useRef<HTMLButtonElement>(null);
   const { items, multi } = usePickItems(issue, field);
   const pending = isPending(issue.nodeId, field);
+  // The order is taken when the picker opens: ticking several labels must not
+  // move the rows under the pointer.
+  const [order, setOrder] = useState<string[]>([]);
+  const itemsRef = useRef(items);
+  itemsRef.current = items;
+  const show = () => {
+    setOrder(itemsRef.current.map((i) => i.id));
+    setOpen(true);
+  };
 
   useEffect(() => {
     const onOpen = (e: Event) => {
       const d = (e as CustomEvent<{ nodeId: string; field: EditField }>).detail;
       if (d.nodeId === issue.nodeId && d.field === field && !disabledReason) {
         anchor.current?.focus();
-        setOpen(true);
+        show();
       }
     };
     window.addEventListener(OPEN_PICKER_EVENT, onOpen);
@@ -138,7 +157,7 @@ export function FieldPicker({ issue, field, label, children }: { issue: ClientIs
         title={disabledReason ?? `Change ${label.toLowerCase()}`}
         onClick={() => {
           if (disabledReason) return;
-          setOpen(true);
+          show();
         }}
         className={`-mx-1.5 flex min-h-7 min-w-0 flex-1 flex-wrap items-center gap-1.5 rounded-md px-1.5 text-left ${disabledReason ? "cursor-default" : "hover:bg-hover"}`}
       >
@@ -148,7 +167,7 @@ export function FieldPicker({ issue, field, label, children }: { issue: ClientIs
       <Popover anchor={anchor} open={open} onClose={() => setOpen(false)} width={260}>
         <PickList
           multi={multi}
-          items={items}
+          items={inOrder(items, order)}
           placeholder={`Set ${label.toLowerCase()}…`}
           onPick={(id) => {
             void edit(issue, field, pickValue(issue, field, id));

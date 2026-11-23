@@ -7,12 +7,14 @@
 // visible with the reason and Create is disabled.
 import { useEffect, useMemo, useRef, useState } from "react";
 import { EDITING_OFF } from "@/lib/client/edit";
+import { rankChoices, refreshFrequentSoon } from "@/lib/client/frequent";
 import { plainName } from "@/lib/client/format";
 import { useAppData } from "../app/provider";
 import { Icon, type IconName } from "../icons";
 import { Dialog } from "../ui/dialog";
 import { btn, PickList, Popover } from "../ui/popover";
 import { useToast } from "../ui/toast";
+import { useFrequentChoices } from "./use-frequent";
 
 /** Ask the shell to open the create dialog (the sidebar's + and the palette). */
 export const CREATE_ISSUE_EVENT = "deska:create-issue";
@@ -37,6 +39,7 @@ export function CreateIssue() {
   const { data, refresh } = useAppData();
   const meta = data.meta;
   const { toast } = useToast();
+  const frequent = useFrequentChoices();
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState<Form>(empty);
   const [saving, setSaving] = useState(false);
@@ -95,6 +98,7 @@ export function CreateIssue() {
         throw new Error(out?.error ?? out?.entry?.error ?? `Request failed (${res.status})`);
       }
       setOpen(false);
+      if (form.labelIds.size || form.assigneeLogins.size) refreshFrequentSoon();
       // The create job re-read the issue into the cache: the list shows it once.
       await refresh();
       const number = out?.entry?.result?.number;
@@ -186,12 +190,16 @@ export function CreateIssue() {
             ))}
           </div>
 
-          {/* Labels and assignees: searchable pickers with chips, not a wall of checkboxes. */}
+          {/* Labels and assignees: searchable pickers with chips, not a wall of checkboxes. The ones added most often come first (§4.8). */}
           <div className="flex flex-wrap items-start gap-x-3 gap-y-1.5">
             <ChipPicker
               noun="label"
               icon="tag"
-              items={meta.labels.map((l) => ({ id: l.id, name: l.name }))}
+              items={rankChoices(
+                meta.labels.map((l) => ({ id: l.id, name: l.name })),
+                frequent.labels,
+                (l) => l.id,
+              )}
               selected={form.labelIds}
               onToggle={(id) => setForm((f) => ({ ...f, labelIds: toggled(f.labelIds, id) }))}
               emptyText={meta.labels.length ? "No labels match" : "This repository has no labels."}
@@ -201,7 +209,11 @@ export function CreateIssue() {
               <ChipPicker
                 noun="assignee"
                 icon="user"
-                items={meta.users.map((u) => ({ id: u.login, name: u.login }))}
+                items={rankChoices(
+                  meta.users.map((u) => ({ id: u.login, name: u.login })),
+                  frequent.assignees,
+                  (u) => u.id.toLowerCase(),
+                )}
                 selected={form.assigneeLogins}
                 onToggle={(login) => setForm((f) => ({ ...f, assigneeLogins: toggled(f.assigneeLogins, login) }))}
                 emptyText="No people match"
