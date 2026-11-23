@@ -95,7 +95,8 @@ export function OptionDot({ color, size = 8 }: { color: string | null | undefine
 
 export function Avatar({ login, url, size = 20 }: { login: string; url?: string | null; size?: number }) {
   if (url) {
-    return <img src={url} alt={login} title={login} width={size} height={size} className="shrink-0 rounded-full bg-sunken" />;
+    // Explicit CSS size: the reset's `height: auto` beats the height attribute, so a stretching flex row would deform it.
+    return <img src={url} alt={login} title={login} width={size} height={size} style={{ width: size, height: size }} className="shrink-0 rounded-full bg-sunken object-cover" />;
   }
   return (
     <span
