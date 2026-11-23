@@ -68,16 +68,21 @@ jobs:
       # The e2e servers run `next dev`: the test-only identity is compiled out
       # of production builds on purpose (lib/e2e-bypass.ts), so `next start`
       # has no user for the specs.
+      # One project per run, so one dev server at a time: the three together
+      # need more memory than the runner has (playwright.config.ts). A runner
+      # that runs out of memory dies without a message, so the log keeps a
+      # memory line per minute. Every project runs, also after a failure.
       - name: pnpm test:e2e
         run: |
-          # DIAGNOSTIC (temporary): memory, load and the largest processes every 20 s.
-          nproc; free -m; swapon --show || true
-          (while sleep 20; do
-            echo "[mem] $(date -u +%T) load=$(cut -d' ' -f1-3 /proc/loadavg) $(free -m | awk '/Mem:/{printf "used=%s free=%s avail=%s ", $3, $4, $7} /Swap:/{printf "swap=%s", $3}')"
-            ps -eo rss,pid,ppid,args --sort=-rss | head -9 | tail -8 | awk '{printf "[mem]   %5d MB pid=%s ppid=%s %s\n", $1/1024, $2, $3, substr($0, index($0,$4), 110)}'
-            sudo dmesg 2>/dev/null | grep -iE "out of memory|oom-kill|killed process" | tail -3 | sed 's/^/[mem] dmesg: /'
+          (while sleep 60; do
+            echo "[memory] $(free -m | awk '/Mem:/{printf "used %s MB, available %s MB, ", $3, $7} /Swap:/{printf "swap %s MB", $3}'), largest process $(ps -eo rss=,comm= --sort=-rss | awk 'NR==1{printf "%d MB (%s)", $1/1024, $2}')"
           done) &
-          pnpm test:e2e --reporter=list
+          failed=0
+          for project in mocks e2e-db mocks-settings; do
+            E2E_PROJECT=$project pnpm test:e2e || failed=1
+          done
+          kill $!
+          exit $failed
       - name: Upload the Playwright report and traces
         if: failure()
         uses: actions/upload-artifact@v4
