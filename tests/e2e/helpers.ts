@@ -1,7 +1,7 @@
 // Shared e2e helpers for the write-back specs. The e2e servers run with
 // writes off; these turn them on in the payload the browser gets and answer
 // the edit route in the test, so nothing is ever sent to GitHub.
-import type { APIRequestContext, Browser, BrowserContextOptions, Page, Route } from "@playwright/test";
+import { expect, type APIRequestContext, type Browser, type BrowserContextOptions, type Page, type Route } from "@playwright/test";
 import { DEFAULT_AI_SETTINGS } from "../../lib/ai/types";
 
 /**
@@ -20,6 +20,23 @@ export async function as(browser: Browser, login = "alice", options: BrowserCont
     return close(opts);
   };
   return { context, page: await context.newPage() };
+}
+
+/**
+ * Type into the Task field of the quick-add window (/quick-add).
+ *
+ * The page is server-rendered, and React empties a field that was filled
+ * before it hydrated: the form then holds no title, "Add task" and the AI
+ * button stay disabled, and Enter does nothing. The AI button is enabled once
+ * the form holds the text, so fill until it is.
+ */
+export async function fillQuickAdd(page: Page, text: string) {
+  const input = page.getByRole("combobox", { name: "Task" });
+  await expect(async () => {
+    await input.fill(text);
+    await expect(page.locator("[data-ai-assist]")).toBeEnabled({ timeout: 1_000 });
+  }).toPass();
+  return input;
 }
 
 /** Writes on in /api/data, optionally with `extraIssues` synthetic open issues. */
