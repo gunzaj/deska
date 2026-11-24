@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { freshMediaSrc, MEDIA_RETRY_GAP_MS } from "@/lib/client/media-refresh";
 import type { IssueDetail } from "@/lib/client/types";
 
@@ -19,13 +19,14 @@ function videoSrcs(detail: IssueDetail): string[] {
  * the returned ref fails, the issue is rendered again, the video gets its new
  * URL and goes on from where it stopped. The element is patched in place: a
  * new `bodyHtml` in state would rebuild the HTML and reset every other video.
+ * The ref is a callback: the element may appear after the first render (an
+ * issue that reaches the cache later), and the listener must follow it.
  */
 export function useMediaRefresh<T extends HTMLElement>(number: number, onFresh?: (detail: IssueDetail) => void) {
-  const ref = useRef<T>(null);
+  const [root, setRoot] = useState<T | null>(null);
   const fresh = useRef(onFresh);
   fresh.current = onFresh;
   useEffect(() => {
-    const root = ref.current;
     if (!root) return;
     let live = true;
     const tried = new WeakMap<HTMLVideoElement, number>();
@@ -36,6 +37,8 @@ export function useMediaRefresh<T extends HTMLElement>(number: number, onFresh?:
         .then(async (res) => {
           if (!res.ok) throw new Error(`HTTP ${res.status}`);
           const detail = (await res.json()) as IssueDetail;
+          // GitHub did not answer: the cached description has no new URLs, and must not replace the rendering.
+          if (detail.source === "cache") throw new Error("GitHub unreachable");
           if (live) fresh.current?.(detail);
           return videoSrcs(detail);
         })
@@ -78,6 +81,6 @@ export function useMediaRefresh<T extends HTMLElement>(number: number, onFresh?:
       live = false;
       root.removeEventListener("error", onError, true);
     };
-  }, [number]);
-  return ref;
+  }, [number, root]);
+  return setRoot;
 }
