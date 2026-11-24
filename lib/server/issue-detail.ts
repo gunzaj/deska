@@ -161,10 +161,10 @@ function pruneComments(now: number): void {
 }
 
 /** The live comment thread (newest first is the caller's job). One request, no issue body. */
-export async function fetchIssueComments(number: number, token: string, repoFull: string): Promise<{ comments: IssueComment[]; error: string | null }> {
+export async function fetchIssueComments(number: number, token: string, repoFull: string, fresh = false): Promise<{ comments: IssueComment[]; error: string | null }> {
   const key = `${repoFull}#${number}`;
   const hit = commentsCache.get(key);
-  if (hit && Date.now() - hit.at < TTL_MS) return { comments: hit.comments, error: hit.error };
+  if (!fresh && hit && Date.now() - hit.at < TTL_MS) return { comments: hit.comments, error: hit.error };
   const [owner, repo] = repoFull.split("/") as [string, string];
   const rest = restClient(token);
   let comments: IssueComment[] = [];
@@ -194,15 +194,20 @@ export async function fetchIssueComments(number: number, token: string, repoFull
   return { comments, error };
 }
 
-export async function fetchIssueDetail(number: number, token: string, repoFull: string): Promise<IssueDetail> {
+/**
+ * `fresh` skips both caches. GitHub signs the attachment URLs in a private
+ * repository's HTML for about five minutes, so a video that outlives its URL
+ * needs a new rendering, not the cached one.
+ */
+export async function fetchIssueDetail(number: number, token: string, repoFull: string, fresh = false): Promise<IssueDetail> {
   const key = `${repoFull}#${number}`;
   const hit = cache.get(key);
-  if (hit && Date.now() - hit.at < TTL_MS) return hit.detail;
+  if (!fresh && hit && Date.now() - hit.at < TTL_MS) return hit.detail;
   const [owner, repo] = repoFull.split("/") as [string, string];
   const rest = restClient(token);
   const issue = await rest.issues.get({ owner, repo, issue_number: number, mediaType: { format: "full" } });
   // The thread is cached apart from the body: a suggestion needs only the comments.
-  const thread = await fetchIssueComments(number, token, repoFull);
+  const thread = await fetchIssueComments(number, token, repoFull, fresh);
   const data = issue.data as { body?: string | null; body_html?: string | null };
   const detail: IssueDetail = {
     number,
