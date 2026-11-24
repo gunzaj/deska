@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { keyboardBusy } from "@/lib/client/keyboard";
 import { FILTER_EVENT } from "../explorer/filter-bar";
+import { RELATION_MENU, requestRelation, type RelationMode } from "../issue/relationships";
 import { ISSUE_LIST_HELP, TASK_LIST_HELP } from "@/lib/client/shortcuts";
 import { Kbd } from "../props";
 import { useTasks } from "../tasks/store";
@@ -51,6 +52,13 @@ const GROUPS: { title: string; keys: [string[], string][] }[] = [
     keys: ISSUE_LIST_HELP.map((h): [string[], string] => [h.keys, h.label]),
   },
   {
+    title: "Open issue: relationships",
+    keys: RELATION_MENU.map(({ keys, mode }): [string[], string] => [
+      keys,
+      mode === "parent" ? "Change or remove parent" : mode === "blockedBy" ? "Mark as blocked by" : mode === "blocking" ? "Mark as blocking" : "Add relates to",
+    ]),
+  },
+  {
     title: "Triage mode",
     keys: [
       [["1", "–", "4"], "Set Priority (1 is the highest)"],
@@ -77,11 +85,20 @@ export function GlobalShortcuts() {
   const { openCompose } = useTasks();
   const [help, setHelp] = useState(false);
   const pendingG = useRef<number>(0);
+  const pendingB = useRef<number>(0);
 
   useEffect(() => {
     const show = () => setHelp(true);
     window.addEventListener(HELP_EVENT, show);
+    // The relationship keys act on the open issue: only while its section is on screen.
+    const relationsShown = () => document.querySelector("[data-relationships]") != null;
     const onKey = (e: KeyboardEvent) => {
+      // ⌥⇧P: change or remove the parent. By code, since ⌥ changes the character on a Mac.
+      if (e.altKey && e.shiftKey && !e.metaKey && !e.ctrlKey && e.code === "KeyP" && !keyboardBusy(e) && relationsShown()) {
+        e.preventDefault();
+        requestRelation("parent");
+        return;
+      }
       if (e.metaKey || e.ctrlKey || e.altKey || e.key === "Shift" || keyboardBusy(e)) return;
       const k = e.key.toLowerCase();
       if (Date.now() - pendingG.current < 1200) {
@@ -111,6 +128,21 @@ export function GlobalShortcuts() {
       }
       if (k === "g") {
         pendingG.current = Date.now();
+        return;
+      }
+      if (Date.now() - pendingB.current < 1200) {
+        pendingB.current = 0;
+        const mode = ({ b: "blockedBy", x: "blocking", r: "relatesTo" } as Record<string, RelationMode>)[k];
+        if (mode) {
+          // Claimed like G's second key: X and R are list shortcuts too.
+          e.preventDefault();
+          e.stopPropagation();
+          requestRelation(mode);
+          return;
+        }
+      }
+      if (k === "b" && relationsShown()) {
+        pendingB.current = Date.now();
         return;
       }
       if (e.key === "?") {

@@ -21,6 +21,14 @@ export const ALLOWED_MUTATIONS: readonly string[] = [
   "clearProjectV2ItemFieldValue",
   // Set an issue's type.
   "updateIssueIssueType",
+  // Relationships: parent / sub-issues, "blocked by" / "blocking" and "relates to". These
+  // link or unlink two issues; neither issue is changed or deleted.
+  "addSubIssue",
+  "removeSubIssue",
+  "addBlockedBy",
+  "removeBlockedBy",
+  "addRelatesTo",
+  "removeRelatesTo",
 ];
 
 /** REST writes the allowlist covers. The REST client is only called through these. */
@@ -78,6 +86,11 @@ type Meta = { projectId: string; fields: Map<string, FieldMeta> }; // by field I
 
 /** Edit field keys of the mapped roles ("release" is the Sprint role's key in edits and views). */
 const ROLE_OF = { status: "status", priority: "priority", release: "sprint" } as const;
+
+/** `addBlockedBy`'s two sides: "blocked by X" puts this issue first, "blocking X" puts X first. */
+function blockPair(self: string, other: string, field: "blockedBy" | "blocking"): { issue: string; blocker: string } {
+  return field === "blockedBy" ? { issue: self, blocker: other } : { issue: other, blocker: self };
+}
 
 function sortedNames(rows: { login?: string | null; name?: string | null }[]): string[] {
   return rows.map((r) => (r.login ?? r.name) as string).sort();
@@ -243,6 +256,10 @@ export class GitHubWriteClient implements WriteClient {
   }
 
   async readField(issueNodeId: string, field: string | null): Promise<unknown> {
+    if (field === "parent") {
+      const res = await this.gql(`query($id:ID!) { node(id:$id) { ... on Issue { parent { id } } } }`, { id: issueNodeId });
+      return res.node?.parent?.id ?? null;
+    }
     if (field === "type") {
       // GraphQL for Type (M0 §f): the native issue type's node ID, or null.
       const res = await this.gql(`query($id:ID!) { node(id:$id) { ... on Issue { issueType { id } } } }`, { id: issueNodeId });
@@ -329,6 +346,45 @@ export class GitHubWriteClient implements WriteClient {
   }
 
   async applyField(issueNodeId: string, field: string | null, next: unknown): Promise<void> {
+    if (field === "parent") {
+      await this.assertInRepo(issueNodeId);
+      if (next == null) {
+        const current = (await this.readField(issueNodeId, "parent")) as string | null;
+        if (!current) return; // already has no parent
+        await this.mutate(`mutation($parent:ID!, $child:ID!) { removeSubIssue(input:{issueId:$parent, subIssueId:$child}) { issue { id } } }`, { parent: current, child: issueNodeId });
+        return;
+      }
+      await this.assertInRepo(next as string);
+      // replaceParent: GitHub's own "Change parent" moves the issue in one step.
+      await this.mutate(`mutation($parent:ID!, $child:ID!) { addSubIssue(input:{issueId:$parent, subIssueId:$child, replaceParent:true}) { issue { id } } }`, {
+        parent: next,
+        child: issueNodeId,
+      });
+      return;
+    }
+    if (field === "subIssues" || field === "blockedBy" || field === "blocking" || field === "relatesTo") {
+      const delta = next as { added: string[]; removed: string[] };
+      await this.assertInRepo(issueNodeId);
+      for (const other of [...delta.added, ...delta.removed]) await this.assertInRepo(other);
+      // Send only what GitHub doesn't hold yet, so a retry after a lost answer
+      // never fails on a link the first try already made or removed.
+      const have = new Set(await this.relationIds(issueNodeId, field));
+      for (const other of delta.removed) {
+        if (!have.has(other)) continue;
+        if (field === "subIssues") await this.mutate(`mutation($parent:ID!, $child:ID!) { removeSubIssue(input:{issueId:$parent, subIssueId:$child}) { issue { id } } }`, { parent: issueNodeId, child: other });
+        else if (field === "relatesTo") await this.mutate(`mutation($issue:ID!, $related:ID!) { removeRelatesTo(input:{issueId:$issue, relatedIssueId:$related}) { issue { id } } }`, { issue: issueNodeId, related: other });
+        else await this.mutate(`mutation($issue:ID!, $blocker:ID!) { removeBlockedBy(input:{issueId:$issue, blockingIssueId:$blocker}) { issue { id } } }`, blockPair(issueNodeId, other, field));
+      }
+      // Removed just above, so it is no longer linked even though `have` had it.
+      const unlinked = new Set(delta.removed.filter((x) => have.has(x)));
+      for (const other of delta.added) {
+        if (have.has(other) && !unlinked.has(other)) continue;
+        if (field === "subIssues") await this.mutate(`mutation($parent:ID!, $child:ID!) { addSubIssue(input:{issueId:$parent, subIssueId:$child, replaceParent:true}) { issue { id } } }`, { parent: issueNodeId, child: other });
+        else if (field === "relatesTo") await this.mutate(`mutation($issue:ID!, $related:ID!) { addRelatesTo(input:{issueId:$issue, relatedIssueId:$related}) { issue { id } } }`, { issue: issueNodeId, related: other });
+        else await this.mutate(`mutation($issue:ID!, $blocker:ID!) { addBlockedBy(input:{issueId:$issue, blockingIssueId:$blocker}) { issue { id } } }`, blockPair(issueNodeId, other, field));
+      }
+      return;
+    }
     if (field === "type") {
       // By node ID, so GitHub would take it for an issue transferred elsewhere.
       await this.assertInRepo(issueNodeId);
@@ -389,6 +445,22 @@ export class GitHubWriteClient implements WriteClient {
       }`,
       { project: meta.projectId, item: itemId, field: def.id, value: next },
     );
+  }
+
+  /** The issue's sub-issues, blockers or blocked issues on GitHub now (node IDs, all pages). */
+  private async relationIds(issueNodeId: string, field: "subIssues" | "blockedBy" | "blocking" | "relatesTo"): Promise<string[]> {
+    const ids: string[] = [];
+    let after: string | null = null;
+    for (;;) {
+      const res: any = await this.gql(
+        `query($id:ID!, $after:String) { node(id:$id) { ... on Issue { ${field}(first:100, after:$after) { pageInfo { hasNextPage endCursor } nodes { id } } } } }`,
+        { id: issueNodeId, after },
+      );
+      const conn = res.node?.[field];
+      for (const n of conn?.nodes ?? []) if (n?.id) ids.push(n.id);
+      if (!conn?.pageInfo?.hasNextPage) return ids;
+      after = conn.pageInfo.endCursor;
+    }
   }
 
   /**

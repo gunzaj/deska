@@ -57,8 +57,12 @@ const POLL_MS = 10_000;
 const EDIT_TIMEOUT_MS = 20_000;
 
 /** A value as people read it: option and iteration names, never IDs. */
-export function valueText(meta: ClientMeta, field: EditField, v: unknown): string {
-  if (v == null || v === "") return "empty";
+export function valueText(meta: ClientMeta, field: EditField, v: unknown, issueOf?: (nodeId: string) => ClientIssue | undefined): string {
+  if (v == null || v === "") return field === "parent" ? "no parent" : "empty";
+  if (field === "parent") {
+    const i = issueOf?.(String(v));
+    return i ? `#${i.number} ${i.title}` : "an issue outside Deska";
+  }
   const id = String(v);
   if (isDimKey(field)) return meta.dimensions.find((d) => d.id === dimFieldId(field))?.options.find((o) => o.id === id)?.name ?? "missing option";
   switch (field) {
@@ -276,6 +280,7 @@ export function EditsProvider({ children }: { children: ReactNode }) {
       <ConflictDialog
         conflict={conflict}
         meta={meta}
+        issueOf={(n) => byNodeId.get(n)}
         onClose={() => setConflict(null)}
         onKeepTheirs={(c) => {
           // GitHub wins: show its value now. The server re-read the issue on
@@ -302,9 +307,11 @@ function ConflictDialog({
   onClose,
   onKeepTheirs,
   onOverwrite,
+  issueOf,
 }: {
   conflict: Conflict | null;
   meta: ClientMeta;
+  issueOf: (nodeId: string) => ClientIssue | undefined;
   onClose: () => void;
   onKeepTheirs: (c: Conflict) => void;
   onOverwrite: (c: Conflict) => void;
@@ -322,9 +329,9 @@ function ConflictDialog({
           </p>
           <dl className="mt-3 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-[13px]">
             <dt className="text-faint">Theirs</dt>
-            <dd data-testid="conflict-theirs">{valueText(meta, c.field, c.remote)}</dd>
+            <dd data-testid="conflict-theirs">{valueText(meta, c.field, c.remote, issueOf)}</dd>
             <dt className="text-faint">Yours</dt>
-            <dd data-testid="conflict-yours">{valueText(meta, c.field, c.next)}</dd>
+            <dd data-testid="conflict-yours">{valueText(meta, c.field, c.next, issueOf)}</dd>
           </dl>
           <div className="mt-4 flex justify-end gap-1.5">
             <button type="button" onClick={() => onKeepTheirs(c)} className={btn.outline}>

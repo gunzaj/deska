@@ -21,6 +21,7 @@ import { PossibleDuplicates } from "./duplicates";
 import { IssueAiSuggestion } from "./ai-suggestion";
 import { IssueAsk } from "../ai/ask";
 import { FieldPicker } from "./field-picker";
+import { Relationships } from "./relationships";
 
 // Client cache so flipping between issues with j/k is instant on revisit.
 const detailCache = new Map<number, { at: number; detail: IssueDetail }>();
@@ -84,6 +85,7 @@ function Properties({ issue }: { issue: ClientIssue }) {
   const c = useCells();
   const none = <span className="text-faint">—</span>;
   return (
+    <>
     <dl className="grid gap-x-6 sm:grid-cols-2">
       <Prop label="Status">
         {meta.mapping.status?.missing ? (
@@ -165,6 +167,8 @@ function Properties({ issue }: { issue: ClientIssue }) {
         </FieldPicker>
       </Prop>
     </dl>
+    <Relationships issue={issue} />
+    </>
   );
 }
 

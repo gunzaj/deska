@@ -7,7 +7,10 @@ import type { ReadModel } from "@/lib/sync/read-model";
 import { doneStatusOption, depsFor } from "./runtime";
 import { enqueueEdit, processEdit, type OutboxRow, type ProcessDeps } from "./store";
 
-export const EDIT_FIELDS = ["status", "priority", "release", "type", "milestone", "labels", "assignees", "state"] as const;
+export const EDIT_FIELDS = ["status", "priority", "release", "type", "milestone", "labels", "assignees", "state", "parent", "subIssues", "blockedBy", "blocking", "relatesTo"] as const;
+/** Relationship lists, sent as { added, removed } deltas of issue node IDs. */
+export const RELATION_DELTAS = ["subIssues", "blockedBy", "blocking", "relatesTo"] as const;
+const isRelationDelta = (f: string): f is (typeof RELATION_DELTAS)[number] => (RELATION_DELTAS as readonly string[]).includes(f);
 /** A fixed field, or a mapped dimension as `dim:<fieldId>` (§4.1). */
 export type EditField = (typeof EDIT_FIELDS)[number] | `dim:${string}`;
 
@@ -50,11 +53,24 @@ function cachedValue(store: ReadModel, nodeId: string, field: EditField): unknow
       return issue?.typeId ?? null;
     case "milestone":
       return issue?.milestoneId ?? null;
+    case "parent":
+      return issue?.parentNodeId ?? null;
     case "state":
       return issue?.state.toLowerCase() ?? null;
     default:
       return null;
   }
+}
+
+/** The issue's parents in the cache, nearest first (a loop ends the walk). */
+function ancestors(store: ReadModel, nodeId: string): Set<string> {
+  const out = new Set<string>();
+  let cur = store.issues.get(nodeId)?.parentNodeId ?? null;
+  while (cur && !out.has(cur)) {
+    out.add(cur);
+    cur = store.issues.get(cur)?.parentNodeId ?? null;
+  }
+  return out;
 }
 
 /**
@@ -88,6 +104,25 @@ export async function submitEdit(args: {
       // the Done Status chosen in Settings.
       if (!doneStatus.ok) return { status: 422, body: { error: doneStatus.reason } };
     }
+  } else if (field === "parent") {
+    if (next !== null && typeof next !== "string") return bad("parent takes an issue node ID or null");
+    if (next !== null) {
+      if (next === issueNodeId) return bad("an issue can't be its own parent");
+      if (!store.issues.has(next)) return bad("unknown issue");
+      if (ancestors(store, next).has(issueNodeId)) return bad("that issue is already below this one");
+    }
+  } else if (isRelationDelta(field)) {
+    const parsed = delta.safeParse(next);
+    if (!parsed.success) return bad(`${field} take { added, removed }`);
+    const ids = [...parsed.data.added, ...parsed.data.removed];
+    if (ids.includes(issueNodeId)) return bad("an issue can't be related to itself");
+    if (ids.some((x) => !store.issues.has(x))) return bad("unknown issue");
+    if (field === "subIssues") {
+      const above = ancestors(store, issueNodeId);
+      if (parsed.data.added.some((x) => above.has(x))) return bad("that issue is already above this one");
+    }
+    base = null;
+    next = parsed.data;
   } else if (field === "labels" || field === "assignees") {
     const parsed = delta.safeParse(next);
     if (!parsed.success) return bad(`${field} take { added, removed }`);

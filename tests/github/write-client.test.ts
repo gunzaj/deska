@@ -34,6 +34,9 @@ let valuePages = 1;
 /** The repo the issue node lives in (changes when it is transferred). */
 let issueRepo = "acme/widgets";
 let fieldPages = 1;
+/** The issue's parent and relationship lists on GitHub, by node ID. */
+let parentId: string | null = null;
+let relations: Record<"subIssues" | "blockedBy" | "blocking" | "relatesTo", string[]> = { subIssues: [], blockedBy: [], blocking: [], relatesTo: [] };
 
 const server = setupServer(
   http.post("https://api.github.com/graphql", async ({ request }) => {
@@ -57,6 +60,17 @@ const server = setupServer(
     }
     if (q.includes("... on Issue { number repository")) {
       return HttpResponse.json({ data: { node: { number: 4242, repository: { nameWithOwner: issueRepo } } } });
+    }
+    const rel = /\b(addSubIssue|removeSubIssue|addBlockedBy|removeBlockedBy|addRelatesTo|removeRelatesTo)\(/.exec(q);
+    if (rel && q.trimStart().startsWith("mutation")) {
+      mutations.push(body);
+      return HttpResponse.json({ data: { [rel[1]!]: { issue: { id: "I_x" } } } });
+    }
+    if (q.includes("parent { id }")) return HttpResponse.json({ data: { node: { parent: parentId ? { id: parentId } : null } } });
+    const list = /\b(subIssues|blockedBy|blocking|relatesTo)\(first:100/.exec(q);
+    if (list) {
+      const key = list[1] as keyof typeof relations;
+      return HttpResponse.json({ data: { node: { [key]: { pageInfo: { hasNextPage: false, endCursor: null }, nodes: relations[key].map((id) => ({ id })) } } } });
     }
     if (q.includes("updateIssueIssueType")) {
       mutations.push(body);
@@ -117,6 +131,8 @@ beforeEach(() => {
   valuePages = 1;
   fieldPages = 1;
   issueRepo = "acme/widgets";
+  parentId = null;
+  relations = { subIssues: [], blockedBy: [], blocking: [], relatesTo: [] };
 });
 afterEach(() => {
   server.resetHandlers();
@@ -274,6 +290,62 @@ describe("GitHubWriteClient", () => {
     expect(await c.readField("I_1", "type")).toBe("IT_bug");
   });
 
+  it("sets, changes and removes the parent (replaceParent, as GitHub's own Change parent)", async () => {
+    await client().applyField("I_child", "parent", "I_epic");
+    expect(mutations.at(-1)!.query).toContain("addSubIssue");
+    expect(mutations.at(-1)!.query).toContain("replaceParent:true");
+    expect(mutations.at(-1)!.variables).toEqual({ parent: "I_epic", child: "I_child" });
+    parentId = "I_epic";
+    expect(await client().readField("I_child", "parent")).toBe("I_epic");
+    await client().applyField("I_child", "parent", null);
+    expect(mutations.at(-1)!.query).toContain("removeSubIssue");
+    expect(mutations.at(-1)!.variables).toEqual({ parent: "I_epic", child: "I_child" });
+    // No parent left: removing it again sends nothing.
+    parentId = null;
+    mutations = [];
+    await client().applyField("I_child", "parent", null);
+    expect(mutations).toHaveLength(0);
+  });
+
+  it("adds and removes sub-issues, sending only what GitHub doesn't hold yet", async () => {
+    relations.subIssues = ["I_a"];
+    await client().applyField("I_epic", "subIssues", { added: ["I_a", "I_b"], removed: ["I_a", "I_gone"] });
+    expect(mutations.map((m) => [m.query.match(/(add|remove)SubIssue/)![0], m.variables])).toEqual([
+      ["removeSubIssue", { parent: "I_epic", child: "I_a" }],
+      ["addSubIssue", { parent: "I_epic", child: "I_a" }],
+      ["addSubIssue", { parent: "I_epic", child: "I_b" }],
+    ]);
+  });
+
+  it("links blocked by and blocking with the right side first", async () => {
+    await client().applyField("I_self", "blockedBy", { added: ["I_blocker"], removed: [] });
+    expect(mutations.at(-1)!.query).toContain("addBlockedBy");
+    expect(mutations.at(-1)!.variables).toEqual({ issue: "I_self", blocker: "I_blocker" });
+    await client().applyField("I_self", "blocking", { added: ["I_waiting"], removed: [] });
+    expect(mutations.at(-1)!.variables).toEqual({ issue: "I_waiting", blocker: "I_self" });
+    relations.blocking = ["I_waiting"];
+    await client().applyField("I_self", "blocking", { added: [], removed: ["I_waiting"] });
+    expect(mutations.at(-1)!.query).toContain("removeBlockedBy");
+    expect(mutations.at(-1)!.variables).toEqual({ issue: "I_waiting", blocker: "I_self" });
+  });
+
+  it("links and unlinks relates to", async () => {
+    await client().applyField("I_self", "relatesTo", { added: ["I_other"], removed: [] });
+    expect(mutations.at(-1)!.query).toContain("addRelatesTo(input:{issueId:$issue, relatedIssueId:$related})");
+    expect(mutations.at(-1)!.variables).toEqual({ issue: "I_self", related: "I_other" });
+    relations.relatesTo = ["I_other"];
+    await client().applyField("I_self", "relatesTo", { added: ["I_other"], removed: [] });
+    expect(mutations).toHaveLength(1); // already linked: nothing sent
+    await client().applyField("I_self", "relatesTo", { added: [], removed: ["I_other"] });
+    expect(mutations.at(-1)!.query).toContain("removeRelatesTo");
+  });
+
+  it("refuses a relationship to an issue in another repository", async () => {
+    issueRepo = "acme/other";
+    await expect(client().applyField("I_self", "blockedBy", { added: ["I_blocker"], removed: [] })).rejects.toThrow(/now lives in acme\/other/);
+    expect(mutations).toHaveLength(0);
+  });
+
   it("sets and clears the milestone through REST, keyed by number", async () => {
     const c = client();
     await c.applyField("I_1", "milestone", "12");
@@ -340,7 +412,18 @@ describe("the operation allowlist (SPEC §4.8, W0)", () => {
   });
 
   it("accepts exactly the §4.8 writes", () => {
-    expect(ALLOWED_MUTATIONS).toEqual(["addProjectV2ItemById", "updateProjectV2ItemFieldValue", "clearProjectV2ItemFieldValue", "updateIssueIssueType"]);
+    expect(ALLOWED_MUTATIONS).toEqual([
+      "addProjectV2ItemById",
+      "updateProjectV2ItemFieldValue",
+      "clearProjectV2ItemFieldValue",
+      "updateIssueIssueType",
+      "addSubIssue",
+      "removeSubIssue",
+      "addBlockedBy",
+      "removeBlockedBy",
+      "addRelatesTo",
+      "removeRelatesTo",
+    ]);
     expect(ALLOWED_REST_WRITES).toEqual(["issues.update", "issues.create", "issues.addLabels", "issues.removeLabel", "issues.addAssignees", "issues.removeAssignees"]);
     expect(() => assertAllowedMutation(`mutation($project:ID!, $content:ID!) { addProjectV2ItemById(input:{projectId:$project, contentId:$content}) { item { id } } }`)).not.toThrow();
   });
@@ -355,8 +438,11 @@ describe("the operation allowlist (SPEC §4.8, W0)", () => {
     const rest = [...src.matchAll(/this\.restWrite\("([^"]+)"/g)].map((m) => m[1]!);
     expect(rest.length).toBeGreaterThanOrEqual(5);
     for (const op of rest) expect(ALLOWED_REST_WRITES, op).toContain(op);
-    // No delete anywhere, in any form.
-    expect(src).not.toMatch(/mutation\b[^{]*\{\s*(?:delete|remove)/i);
+    // No delete anywhere, in any form. The only removals are the ones that
+    // unlink issues (parent, blocked by, relates to); both issues stay as they were.
+    expect(src).not.toMatch(/mutation\b[^{]*\{\s*delete/i);
+    const removals = [...src.matchAll(/mutation\b[^{]*\{\s*(remove[A-Za-z]*)/gi)].map((m) => m[1]!);
+    expect(new Set(removals)).toEqual(new Set(["removeSubIssue", "removeBlockedBy", "removeRelatesTo"]));
     expect(src).not.toMatch(/\.delete\(|\.delete[A-Z]/);
   });
 });
