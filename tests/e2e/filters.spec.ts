@@ -162,3 +162,42 @@ test("read-only triage mode says why the edit keys do nothing", async ({ browser
     await context.close();
   }
 });
+
+// "No type" / "Has type" sit above the type values in "+ Filter", as on GitHub.
+// One answer per field: picking another replaces it instead of adding a second chip.
+test("No type, Has type and a type value replace each other", async ({ browser }) => {
+  const { context, page } = await as(browser);
+  try {
+    const data = await (await page.request.get("/api/data")).json();
+    const issues = data.issues as { ty?: string | null }[];
+    const typed = issues.filter((i) => i.ty).length;
+    const type = (data.meta.issueTypes as { id: string; name: string }[]).find((t) => issues.some((i) => i.ty === t.id))!;
+    const chips = page.getByRole("button", { name: "Remove Type filter" });
+    const pick = async (name: RegExp) => {
+      await page.getByRole("button", { name: "Add filter" }).click();
+      await page.getByRole("option", { name: /^Type/ }).click();
+      await page.getByRole("option", { name }).click();
+    };
+
+    await page.goto(url({ filters: [{ field: "type", op: "not_empty" }] }));
+    await expect(rows(page).first()).toBeVisible();
+    await expect(rows(page)).toHaveCount(typed);
+    await expect(chips).toHaveCount(1);
+
+    await pick(/^No type/);
+    await expect(chips).toHaveCount(1);
+    await expect(rows(page)).toHaveCount(issues.length - typed);
+
+    // The value picker stays open for more values: close it.
+    await pick(new RegExp(`^${type.name}`));
+    await page.keyboard.press("Escape");
+    await expect(chips).toHaveCount(1);
+    await expect(rows(page)).toHaveCount(issues.filter((i) => i.ty === type.id).length);
+
+    await pick(/^Has type/);
+    await expect(chips).toHaveCount(1);
+    await expect(rows(page)).toHaveCount(typed);
+  } finally {
+    await context.close();
+  }
+});

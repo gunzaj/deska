@@ -80,11 +80,14 @@ export function SubIssues({ issue }: { issue: ClientIssue }) {
   const p = subProgress(issue);
   const live = useSubIssues(issue.number);
   // The issue, its parents (a loop) and its current children can't be added.
+  // Nor can an issue that has another parent: adding it here would move it
+  // without a word. Its own "Change or remove parent" does that in the open.
   const exclude = useMemo(() => {
     const s = selfAndAncestors(byNodeId, issue.nodeId);
     for (const x of live.items) s.add(x.nodeId);
+    for (const i of data.issues) if (i.parentNodeId) s.add(i.nodeId);
     return s;
-  }, [byNodeId, issue.nodeId, live.items]);
+  }, [byNodeId, data.issues, issue.nodeId, live.items]);
   const change = async (added: string[], removed: string[]) => {
     const out = await edit(issue, "subIssues", { added, removed });
     if (out !== "pending") live.reload();

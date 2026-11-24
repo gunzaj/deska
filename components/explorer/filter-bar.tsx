@@ -278,8 +278,8 @@ export function AddFilter({ filters, onChange, pool, compact = false }: { filter
               if (id.startsWith(EMPTINESS_PREFIX)) {
                 const op = id.slice(EMPTINESS_PREFIX.length);
                 const at = emptinessIndex(op);
-                // "No type" and "Has type" exclude each other: picking one replaces the other.
-                const rest = filters.filter((f) => !(f.field === field && isValuesFilter(f) && (f.op === "empty" || f.op === "not_empty")));
+                // "No type", "Has type" and "is Bug" exclude each other: picking one replaces the others.
+                const rest = filters.filter((f) => !(f.field === field && isValuesFilter(f) && (f.op === "empty" || f.op === "not_empty" || f.op === "in")));
                 onChange(at >= 0 ? rest : [...rest, { field, op } as Filter]);
                 close();
                 return;
@@ -294,7 +294,9 @@ export function AddFilter({ filters, onChange, pool, compact = false }: { filter
                 const next = selected.includes(id) ? selected.filter((v) => v !== id) : [...selected, id];
                 onChange(next.length ? setFilterValues(filters, existingIndex, next) : filters.filter((_, i) => i !== existingIndex));
               } else {
-                onChange([...filters, newFilter(field, id)]);
+                // A value replaces "No type" / "Has type": together they match nothing or say it twice.
+                const rest = emptiness.length ? filters.filter((f) => !(f.field === field && isValuesFilter(f) && (f.op === "empty" || f.op === "not_empty"))) : filters;
+                onChange([...rest, newFilter(field, id)]);
               }
             }}
           />

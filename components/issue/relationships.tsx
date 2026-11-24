@@ -266,6 +266,13 @@ export function Relationships({ issue }: { issue: ClientIssue }) {
     ];
   });
   const saving = RELATION_MENU.some(({ mode }) => isPending(issue.nodeId, mode));
+  // A queued edit ended, written or not: the preview gives way to GitHub's lists.
+  const wasSaving = useRef(false);
+  const reload = rel.reload;
+  useEffect(() => {
+    if (wasSaving.current && !saving) reload();
+    wasSaving.current = saving;
+  }, [saving, reload]);
 
   return (
     <section aria-label="Relationships" data-relationships className="border-t border-line-soft pb-1 pt-2 sm:col-span-2">
