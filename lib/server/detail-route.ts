@@ -15,7 +15,7 @@ const found = (d: IssueDetail | null) => (d ? NextResponse.json(d) : NextRespons
  * synthetic thread; if GitHub is unreachable the cached body is returned with
  * a reason, so the panel still shows something useful.
  */
-export async function detailResponse(rawNumber: string): Promise<NextResponse> {
+export async function detailResponse(rawNumber: string, fresh = false): Promise<NextResponse> {
   const number = Number(rawNumber);
   if (!Number.isInteger(number) || number <= 0) return NextResponse.json({ error: "bad issue number" }, { status: 400 });
 
@@ -29,7 +29,7 @@ export async function detailResponse(rawNumber: string): Promise<NextResponse> {
     // whenever the synced link points somewhere else.
     const stored = [...store.issues.values()].find((i) => i.number === number)?.url;
     const target = githubTarget(stored, number, await linkRepo());
-    return NextResponse.json(await fetchIssueDetail(target.number, token, target.repo), { headers: { "cache-control": "private, max-age=30" } });
+    return NextResponse.json(await fetchIssueDetail(target.number, token, target.repo, fresh), { headers: { "cache-control": fresh ? "no-store" : "private, max-age=30" } });
   } catch (e) {
     const status = (e as { status?: number })?.status;
     return found(await cachedDetail(store, number, `GitHub request failed${status ? ` (HTTP ${status})` : ""} — showing the cached description.`));

@@ -328,7 +328,25 @@ async function afterDone(row: OutboxRow, deps: ProcessDeps) {
   const id = targetNodeId(row);
   if (!id) return;
   // A failed re-read only delays the cache until the next sync cycle.
-  await deps.refresh(id).catch((e) => console.error(`outbox: cache refresh failed for ${id}: ${String(e)}`));
+  for (const n of [id, ...relatedNodeIds(row)]) {
+    await deps.refresh(n).catch((e) => console.error(`outbox: cache refresh failed for ${n}: ${String(e)}`));
+  }
+}
+
+/**
+ * Other issues a relationship write changed in the cache: a new or old parent
+ * (its sub-issue count) and added or removed sub-issues (their parent).
+ * "Blocked by" is not cached, so those need no re-read.
+ */
+export function relatedNodeIds(row: Pick<OutboxRow, "op" | "field" | "base" | "next" | "status">): string[] {
+  if (row.op !== "update") return [];
+  const ids: unknown[] = [];
+  if (row.field === "parent") ids.push(row.next, ...(row.status === "done" ? [row.base] : []));
+  if (row.field === "subIssues") {
+    const d = row.next as { added?: unknown[]; removed?: unknown[] } | null;
+    ids.push(...(d?.added ?? []), ...(d?.removed ?? []));
+  }
+  return [...new Set(ids.filter((x): x is string => typeof x === "string" && x.length > 0))];
 }
 
 /** The issue a row wrote to: a create job's is the one it made (its `result`), not its empty `issueNodeId`. */
