@@ -15,6 +15,8 @@ export default tseslint.config(
   {
     ignores: [
       "node_modules/**",
+      // Agent worktrees are whole copies of the repository: linting them too ran out of memory.
+      ".claude/**",
       ".next/**",
       ".next-e2e/**",
       ".next-e2e-settings/**",
