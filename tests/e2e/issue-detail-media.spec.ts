@@ -59,3 +59,35 @@ test("a description stands out and its media works", async ({ browser }) => {
   await expect(page.getByRole("heading", { name: "Backlog" })).toBeVisible();
   await context.close();
 });
+
+// GitHub signs a private repository's attachment URLs for about five minutes.
+// A video that fails gets the URL of a new rendering, once.
+test("a video whose signed URL expired gets a new one", async ({ browser }) => {
+  const { context, page } = await as(browser);
+  const clip = "https://private-user-images.githubusercontent.com/1/clip.mp4";
+  let renderings = 0;
+  const videoLoads: string[] = [];
+  await page.route(
+    (url) => url.pathname === "/api/issues/101",
+    async (route) => {
+      const fresh = new URL(route.request().url()).searchParams.get("fresh") === "1";
+      if (fresh) renderings++;
+      const res = await route.fetch();
+      const json = await res.json();
+      json.bodyHtml = `<p>The recording.</p><video src="${clip}?jwt=${fresh ? "new" : "old"}" controls playsinline preload="metadata"></video>`;
+      await route.fulfill({ response: res, json, headers: { ...res.headers(), etag: "" } });
+    },
+  );
+  // Both signatures are refused: the second failure must not ask again.
+  await page.route(`${clip}*`, async (route) => {
+    videoLoads.push(new URL(route.request().url()).search);
+    await route.fulfill({ status: 403, body: "expired" });
+  });
+  await page.goto("/backlog?issue=101");
+  const video = page.getByRole("complementary", { name: "Issue #101" }).locator("[data-issue-description] video");
+  await expect(video).toHaveAttribute("src", `${clip}?jwt=new`);
+  await expect.poll(() => videoLoads.includes("?jwt=new")).toBe(true);
+  await page.waitForTimeout(500);
+  expect(renderings).toBe(1);
+  await context.close();
+});

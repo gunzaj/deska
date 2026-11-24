@@ -22,6 +22,7 @@ import { IssueAiSuggestion } from "./ai-suggestion";
 import { IssueAsk } from "../ai/ask";
 import { FieldPicker } from "./field-picker";
 import { Relationships } from "./relationships";
+import { useMediaRefresh } from "./media-refresh";
 
 // Client cache so flipping between issues with j/k is instant on revisit.
 const detailCache = new Map<number, { at: number; detail: IssueDetail }>();
@@ -254,6 +255,8 @@ export function IssueDetailView({ number, mode, onClose }: { number: number; mod
   const { detail, error, loading } = useIssueDetail(issue ? number : null);
   const [copied, setCopied] = useState(false);
   const back = usePanelBack(number);
+  // A video whose signed URL expired gets a new one; the next visit starts from that rendering.
+  const media = useMediaRefresh<HTMLDivElement>(number, (fresh) => detailCache.set(number, { at: Date.now(), detail: fresh }));
 
   if (!issue) {
     return (
@@ -331,7 +334,7 @@ export function IssueDetailView({ number, mode, onClose }: { number: number; mod
         )}
       </div>
 
-      <div className="min-h-0 flex-1 overflow-y-auto">
+      <div ref={media} className="min-h-0 flex-1 overflow-y-auto">
         <div className={`space-y-6 px-5 py-5 ${mode === "page" ? "mx-auto max-w-3xl md:px-8" : ""}`}>
           <header>
             <h2 className="text-[20px] font-semibold leading-snug tracking-tight">{issue.title}</h2>
