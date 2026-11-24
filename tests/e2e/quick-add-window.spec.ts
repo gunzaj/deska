@@ -113,7 +113,7 @@ test("the window shows the same form as the in-app quick add", async ({ browser 
 test("Settings has no Desktop section in a browser", async ({ browser }) => {
   const { context, page } = await asAlice(browser);
   await page.goto("/settings");
-  await expect(page.getByRole("heading", { name: "GitHub", exact: true })).toBeVisible();
+  await expect(page.locator("main").getByRole("heading", { name: "GitHub", exact: true })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Desktop" })).toHaveCount(0);
   await context.close();
 });

@@ -16,11 +16,11 @@ const e2eEnv = {
 const DB_PORT = 3101;
 
 // Specs that change settings the whole server shares ("My default" scope, time
-// zone, AI settings, theme) get their own server and run one at a time
+// zone, start page, Home layout, AI settings, theme) get their own server and run one at a time
 // (issue #6). On the shared server, the files run in parallel workers, and one
 // spec's "My default" emptied another spec's issue list mid-test.
 const SETTINGS_PORT = 3102;
-const SHARED_SETTINGS = /(ai-settings|user-menu|filters|release-team|settings-timezone)\.spec\.ts/;
+const SHARED_SETTINGS = /(ai-settings|user-menu|filters|release-team|settings-timezone|home-settings)\.spec\.ts/;
 
 // `E2E_PROJECT=mocks pnpm test:e2e` runs one project and starts only its
 // server (each server below carries its project's name). A warmed `next dev`

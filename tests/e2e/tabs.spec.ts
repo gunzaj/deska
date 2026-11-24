@@ -66,17 +66,17 @@ test("a page outside the app shell never becomes a tab; + opens the home page wi
   await page.locator("[data-issue='102'] [data-peek-title]").click({ modifiers: ["ControlOrMeta"] });
   await expect(tabs(page)).toHaveCount(2);
 
-  // + on the home page: the new tab shows the same URL, and still gets its own history.
-  await page.getByRole("link", { name: /My issues/ }).first().click();
-  await expect(page).toHaveURL(/\/my$/);
+  // + on the start page (Home): the new tab shows the same URL, and still gets its own history.
+  await page.getByRole("link", { name: "Home", exact: true }).first().click();
+  await expect(page).toHaveURL(/\/home$/);
   await page.getByRole("button", { name: "New tab" }).click();
   await expect(tabs(page)).toHaveCount(3);
   const fresh = tabs(page).and(page.locator('[aria-selected="true"]'));
-  await expect(fresh).toContainText("My issues");
+  await expect(fresh).toContainText("Home");
   await page.getByRole("link", { name: "Backlog" }).first().click();
   await expect(page).toHaveURL(/\/backlog$/);
   await page.keyboard.press("ControlOrMeta+BracketLeft");
-  await expect(page).toHaveURL(/\/my$/);
+  await expect(page).toHaveURL(/\/home$/);
   await context.close();
 });
 

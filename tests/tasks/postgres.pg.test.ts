@@ -228,15 +228,25 @@ describe("PostgresTaskRepo", () => {
   });
 
   it("stores prefs per login", async () => {
-    expect(await repo.prefs("pp")).toEqual({ tz: null, browserNotifications: false, sidebar: null, defaultTeam: null });
+    expect(await repo.prefs("pp")).toEqual({ tz: null, browserNotifications: false, sidebar: null, defaultTeam: null, startPage: null, home: null });
     await repo.setPrefs("pp", { tz: "Europe/Prague" });
-    expect(await repo.setPrefs("pp", { browserNotifications: true })).toEqual({ tz: "Europe/Prague", browserNotifications: true, sidebar: null, defaultTeam: null });
+    expect(await repo.setPrefs("pp", { browserNotifications: true })).toEqual({ tz: "Europe/Prague", browserNotifications: true, sidebar: null, defaultTeam: null, startPage: null, home: null });
     const sidebar = { order: ["views" as const, "tasks" as const], hidden: ["labels" as const] };
     await repo.setPrefs("pp", { sidebar });
     expect((await repo.prefs("pp")).sidebar).toEqual(sidebar);
     expect((await repo.setPrefs("pp", { defaultTeam: "c0000001" })).defaultTeam).toBe("c0000001");
     expect((await repo.prefs("pp")).defaultTeam).toBe("c0000001");
     expect((await repo.setPrefs("pp", { defaultTeam: null })).defaultTeam).toBeNull();
+  });
+
+  it("stores the start page and the Home layout (HOME-SPEC §3.1, §5)", async () => {
+    const home = { order: ["changes" as const, "work" as const], hidden: ["epics" as const] };
+    await repo.setPrefs("hp", { startPage: "today", home });
+    expect(await repo.prefs("hp")).toMatchObject({ startPage: "today", home });
+    // Another setting leaves them alone; null puts the defaults back.
+    await repo.setPrefs("hp", { tz: "UTC" });
+    expect(await repo.prefs("hp")).toMatchObject({ startPage: "today", home, tz: "UTC" });
+    expect(await repo.setPrefs("hp", { startPage: null, home: null })).toMatchObject({ startPage: null, home: null });
   });
 
   it("stores comments in order and soft-deletes them", async () => {

@@ -73,7 +73,8 @@ export const done = (body: Sent) => ({ status: 200, json: { entry: { id: "e", st
 
 /**
  * Put the server-wide settings the specs change back to their defaults: the
- * time zone and "My default" (prefs), AI settings and the theme. The e2e
+ * time zone, "My default", the start page and the Home layout (prefs), AI
+ * settings and the theme. The e2e
  * servers are shared by every spec, so a spec that changes one of these runs
  * this before and after each test; a test that fails halfway then can't leave
  * its setting behind for the next spec (issue #6).
@@ -81,7 +82,7 @@ export const done = (body: Sent) => ({ status: 200, json: { entry: { id: "e", st
 export async function resetSharedSettings(request: APIRequestContext) {
   const headers = { "x-e2e-login": "alice" };
   const results = await Promise.all([
-    request.patch("/api/me/prefs", { headers, data: { tz: null, defaultTeam: null } }),
+    request.patch("/api/me/prefs", { headers, data: { tz: null, defaultTeam: null, startPage: null, home: null } }),
     request.post("/api/ai/settings", { headers, data: DEFAULT_AI_SETTINGS }),
     request.post("/api/settings/theme", { headers, data: { theme: "system" } }),
   ]);

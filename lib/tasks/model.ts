@@ -246,8 +246,68 @@ export function resolveSidebar(layout: SidebarLayout | null | undefined): { id: 
   return order.map((id) => ({ id, hidden: hidden.has(id) }));
 }
 
-export const prefsSchema = z.object({ tz: tz.nullable(), browserNotifications: z.boolean(), sidebar: sidebarSchema.nullable(), defaultTeam: z.string().min(1).max(100).nullable() }).partial().strict();
-export type Prefs = { tz: string | null; browserNotifications: boolean; sidebar: SidebarLayout | null; defaultTeam: string | null };
+/**
+ * The sidebar's two groups (HOME-SPEC §2.2): Tasks, then GitHub. The first
+ * section of each is its lead: always first, under the group's own heading.
+ */
+export const SIDEBAR_GROUPS = [
+  { id: "tasks", label: "Tasks", sections: ["tasks", "projects", "labels"] },
+  { id: "github", label: "GitHub", sections: ["workspace", "views", "teams"] },
+] as const satisfies readonly { id: string; label: string; sections: readonly SidebarSection[] }[];
+export type SidebarGroupId = (typeof SIDEBAR_GROUPS)[number]["id"];
+export type SidebarGroup = { id: SidebarGroupId; label: string; lead: SidebarSection; sections: { id: SidebarSection; hidden: boolean }[]; visible: boolean };
+
+/**
+ * The resolved sections split into the groups: the lead first, the others in
+ * their stored relative order. An order that put a GitHub section before a
+ * Tasks one reads as "Tasks first". A group with every section hidden is not shown.
+ */
+export function groupSidebar(sections: { id: SidebarSection; hidden: boolean }[]): SidebarGroup[] {
+  return SIDEBAR_GROUPS.map((g) => {
+    const lead = g.sections[0];
+    const own = sections.filter((s) => (g.sections as readonly SidebarSection[]).includes(s.id));
+    const ordered = [...own.filter((s) => s.id === lead), ...own.filter((s) => s.id !== lead)];
+    return { id: g.id, label: g.label, lead, sections: ordered, visible: ordered.some((s) => !s.hidden) };
+  });
+}
+
+/** Where Deska opens (HOME-SPEC §3.1). Absent means Home. */
+export const START_PAGES = ["home", "my", "today"] as const;
+export type StartPage = (typeof START_PAGES)[number];
+
+/** The route "/" redirects to. My issues needs GitHub, so tasks-only mode falls back to Home. */
+export function startPath(page: StartPage | null | undefined, tasksOnly = false): string {
+  if (page === "today") return "/tasks/today";
+  if (page === "my" && !tasksOnly) return "/my";
+  return "/home";
+}
+
+/** Home's panels a user can reorder or hide (HOME-SPEC §5), in their default order. */
+export const HOME_PANELS = ["work", "sprint", "epics", "attention", "changes"] as const;
+export type HomePanel = (typeof HOME_PANELS)[number];
+export type HomeLayout = { order: HomePanel[]; hidden: HomePanel[] };
+const homePanel = z.enum(HOME_PANELS);
+const homeSchema = z.object({ order: z.array(homePanel).max(HOME_PANELS.length * 2), hidden: z.array(homePanel).max(HOME_PANELS.length * 2) }).strict();
+
+/** Saved layout → every panel once, saved order first; panels added later keep their default slot at the end. */
+export function resolveHome(layout: HomeLayout | null | undefined): { id: HomePanel; hidden: boolean }[] {
+  const hidden = new Set(layout?.hidden ?? []);
+  const order = [...new Set([...(layout?.order ?? []), ...HOME_PANELS])].filter((id): id is HomePanel => (HOME_PANELS as readonly string[]).includes(id));
+  return order.map((id) => ({ id, hidden: hidden.has(id) }));
+}
+
+export const prefsSchema = z
+  .object({
+    tz: tz.nullable(),
+    browserNotifications: z.boolean(),
+    sidebar: sidebarSchema.nullable(),
+    defaultTeam: z.string().min(1).max(100).nullable(),
+    startPage: z.enum(START_PAGES).nullable(),
+    home: homeSchema.nullable(),
+  })
+  .partial()
+  .strict();
+export type Prefs = { tz: string | null; browserNotifications: boolean; sidebar: SidebarLayout | null; defaultTeam: string | null; startPage: StartPage | null; home: HomeLayout | null };
 
 /** Only reminders and the watchlist digest make notifications (§4.6). */
 export type NotificationKind = "reminder" | "watch_digest";

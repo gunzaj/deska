@@ -9,6 +9,8 @@ import { useToast } from "../ui/toast";
 import { rememberIssue } from "./open-issue";
 import { useAppData } from "./provider";
 import { useTasksOnly } from "./tasks-only";
+import { startPath } from "@/lib/tasks/model";
+import { usePrefs } from "../tasks/notifications";
 
 const TabsContext = createContext<Store | null>(null);
 
@@ -182,6 +184,7 @@ export function TabsProvider({ saved, persist, children }: { saved: unknown; per
 }
 
 const PAGE_TITLES: Record<string, string> = {
+  "/home": "Home",
   "/my": "My issues",
   "/triage": "Triage",
   "/watching": "Watching",
@@ -231,7 +234,8 @@ function Strip({ store }: { store: Store }) {
   const flash = useSyncExternalStore(store.subscribe, store.flash, () => null);
   const titles = useSyncExternalStore(store.subscribe, store.titleVersion, () => 0);
   const label = useTabLabel(store, titles);
-  const home = useTasksOnly() ? "/tasks" : "/my";
+  // A new tab opens on the start page (HOME-SPEC §3.1).
+  const home = startPath(usePrefs().prefs.startPage, useTasksOnly());
   const [lit, setLit] = useState<string | null>(null);
   const list = useRef<HTMLDivElement>(null);
   useEffect(() => {

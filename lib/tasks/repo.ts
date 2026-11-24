@@ -152,7 +152,7 @@ export interface TaskRepo {
   setPrefs(login: string, p: Partial<Prefs>): Promise<Prefs>;
 }
 
-const DEFAULT_PREFS: Prefs = { tz: null, browserNotifications: false, sidebar: null, defaultTeam: null };
+const DEFAULT_PREFS: Prefs = { tz: null, browserNotifications: false, sidebar: null, defaultTeam: null, startPage: null, home: null };
 
 function capCompleted<T extends { completedAt: string | null }>(list: T[]): T[] {
   const open = list.filter((t) => !t.completedAt);
@@ -965,14 +965,15 @@ export class PostgresTaskRepo implements TaskRepo {
   }
   async prefs(login: string) {
     const rows = await conn().select().from(userPrefs).where(eq(userPrefs.login, login)).limit(1);
-    return rows[0] ? { tz: rows[0].tz, browserNotifications: rows[0].browserNotifications, sidebar: rows[0].sidebar ?? null, defaultTeam: rows[0].defaultTeam ?? null } : { ...DEFAULT_PREFS };
+    const r = rows[0];
+    return r ? { tz: r.tz, browserNotifications: r.browserNotifications, sidebar: r.sidebar ?? null, defaultTeam: r.defaultTeam ?? null, startPage: r.startPage ?? null, home: r.home ?? null } : { ...DEFAULT_PREFS };
   }
   async setPrefs(login: string, p: Partial<Prefs>) {
     const next = { ...(await this.prefs(login)), ...p };
     await conn()
       .insert(userPrefs)
-      .values({ login, tz: next.tz, browserNotifications: next.browserNotifications, sidebar: next.sidebar, defaultTeam: next.defaultTeam })
-      .onConflictDoUpdate({ target: userPrefs.login, set: { tz: next.tz, browserNotifications: next.browserNotifications, sidebar: next.sidebar, defaultTeam: next.defaultTeam } });
+      .values({ login, ...next })
+      .onConflictDoUpdate({ target: userPrefs.login, set: next });
     return next;
   }
 }

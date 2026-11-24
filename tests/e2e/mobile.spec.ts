@@ -6,6 +6,7 @@ import { as } from "./helpers";
 const noSideScroll = (page: Page) => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth);
 
 const PAGES: { name: string; path: string; ready: RegExp | string }[] = [
+  { name: "Home", path: "/home", ready: "At risk" },
   { name: "Releases", path: "/releases", ready: "" },
   { name: "Release board", path: "/releases/e0000023", ready: "Epic: dashboard overhaul" },
   { name: "Epics", path: "/epics", ready: "dashboard overhaul" },
@@ -115,5 +116,21 @@ test("390px: issue titles keep at least 150 px and the search field is at least 
   const search = page.getByLabel("Search issues").locator("..");
   await expect(search).toBeVisible();
   expect((await search.boundingBox())!.height).toBeGreaterThanOrEqual(32);
+  await context.close();
+});
+
+// HOME-SPEC §3.2: at 390 px everything stacks and nothing scrolls sideways.
+test("390px: Home stacks its tiles and panels in one column", async ({ browser }) => {
+  const { context, page } = await as(browser);
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto("/home");
+  await expect(page.locator('[data-home-panel="sprint"]')).toContainText("At risk");
+  expect(await noSideScroll(page)).toBe(true);
+  const boxes = await page.locator("[data-home-panel]").evaluateAll((els) => els.map((e) => e.getBoundingClientRect()).map((r) => ({ left: Math.round(r.left), right: Math.round(r.right), top: r.top })));
+  // One column: every panel starts at the same left edge, inside the screen, each below the one before.
+  expect(new Set(boxes.map((b) => b.left)).size).toBe(1);
+  expect(Math.max(...boxes.map((b) => b.right))).toBeLessThanOrEqual(390);
+  expect(boxes.map((b) => b.top)).toEqual([...boxes.map((b) => b.top)].sort((a, b) => a - b));
+  await expect(page.locator("[data-home-tile]").first()).toBeVisible();
   await context.close();
 });

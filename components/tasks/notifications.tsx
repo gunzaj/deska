@@ -140,7 +140,7 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
   const openNotification = useOpenNotification();
   const [list, setList] = useState<AppNotification[]>([]);
   const [unread, setUnread] = useState(0);
-  const [prefs, setPrefsState] = useState<Prefs>({ tz: null, browserNotifications: false, sidebar: null, defaultTeam: null });
+  const [prefs, setPrefsState] = useState<Prefs>({ tz: null, browserNotifications: false, sidebar: null, defaultTeam: null, startPage: null, home: null });
   const [prefsLoaded, setPrefsLoaded] = useState(false);
   // The latest list and count, for the mark-read rollback.
   const listRef = useRef(list);

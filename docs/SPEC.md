@@ -218,7 +218,7 @@ Stored locally: repo, org, project number + node ID (pinned after discovery), fi
 
 **[D4]** Settings live in the `app_settings` table (`github.target`, `project.mapping`), apart from the GitHub cache. The `GITHUB_REPO` / `GITHUB_ORG` / `GITHUB_PROJECT_NUMBER` env vars are only a fallback for tests, dev and the maintainer's CLI tools; the desktop app opens onboarding step 2 until a project and a mapping are stored.
 
-**[Changed after D14, at the maintainer's request]** **Tasks only.** Onboarding step 1 has "Skip, use tasks only". The `app.tasks-only` setting then skips the token, project and first-import gates, the local user is the stand-in `local`, the sidebar hides every GitHub block and shows "Connect GitHub", and nothing is sent to GitHub. Choosing a project in onboarding step 2 turns it off.
+**[Changed after D14, at the maintainer's request]** **Tasks only.** Onboarding step 1 has "Skip, use tasks only". The `app.tasks-only` setting then skips the token, project and first-import gates, the local user is the stand-in `local`, the sidebar hides every GitHub block (the issue lists and the GitHub group, §4.10) and shows "Connect GitHub", Home shows only its task parts, and nothing is sent to GitHub. Choosing a project in onboarding step 2 turns it off.
 
 ## 2.5 Removed with the server
 
@@ -461,6 +461,44 @@ Every write: only after an intentional user action; optimistic UI; a stale-value
 
 The quick-add parser stays the default: AI task assist is an explicit action (✨ button, **[Default]** `⌘↵` unless taken), and Enter alone saves exactly as before.
 
+## 4.10 Home
+
+**[Added after v1.4.1, at the maintainer's request]** The decision record, with the prototype differences, is [`HOME-SPEC.md`](HOME-SPEC.md).
+
+A page that answers "what needs me right now?" across personal tasks and GitHub work. Home summarises: every number and row leads to the page that owns it, and a tile's number equals what that page shows. It reads only what the client already has (the issue payload, tasks, watches, triage snoozes): no new GitHub call, no new synced data. The only change it makes is completing a local task (with Undo); it opens the existing dialogs (quick add, create issue, Plan my day). No AI runs on its own.
+
+**Start page.** `/` opens Home (`/home`), tasks-only mode included. **[Default H-A]** Settings → General → "Start page" offers Home, My issues and Today (`user_prefs.start_page`; null means Home; My issues is not offered in tasks-only mode and falls back to Home there). A new tab opens the start page. `G H` and the palette's "Go to Home" open Home.
+
+**Sidebar.** From the top: Home, then Triage, My issues and Watching (hidden in tasks-only mode); a **Tasks** group (Inbox, Today, Upcoming, Completed and the saved task views, then the Projects and Labels sub-sections; its heading carries Ramble, Save view and New task); a **GitHub** group (All issues, Backlog, Releases, Current, Epics, Insights, then the Views sub-section with its own "+", then the first mapped dimension under its own name), hidden in tasks-only mode. The groups are fixed in that order **[Default H-D]**. The section IDs and the stored layout (`user_prefs.sidebar`) are unchanged: a fixed map puts `tasks`, `projects`, `labels` in Tasks and `workspace`, `views`, `teams` in GitHub; `tasks` and `workspace` lead their group with no sub-heading; the other sections keep their stored relative order inside their group, and a stored order that put a GitHub section before a Tasks one reads as Tasks first. Any section can be hidden; a group's heading shows while one of its sections does. Customize sidebar shows the two groups as two lists and moves a sub-section inside its group only.
+
+**Header.** "Good morning / afternoon / evening" in the viewer's time zone, the date, and one line built from what is true: "\<Sprint\> ends in N days · N issues need triage". Actions: Plan my day (hidden while AI is off or untested), Create issue (hidden in tasks-only mode; disabled with the reason while writes are off), Add task (`Q`), Customize Home.
+
+**Tiles.** Each opens its page.
+
+| Tile | Number | Second line | Opens | Shown when |
+|---|---|---|---|---|
+| Tasks due today | the Today count (`dueCount`: the sidebar's Today and the Dock badge) | "N overdue" in the critical colour, or "Nothing overdue" | Today | always |
+| My open issues | the sidebar's My issues count | "N in \<current sprint\>" | My issues | not tasks-only |
+| Needs triage | the Needs triage queue | "N new this week" (the New this week queue) | Triage | not tasks-only |
+| Watching | watches with unseen changes | "Unseen changes" or "Nothing new" | Watching | not tasks-only |
+| \<Current sprint\> | done % | "X / Y done · N days left" | the sprint page | a Sprint field is mapped and a sprint is in progress |
+
+**Panels.** Two columns from 900 px (My work, Current sprint and Epics in the wide one; Needs attention and What changed in the narrow one), one column below; at 390 px nothing scrolls sideways.
+
+- **My work.** Tabs with counts, up to 8 rows each, then "View all N" to the owning page. *Today*: open tasks due today or earlier (the Today page's set), overdue first, then by time, then priority **[Default H-C: tasks only; a linked task shows its issue's number and Status]**. *This sprint*: open issues assigned to me in the current sprint, in the project's Status order, then Priority; "View all" opens the sprint page filtered to me and open. *Upcoming*: open tasks due tomorrow through the next 7 days. Completing a task uses the task store's normal path with the Undo toast; the tile and the sidebar follow at once. The last tab chosen is remembered per install (`localStorage`). "This sprint" needs a sprint in progress.
+- **Current sprint.** Title, dates, days left; Done X / Y and %; one bar split by Status option (project option colours) with a legend of counts, not-planned issues left out as in §4.5; "+N added since start"; **At risk**, up to 5 rows from the existing release risk rules (open top-Priority issues with nobody assigned, issues added after the start), each naming its rule. Without a sprint in progress: "No sprint in progress", the next sprint's start date when there is one, and a link to Releases. Without a mapped Sprint field the panel is hidden.
+- **Epics in this sprint.** Open current-sprint issues that have sub-issues, with GitHub's progress (§4.4), lowest first, up to 5; "— progress not loaded" as everywhere else.
+- **Needs attention.** Up to 6 rows, each saying why: the newest 3 issues of the Needs triage queue, then my open issues not updated for 14 days **[Default H-E]**. "Blocked by" is not listed: it is read live, not synced (§4.8).
+- **What changed.** The unseen watched changes, newest first, up to 5, worded as on the Watching page; "Mark all seen" calls the existing seen route.
+
+**Default team scope.** The sprint tile, the sprint and epics panels and the This sprint tab follow the viewer's default dimension value **[Default H-B]**, like the sprint page: the scope chip shows on the sprint panel and turns it off, and filtered numbers say so ("Platform · 12 / 30"). The triage numbers follow it exactly as the Triage page does. My open issues does not: it is the sidebar's count.
+
+**Customize Home.** Hide and reorder the panels, in the same dialog style as Customize sidebar (`user_prefs.home`: `{ order, hidden }`, validated like `sidebar`). A panel stays in its column; the tiles are not configurable.
+
+**Tasks-only mode.** Home shows the Tasks due today tile and My work with Today and Upcoming, nothing else.
+
+All selection logic is one pure module (`lib/client/home.ts`); the page only renders it. It reuses `dueCount`, `sprintStats`, `sprintTiming`, `releaseRisk`, `releasesOn`, `withDefaultScope`, the triage queue definitions (`lib/client/triage-queues.ts`) and the watchlist store.
+
 ---
 
 # Part 5 — Build plan
@@ -610,6 +648,22 @@ All write tests use mocks. Real-GitHub verification goes in "Maintainer to-do" (
 - §4.9 Ask, in the issue panel and on issue lists.
 - **Acceptance (mocks):** answers are kept per subject with time and model; a list over 200 rows says only the first 200 were sent; issue references open inside Deska.
 
+## Phase F — Home
+
+**[Added after v1.4.1, at the maintainer's request]** §4.10. No GitHub call is added by any of these.
+
+### H1 — Home page and regrouped sidebar
+- §4.10: the route, the start page (migration: `user_prefs.start_page`, `user_prefs.home`), the header, the tiles, My work and Current sprint; the sidebar's Home link and its Tasks and GitHub groups; `G H` and the palette entry.
+- **Acceptance (mocks):** `/` lands on Home; each tile opens its page and shows that page's number; the tabs switch; completing a task updates the tile and the sidebar and Undo restores it; Start page = My issues makes `/` open My issues; tasks-only mode shows only the task parts; axe passes on Home in both themes; no sideways scroll at 390 px.
+
+### H2 — What needs me
+- §4.10 Needs attention, What changed and Epics in this sprint.
+- **Acceptance (mocks):** each list keeps its cap and says why a row is there; "Mark all seen" clears What changed; a row opens its issue.
+
+### H3 — Make Home yours
+- §4.10 Customize Home.
+- **Acceptance (mocks):** hiding and reordering panels survives a reload; Reset puts the default back.
+
 ---
 
 # Part 6 — Test list (all pass for D14)
@@ -624,3 +678,4 @@ All write tests use mocks. Real-GitHub verification goes in "Maintainer to-do" (
 - The token never appears in logs, renderer, exports or backups.
 - No mutating GitHub call in a `DESKA_WRITES=off` build (request-log assertion across E2E).
 - Leak guard passes on every commit and in CI.
+- Home: every tile equals its page's count; tabs, sprint panel and the H2 lists with their caps; the sidebar groups; the start page.
