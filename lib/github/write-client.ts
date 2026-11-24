@@ -78,6 +78,9 @@ export function assertAllowedRest(op: string): string {
   return op;
 }
 
+/** Waits before each look for a project item GitHub says already exists (see `itemFor`). */
+const ALREADY_ADDED_WAITS_MS = [0, 500, 1500, 3000];
+
 type FieldMeta = {
   id: string;
   name: string;
@@ -248,10 +251,26 @@ export class GitHubWriteClient implements WriteClient {
     const existing = await this.findItem(issueNodeId);
     if (existing) return existing;
     const meta = await this.loadMeta();
-    const added = await this.mutate(
-      `mutation($project:ID!, $content:ID!) { addProjectV2ItemById(input:{projectId:$project, contentId:$content}) { item { id } } }`,
-      { project: meta.projectId, content: issueNodeId },
-    );
+    let added: any;
+    try {
+      added = await this.mutate(
+        `mutation($project:ID!, $content:ID!) { addProjectV2ItemById(input:{projectId:$project, contentId:$content}) { item { id } } }`,
+        { project: meta.projectId, content: issueNodeId },
+      );
+    } catch (e) {
+      // Something else added the issue between the lookup and this add: the
+      // project's own auto-add workflow does that to an issue Deska has just
+      // created. GitHub then refuses with "Content already exists in this
+      // project", and the item it means is the one to use. It can take a moment
+      // to show up in the issue's project items.
+      if (!/already exists in this project/i.test(String((e as { message?: unknown } | null)?.message ?? e))) throw e;
+      for (const wait of ALREADY_ADDED_WAITS_MS) {
+        if (wait) await new Promise((r) => setTimeout(r, wait));
+        const now = await this.findItem(issueNodeId);
+        if (now) return now;
+      }
+      throw e;
+    }
     const id = added.addProjectV2ItemById.item.id;
     this.items.set(issueNodeId, id);
     return id;

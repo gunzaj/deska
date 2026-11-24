@@ -220,6 +220,40 @@ describe("GitHubWriteClient", () => {
     expect(mutations[1]!.variables).toMatchObject({ item: "PVTI_new" });
   });
 
+  it("uses the item the project's auto-add made when GitHub says the content already exists", async () => {
+    issueItems = [];
+    let lookups = 0;
+    server.use(
+      http.post("https://api.github.com/graphql", async ({ request }) => {
+        const body = (await request.clone().json()) as Gql;
+        if (body.query.includes("addProjectV2ItemById")) {
+          mutations.push(body);
+          return HttpResponse.json({ data: null, errors: [{ type: "UNPROCESSABLE", message: "Content already exists in this project" }] });
+        }
+        // The auto-added item shows up on the second look after the refusal.
+        if (body.query.includes("projectItems(first:100") && ++lookups === 3) issueItems = [[PROJECT, "PVTI_auto"]];
+        return undefined;
+      }),
+    );
+    const c = client();
+    await c.addProjectItem("I_1");
+    await c.applyField("I_1", "status", "opt_todo");
+    expect(mutations.filter((m) => m.query.includes("addProjectV2ItemById"))).toHaveLength(1);
+    expect(mutations.at(-1)!.variables).toMatchObject({ item: "PVTI_auto", value: "opt_todo" });
+  });
+
+  it("still fails an add the project refuses for another reason", async () => {
+    issueItems = [];
+    server.use(
+      http.post("https://api.github.com/graphql", async ({ request }) => {
+        const body = (await request.clone().json()) as Gql;
+        if (!body.query.includes("addProjectV2ItemById")) return undefined;
+        return HttpResponse.json({ data: null, errors: [{ type: "FORBIDDEN", message: "Resource not accessible by personal access token" }] });
+      }),
+    );
+    await expect(client().addProjectItem("I_1")).rejects.toThrow(/not accessible/);
+  });
+
   it("applies label deltas: one removal and one add each, never the full set", async () => {
     await client().applyField("I_1", "labels", { added: ["bug"], removed: ["ui", "old"] });
     expect(rest.map((r) => `${r.method} ${r.path}`)).toEqual([
