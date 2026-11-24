@@ -3,9 +3,9 @@
 import { SubIssues } from "./sub-issues";
 import Link from "next/link";
 import { EDITING_OFF } from "@/lib/client/edit";
-import { useEffect, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { formatDate, longAgo, plainName } from "@/lib/client/format";
-import type { ClientIssue, IssueDetail } from "@/lib/client/types";
+import type { ClientIssue, IssueComment, IssueDetail } from "@/lib/client/types";
 import { MISSING_FIELD } from "@/lib/sync/field-map";
 import { useAppData } from "../app/provider";
 import { panelBack, useOpenIssue, usePanelBack } from "../app/open-issue";
@@ -23,6 +23,7 @@ import { IssueAsk } from "../ai/ask";
 import { FieldPicker } from "./field-picker";
 import { Relationships } from "./relationships";
 import { useMediaRefresh } from "./media-refresh";
+import { CommentBox, type PostedComment } from "./comment-box";
 
 // Client cache so flipping between issues with j/k is instant on revisit.
 const detailCache = new Map<number, { at: number; detail: IssueDetail }>();
@@ -49,7 +50,16 @@ export function useIssueDetail(number: number | null) {
       });
     return () => ctrl.abort();
   }, [number]);
-  return state;
+  /** Read the thread from GitHub again, past the one-minute caches (a comment was just posted). */
+  const reload = useCallback(async () => {
+    if (number == null) return;
+    const res = await fetch(`/api/issues/${number}?fresh=1`, { cache: "no-store" }).catch(() => null);
+    const body = res?.ok ? ((await res.json().catch(() => null)) as IssueDetail | null) : null;
+    if (!body) return;
+    detailCache.set(number, { at: Date.now(), detail: body });
+    setState((s) => (s.detail && s.detail.number !== body.number ? s : { detail: body, error: null, loading: false }));
+  }, [number]);
+  return { ...state, reload };
 }
 
 function Prop({ label, children, className = "" }: { label: string; children: ReactNode; className?: string }) {
@@ -252,7 +262,9 @@ export function IssueDetailView({ number, mode, onClose }: { number: number; mod
   const demo = data.meta.demo;
   const openIssue = useOpenIssue();
   const issue = byNumber.get(number);
-  const { detail, error, loading } = useIssueDetail(issue ? number : null);
+  const { detail, error, loading, reload } = useIssueDetail(issue ? number : null);
+  // Comments posted from here, shown until the re-read thread has them.
+  const [posted, setPosted] = useState<{ number: number; comments: IssueComment[] }>({ number, comments: [] });
   const [copied, setCopied] = useState(false);
   const back = usePanelBack(number);
   // A video whose signed URL expired gets a new one; the next visit starts from that rendering.
@@ -274,6 +286,17 @@ export function IssueDetailView({ number, mode, onClose }: { number: number; mod
   }
 
   const ancestors = ancestry(issue, byNodeId);
+  const comments = [
+    ...(detail?.comments ?? []),
+    ...(posted.number === number ? posted.comments.filter((p) => !detail?.comments.some((c) => c.id === p.id)) : []),
+  ];
+  const onPosted = (made: PostedComment | null) => {
+    if (made) {
+      const mine: IssueComment = { id: made.id, author: data.meta.viewer, avatarUrl: null, createdAt: new Date().toISOString(), bodyHtml: null, body: made.body, url: made.url };
+      setPosted((p) => ({ number, comments: [...(p.number === number ? p.comments : []), mine] }));
+    }
+    void reload();
+  };
   const copy = () => {
     void navigator.clipboard?.writeText(demo ? window.location.href : issue.url);
     setCopied(true);
@@ -407,7 +430,7 @@ export function IssueDetailView({ number, mode, onClose }: { number: number; mod
           <section>
             <h3 className="mb-3 flex items-center gap-2 text-[12.5px] font-semibold text-muted">
               Activity
-              {detail && <span className="font-normal text-faint">{detail.comments.length} comment{detail.comments.length === 1 ? "" : "s"}</span>}
+              {detail && <span className="font-normal text-faint">{comments.length} comment{comments.length === 1 ? "" : "s"}</span>}
             </h3>
             {detail?.commentsError && (
               <p className="mb-3 rounded-lg bg-banner-warning px-3 py-2 text-[12.5px] text-warning">{detail.commentsError}</p>
@@ -416,16 +439,12 @@ export function IssueDetailView({ number, mode, onClose }: { number: number; mod
               <Skeleton />
             ) : (
               <ol className="space-y-3">
-                {(detail?.comments ?? []).map((cm) => (
-                  <Comment key={cm.id} author={cm.author} avatarUrl={cm.avatarUrl ?? avatarOf(cm.author)} createdAt={cm.createdAt} html={cm.bodyHtml} text={cm.body} url={demo ? null : cm.url} />
+                {comments.map((cm) => (
+                  <Comment key={cm.id} author={cm.author} avatarUrl={cm.avatarUrl ?? avatarOf(cm.author)} createdAt={cm.createdAt} html={cm.bodyHtml} text={cm.body} url={demo || !cm.url ? null : cm.url} />
                 ))}
               </ol>
             )}
-            {demo ? null : (
-              <a href={`${issue.url}#new_comment_field`} target="_blank" rel="noreferrer" className={`${btn.outline} mt-4`}>
-                <Icon name="message" size={13} /> Reply on GitHub
-              </a>
-            )}
+            <CommentBox key={issue.number} issue={issue} onPosted={onPosted} />
           </section>
         </div>
       </div>
