@@ -20,22 +20,22 @@ const values = z.array(z.string().max(VIEW_LIMITS.value)).max(VIEW_LIMITS.values
 export const dimKey = z.custom<`dim:${string}`>((v) => typeof v === "string" && v.length <= VIEW_LIMITS.id + 4 && isDimKey(v), "unknown dimension");
 
 const leafFilterSchema = z.union([
-  z.object({ field: z.enum(["assignee"]), op: z.enum(["in", "not_in", "empty"]), values }).strict(),
+  z.object({ field: z.enum(["assignee"]), op: z.enum(["in", "not_in", "empty", "not_empty"]), values }).strict(),
   z
     .object({
       field: z.enum(["status", "priority", "type", "label", "milestone"]),
-      op: z.enum(["in", "not_in", "empty"]),
+      op: z.enum(["in", "not_in", "empty", "not_empty"]),
       values,
     })
     .strict(),
   z
     .object({
       field: z.literal("release"),
-      op: z.enum(["in", "not_in", "empty"]),
+      op: z.enum(["in", "not_in", "empty", "not_empty"]),
       values,
     })
     .strict(),
-  z.object({ field: dimKey, op: z.enum(["in", "not_in", "empty"]), values }).strict(),
+  z.object({ field: dimKey, op: z.enum(["in", "not_in", "empty", "not_empty"]), values }).strict(),
   z.object({ field: z.literal("parent"), op: z.enum(["in", "empty", "has_sub_issues"]), values }).strict(),
   z.object({ field: z.literal("state"), op: z.enum(["in"]), values: z.array(z.enum(["open", "closed"])).max(2) }).strict(),
   // D11 (§4.2): who opened it, whether it is on the project, why it was closed, GitHub's sub-issue progress.
