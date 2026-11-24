@@ -50,6 +50,16 @@ describe("saved views engine (M5)", () => {
     // label / type / milestone
     expect(runView(v([{ field: "label", op: "in", values: ["LA_1"] }]), ctx, rows).map((r) => r.number)).toEqual([100]);
     expect(runView(v([{ field: "type", op: "in", values: ["IT_acme_bug"] }]), ctx, rows).map((r) => r.number)).toEqual([102]);
+    // type empty / not_empty ("No type" / "Has type", as on GitHub)
+    const withUntyped = [...rows, { ...rows[0]!, number: 999, typeId: null, typeName: null }];
+    const typed = rows.map((r) => r.number).sort();
+    expect(typed.length).toBeGreaterThan(0);
+    expect(rows.every((r) => r.typeId != null)).toBe(true);
+    expect(runView(v([{ field: "type", op: "not_empty" }]), ctx, withUntyped).map((r) => r.number).sort()).toEqual(typed);
+    expect(runView(v([{ field: "type", op: "empty" }]), ctx, withUntyped).map((r) => r.number)).toEqual([999]);
+    // not_empty is the complement of empty for other fields too
+    expect(runView(v([{ field: "assignee", op: "not_empty" }]), ctx, rows).map((r) => r.number).sort()).toEqual([100, 102]);
+    expect(runView(v([{ field: "status", op: "not_empty" }]), ctx, rows).map((r) => r.number).sort()).toEqual([100, 101]);
     expect(runView(v([{ field: "milestone", op: "in", values: ["M_1"] }]), ctx, rows).map((r) => r.number)).toEqual([100]);
   });
 

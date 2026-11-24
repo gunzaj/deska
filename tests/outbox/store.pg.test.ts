@@ -311,6 +311,72 @@ describe("the outbox (W0: one process, no lease)", async () => {
     expect(seen).toBe("a0000006");
   });
 
+  describe("relationships", () => {
+    const on = async (issueNodeId: string, body: Parameters<typeof submitEdit>[0]["body"], client: Client, refresh?: (id: string) => Promise<void>) =>
+      submitEdit({ viewer: "alice", token: "t", store: await getStore(), issueNodeId, body, deps: (done) => ({ client, doneStatusOptionId: done, refresh }) });
+
+    it("sets a parent with the cached one as base, and re-reads both issues", async () => {
+      const client = fakeClient({ parent: null });
+      const refreshed: string[] = [];
+      const r = await on("I_bug", { field: "parent", next: "I_epic" }, client, async (id) => void refreshed.push(id));
+      expect(r.status).toBe(200);
+      expect(client.applied).toEqual(['parent="I_epic"']);
+      expect(refreshed).toEqual(["I_bug", "I_epic"]);
+    });
+
+    it("a parent changed on GitHub meanwhile is a conflict", async () => {
+      const client = fakeClient({ parent: "I_pr" });
+      const r = await on("I_bug", { field: "parent", next: "I_epic" }, client);
+      expect(r.status).toBe(409);
+      expect(client.applied).toEqual([]);
+    });
+
+    it("refuses a parent that is the issue itself, below it, or unknown", async () => {
+      const client = fakeClient({});
+      expect((await on("I_bug", { field: "parent", next: "I_bug" }, client)).status).toBe(400);
+      // I_sub is already a child of I_epic: making it I_epic's parent would loop.
+      expect((await on("I_epic", { field: "parent", next: "I_sub" }, client)).body.error).toMatch(/below this one/);
+      expect((await on("I_bug", { field: "parent", next: "I_nope" }, client)).body.error).toMatch(/unknown issue/);
+      // A pull request is not an issue Deska keeps.
+      expect((await on("I_bug", { field: "parent", next: "I_pr" }, client)).body.error).toMatch(/unknown issue/);
+      expect(client.applied).toEqual([]);
+    });
+
+    it("adds a sub-issue as a delta (no read) and re-reads the child", async () => {
+      const client = fakeClient({});
+      const readField = vi.fn(async () => null);
+      const refreshed: string[] = [];
+      const r = await on("I_epic", { field: "subIssues", next: { added: ["I_bug"], removed: [] } }, { ...client, readField }, async (id) => void refreshed.push(id));
+      expect(r.status).toBe(200);
+      expect(readField).not.toHaveBeenCalled();
+      expect(client.applied).toEqual(['subIssues={"added":["I_bug"],"removed":[]}']);
+      expect(refreshed).toEqual(["I_epic", "I_bug"]);
+    });
+
+    it("refuses a sub-issue that is above the issue, and links to itself", async () => {
+      const client = fakeClient({});
+      expect((await on("I_sub", { field: "subIssues", next: { added: ["I_epic"], removed: [] } }, client)).body.error).toMatch(/above this one/);
+      expect((await on("I_bug", { field: "blockedBy", next: { added: ["I_bug"], removed: [] } }, client)).status).toBe(400);
+      expect((await on("I_bug", { field: "blocking", next: { added: ["I_nope"], removed: [] } }, client)).body.error).toMatch(/unknown issue/);
+      expect(client.applied).toEqual([]);
+    });
+
+    it("relates to is a delta of cached issues", async () => {
+      const client = fakeClient({});
+      expect((await on("I_bug", { field: "relatesTo", next: { added: ["I_epic"], removed: [] } }, client)).status).toBe(200);
+      expect(client.applied).toEqual(['relatesTo={"added":["I_epic"],"removed":[]}']);
+      expect((await on("I_bug", { field: "relatesTo", next: { added: ["I_bug"], removed: [] } }, client)).status).toBe(400);
+    });
+
+    it("blocked by is written without re-reading other issues", async () => {
+      const client = fakeClient({});
+      const refreshed: string[] = [];
+      const r = await on("I_bug", { field: "blockedBy", next: { added: ["I_epic"], removed: [] } }, client, async (id) => void refreshed.push(id));
+      expect(r.status).toBe(200);
+      expect(refreshed).toEqual(["I_bug"]);
+    });
+  });
+
   it("a label delta is written without reading the issue first", async () => {
     const client = fakeClient({});
     const readField = vi.fn(async () => {

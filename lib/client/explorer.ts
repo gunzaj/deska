@@ -520,12 +520,37 @@ export function opsFor(field: string): { op: string; label: string }[] {
       { op: "has_sub_issues", label: "has sub-issues" },
     ];
   const multi = field === "label" || field === "assignee" || field === "author";
-  return [
-    { op: "in", label: multi ? "includes any of" : "is" },
-    { op: "not_in", label: multi ? "excludes" : "is not" },
-    ...(field === "author" ? [] : [{ op: "empty", label: field === "assignee" ? "is unassigned" : "is empty" }]),
-  ];
+  const emptiness =
+    field === "author"
+      ? []
+      : field === "assignee"
+        ? [
+            { op: "empty", label: "is unassigned" },
+            { op: "not_empty", label: "is assigned" },
+          ]
+        : field === "type"
+          ? [
+              { op: "empty", label: "has no type" },
+              { op: "not_empty", label: "has a type" },
+            ]
+          : [
+              { op: "empty", label: "is empty" },
+              { op: "not_empty", label: "is not empty" },
+            ];
+  return [{ op: "in", label: multi ? "includes any of" : "is" }, { op: "not_in", label: multi ? "excludes" : "is not" }, ...emptiness];
 }
+
+/**
+ * GitHub-style "No type" / "Has type" choices shown above the values when a
+ * filter is added (GitHub's issue type filter offers the same two). Picking
+ * one adds an `empty` / `not_empty` filter instead of a value.
+ */
+export const EMPTINESS_CHOICES: Partial<Record<FilterFieldKey, { op: "empty" | "not_empty"; label: string }[]>> = {
+  type: [
+    { op: "empty", label: "No type" },
+    { op: "not_empty", label: "Has type" },
+  ],
+};
 
 export function stateFilterValue(filters: Filter[]): "open" | "closed" | "all" {
   const f = filters.find((x) => x.field === "state");

@@ -40,7 +40,8 @@ test("issue page shows fields and the parent epic", async ({ browser }) => {
   const { context, page } = await as(browser);
   await page.goto("/issues/101");
   await expect(page.getByRole("heading", { level: 2, name: "Sub: dashboard widget" })).toBeVisible();
-  await expect(page.getByRole("button", { name: /dashboard overhaul/ })).toBeVisible();
+  // The parent shows in the trail and in Relationships.
+  await expect(page.getByRole("button", { name: /dashboard overhaul/ }).first()).toBeVisible();
   await expect(page.getByText("Sub-issues", { exact: true })).toHaveCount(0);
   await context.close();
 });
@@ -133,7 +134,7 @@ test("clicking a row opens the side panel with description and comments; Esc clo
     await expect(panel.getByRole("link", { name: "GitHub" })).toHaveCount(0);
     await expect(panel.getByText("Sample issue. The title, description, and assignees are generated for preview.")).toBeVisible();
   }
-  await expect(panel.getByRole("button", { name: /Epic: dashboard overhaul|dashboard overhaul/ })).toBeVisible();
+  await expect(panel.getByRole("button", { name: /Epic: dashboard overhaul|dashboard overhaul/ }).first()).toBeVisible();
   await page.keyboard.press("Escape");
   await expect(panel).toHaveCount(0);
   await expect(page).not.toHaveURL(/issue=/);

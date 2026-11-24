@@ -5,19 +5,27 @@ import { dimFieldId, isDimKey } from "../sync/field-map";
 import type { ClientIssue, DimKey, WireIssue } from "./types";
 
 /** Fixed fields, and mapped dimensions as `dim:<fieldId>` (§4.1). */
-export type EditField = "status" | "priority" | "release" | "type" | "milestone" | "labels" | "assignees" | "state" | DimKey;
+export type EditField = "status" | "priority" | "release" | "type" | "milestone" | "labels" | "assignees" | "state" | "parent" | RelationField | DimKey;
+
+/** Relationship lists, edited as { added, removed } deltas of issue node IDs. */
+export type RelationField = "subIssues" | "blockedBy" | "blocking" | "relatesTo";
+export const isRelationField = (f: string): f is RelationField => f === "subIssues" || f === "blockedBy" || f === "blocking" || f === "relatesTo";
+
+/** Fields edited as deltas: they carry no base and commute. */
+export const isDeltaField = (f: string): boolean => f === "labels" || f === "assignees" || isRelationField(f);
 
 export type Delta = { added: string[]; removed: string[] };
 
 /** The request body for one edit. Labels by ID and assignees by login go as deltas. */
 export type EditRequest = { field: EditField; base?: unknown; next: unknown; idempotencyKey: string };
 
-const WIRE_KEY: Record<Exclude<EditField, "labels" | "assignees" | "state" | DimKey>, keyof WireIssue> = {
+const WIRE_KEY: Record<Exclude<EditField, "labels" | "assignees" | "state" | RelationField | DimKey>, keyof WireIssue> = {
   status: "st",
   priority: "pr",
   release: "rl",
   type: "ty",
   milestone: "ms",
+  parent: "pa",
 };
 
 /** The issue's current value for a single-value field: the base GitHub must still hold. */
@@ -34,6 +42,8 @@ export function currentValue(issue: ClientIssue, field: EditField): string | nul
       return issue.typeId;
     case "milestone":
       return issue.milestoneId;
+    case "parent":
+      return issue.parentNodeId;
     case "state":
       return issue.state;
     default:
@@ -44,6 +54,9 @@ export function currentValue(issue: ClientIssue, field: EditField): string | nul
 /** The wire keys an edit touches, with their new values (undefined = cleared). */
 export function wirePatch(w: WireIssue, field: EditField, next: unknown): Partial<WireIssue> {
   if (field === "state") return { o: next === "open" ? 1 : 0 };
+  // Other issues' rows change (their parent), or nothing cached does: the
+  // re-read after the write brings them in.
+  if (isRelationField(field)) return {};
   if (field === "labels" || field === "assignees") {
     const d = next as Delta;
     const key = field === "labels" ? "lb" : "as";
@@ -78,7 +91,7 @@ export function applyWire(w: WireIssue, patch: Partial<WireIssue>): WireIssue {
 
 export function editRequest(issue: ClientIssue, field: EditField, next: unknown, idempotencyKey: string): EditRequest {
   // Deltas commute and carry no base; everything else says what we saw.
-  if (field === "labels" || field === "assignees") return { field, next, idempotencyKey };
+  if (isDeltaField(field)) return { field, next, idempotencyKey };
   return { field, base: currentValue(issue, field), next, idempotencyKey };
 }
 

@@ -94,6 +94,7 @@ export function filterSummary(filters: Filter[], meta: ClientMeta, issues: Clien
       const names = f.values.map((v) => valueLabel(f.field as FilterFieldKey, v, meta, issues).replace(/\s+/g, " "));
       parts.push(f.op === "not_in" ? `Not ${names.join(", ")}` : names.join(", "));
     } else if (f.op === "empty") parts.push(`No ${fieldLabel(f.field, meta).toLowerCase()}`);
+    else if (f.op === "not_empty") parts.push(`Has ${fieldLabel(f.field, meta).toLowerCase()}`);
     else if ("days" in f) parts.push(`${f.field} ${f.op === "within_days" ? "within" : "older than"} ${f.days} days`);
     else if (f.field === "parent") parts.push("Has sub-issues");
   }

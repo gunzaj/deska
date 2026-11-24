@@ -129,6 +129,7 @@ export function compileFilter(f: Filter, ctx: ViewContext): RowTest {
   const lower = field === "assignee" || field === "author";
   const set = new Set((lower ? values?.map((v) => v?.toLowerCase()) : values) ?? []);
   if (op === "empty") return (row) => fieldValues(row, field).every((a) => a == null);
+  if (op === "not_empty") return (row) => fieldValues(row, field).some((a) => a != null);
   const hits = (row: ViewRow) => {
     for (const a of fieldValues(row, field)) {
       const v = lower ? a?.toLowerCase() : a;

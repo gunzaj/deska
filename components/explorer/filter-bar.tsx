@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
+  EMPTINESS_CHOICES,
   filterFields,
   dateFilterLabel,
   fieldLabel,
@@ -60,11 +61,14 @@ export function ValuePicker({
   selected,
   pool,
   onToggle,
+  leading = [],
 }: {
   field: FilterFieldKey;
   selected: string[];
   pool: ClientIssue[];
   onToggle: (id: string) => void;
+  /** Items listed above the values, e.g. "No type" / "Has type". */
+  leading?: PickItem[];
 }) {
   const { data } = useAppData();
   const iconOf = useValueIcon();
@@ -96,7 +100,7 @@ export function ValuePicker({
   if (field === "label" || field === "assignee" || field === "author" || field === "milestone") {
     items.sort((a, b) => Number(b.checked) - Number(a.checked) || Number(b.hint) - Number(a.hint));
   }
-  return <PickList multi items={items} onPick={onToggle} placeholder={`Filter by ${fieldLabel(field, data.meta).toLowerCase()}…`} />;
+  return <PickList multi items={[...leading, ...items]} onPick={onToggle} placeholder={`Filter by ${fieldLabel(field, data.meta).toLowerCase()}…`} />;
 }
 
 /** "statuses", "priorities", "teams" for the chip summary. */
@@ -111,7 +115,7 @@ function Chip({ filter, index, filters, onChange, pool }: { filter: Filter; inde
   const remove = () => onChange(filters.filter((_, i) => i !== index));
 
   if (filter.field === "any") {
-    const parts = filter.filters.map((f) => `${fieldLabel(f.field, data.meta)} ${"op" in f && f.op === "empty" ? "empty" : "…"}`);
+    const parts = filter.filters.map((f) => `${fieldLabel(f.field, data.meta)} ${"op" in f && f.op === "empty" ? "empty" : "op" in f && f.op === "not_empty" ? "set" : "…"}`);
     return (
       <span className="inline-flex h-7 items-center rounded-md border border-line bg-surface text-[12.5px] shadow-raised">
         <span className="px-2 text-muted">Any of</span>
@@ -211,6 +215,9 @@ const DATE_PRESETS: { id: string; label: string; filter: Filter }[] = [
   { id: "cl14", label: "Closed in the last 14 days", filter: { field: "closed", op: "within_days", days: 14 } },
 ];
 
+/** Picker item IDs for the emptiness choices; never a GitHub node ID or login. */
+const EMPTINESS_PREFIX = "\u0000op:";
+
 /** Fired by the F shortcut to open the page's "+ Filter" picker. */
 export const FILTER_EVENT = "deska:filter";
 
@@ -232,6 +239,12 @@ export function AddFilter({ filters, onChange, pool, compact = false }: { filter
   const existingIndex = field ? filters.findIndex((f) => f.field === field && isValuesFilter(f) && f.op === "in") : -1;
   const existing = existingIndex >= 0 ? filters[existingIndex] : undefined;
   const selected = existing && isValuesFilter(existing) ? (existing.values ?? []) : [];
+  const emptiness = field ? (EMPTINESS_CHOICES[field] ?? []) : [];
+  const emptinessIndex = (op: string) => filters.findIndex((f) => f.field === field && isValuesFilter(f) && f.op === op);
+  const leading: PickItem[] = emptiness.map((c) => {
+    const n = pool.filter((i) => (issueValueIds(i, field!).length > 0) === (c.op === "not_empty")).length;
+    return { id: `${EMPTINESS_PREFIX}${c.op}`, label: c.label, icon: <span className="size-[7px] rounded-full border border-dashed border-faint" />, hint: n, checked: emptinessIndex(c.op) >= 0 };
+  });
 
   return (
     <>
@@ -260,7 +273,17 @@ export function AddFilter({ filters, onChange, pool, compact = false }: { filter
             field={field}
             selected={selected}
             pool={pool}
+            leading={leading}
             onToggle={(id) => {
+              if (id.startsWith(EMPTINESS_PREFIX)) {
+                const op = id.slice(EMPTINESS_PREFIX.length);
+                const at = emptinessIndex(op);
+                // "No type", "Has type" and "is Bug" exclude each other: picking one replaces the others.
+                const rest = filters.filter((f) => !(f.field === field && isValuesFilter(f) && (f.op === "empty" || f.op === "not_empty" || f.op === "in")));
+                onChange(at >= 0 ? rest : [...rest, { field, op } as Filter]);
+                close();
+                return;
+              }
               if (field === "state") {
                 const next = filters.filter((f) => f.field !== "state");
                 onChange([newFilter("state", id), ...next]);
@@ -271,7 +294,9 @@ export function AddFilter({ filters, onChange, pool, compact = false }: { filter
                 const next = selected.includes(id) ? selected.filter((v) => v !== id) : [...selected, id];
                 onChange(next.length ? setFilterValues(filters, existingIndex, next) : filters.filter((_, i) => i !== existingIndex));
               } else {
-                onChange([...filters, newFilter(field, id)]);
+                // A value replaces "No type" / "Has type": together they match nothing or say it twice.
+                const rest = emptiness.length ? filters.filter((f) => !(f.field === field && isValuesFilter(f) && (f.op === "empty" || f.op === "not_empty"))) : filters;
+                onChange([...rest, newFilter(field, id)]);
               }
             }}
           />
