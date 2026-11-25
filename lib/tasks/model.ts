@@ -235,9 +235,23 @@ export const labelPatchSchema = z.object({ name, color }).partial().strict();
 /** Sidebar sections a user can reorder or hide, in their default order. */
 export const SIDEBAR_SECTIONS = ["tasks", "projects", "labels", "workspace", "views", "teams"] as const;
 export type SidebarSection = (typeof SIDEBAR_SECTIONS)[number];
-export type SidebarLayout = { order: SidebarSection[]; hidden: SidebarSection[] };
+/**
+ * `favorites` are item keys in the Favorites list's order; absent means the
+ * default four. `items` is the manual order of a section's own items; keys not
+ * listed keep their default order after the listed ones. Both are optional, so
+ * layouts stored before favorites existed stay valid.
+ */
+export type SidebarLayout = { order: SidebarSection[]; hidden: SidebarSection[]; favorites?: string[]; items?: Partial<Record<SidebarSection, string[]>> };
 const sidebarSection = z.enum(SIDEBAR_SECTIONS);
-const sidebarSchema = z.object({ order: z.array(sidebarSection).max(SIDEBAR_SECTIONS.length * 2), hidden: z.array(sidebarSection).max(SIDEBAR_SECTIONS.length * 2) }).strict();
+const sidebarKeys = z.array(z.string().min(1).max(200)).max(500);
+const sidebarSchema = z
+  .object({
+    order: z.array(sidebarSection).max(SIDEBAR_SECTIONS.length * 2),
+    hidden: z.array(sidebarSection).max(SIDEBAR_SECTIONS.length * 2),
+    favorites: sidebarKeys.optional(),
+    items: z.object(Object.fromEntries(SIDEBAR_SECTIONS.map((id) => [id, sidebarKeys.optional()])) as Record<SidebarSection, z.ZodOptional<typeof sidebarKeys>>).strict().optional(),
+  })
+  .strict();
 
 /** Saved layout → every section once, saved order first; sections added later keep their default slot at the end. */
 export function resolveSidebar(layout: SidebarLayout | null | undefined): { id: SidebarSection; hidden: boolean }[] {
@@ -246,30 +260,8 @@ export function resolveSidebar(layout: SidebarLayout | null | undefined): { id: 
   return order.map((id) => ({ id, hidden: hidden.has(id) }));
 }
 
-/**
- * The sidebar's two groups (HOME-SPEC §2.2): Tasks, then GitHub. The first
- * section of each is its lead: always first, under the group's own heading.
- */
-export const SIDEBAR_GROUPS = [
-  { id: "tasks", label: "Tasks", sections: ["tasks", "projects", "labels"] },
-  { id: "github", label: "GitHub", sections: ["workspace", "views", "teams"] },
-] as const satisfies readonly { id: string; label: string; sections: readonly SidebarSection[] }[];
-export type SidebarGroupId = (typeof SIDEBAR_GROUPS)[number]["id"];
-export type SidebarGroup = { id: SidebarGroupId; label: string; lead: SidebarSection; sections: { id: SidebarSection; hidden: boolean }[]; visible: boolean };
-
-/**
- * The resolved sections split into the groups: the lead first, the others in
- * their stored relative order. An order that put a GitHub section before a
- * Tasks one reads as "Tasks first". A group with every section hidden is not shown.
- */
-export function groupSidebar(sections: { id: SidebarSection; hidden: boolean }[]): SidebarGroup[] {
-  return SIDEBAR_GROUPS.map((g) => {
-    const lead = g.sections[0];
-    const own = sections.filter((s) => (g.sections as readonly SidebarSection[]).includes(s.id));
-    const ordered = [...own.filter((s) => s.id === lead), ...own.filter((s) => s.id !== lead)];
-    return { id: g.id, label: g.label, lead, sections: ordered, visible: ordered.some((s) => !s.hidden) };
-  });
-}
+/** The sections that need GitHub data: not shown in tasks-only mode. */
+export const GITHUB_SECTIONS: readonly SidebarSection[] = ["workspace", "views", "teams"];
 
 /** Where Deska opens (HOME-SPEC §3.1). Absent means Home. */
 export const START_PAGES = ["home", "my", "today"] as const;

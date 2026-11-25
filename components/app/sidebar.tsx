@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { HELP_EVENT } from "./palette";
 import { usePathname } from "next/navigation";
-import { useEffect, useMemo, useState } from "react";
+import { createContext, useContext, useEffect, useId, useMemo, useState, type DragEvent, type ReactNode } from "react";
 import { longAgo, plainName } from "@/lib/client/format";
 import { syncWarning, syncWarningTitle } from "@/lib/client/sync-health";
 import { Icon, Logo, type IconName } from "../icons";
@@ -14,11 +14,12 @@ import { RambleDialog } from "../tasks/ramble";
 import { SaveTaskViewDialog } from "../tasks/task-views";
 import { useTaskDrop } from "../tasks/drop";
 import type { DropTarget } from "@/lib/client/task-drop";
+import { arrangeSidebar, CURRENT_KEY, dropItem, NAV_DRAG_TYPE, toggleFavorite, type SidebarList } from "@/lib/client/sidebar-items";
 import { useWatchlist } from "../watch/store";
 import { useDefaultScope } from "./team-scope";
 import { primaryDimension, sprintOn } from "@/lib/client/explorer";
 import { UserMenu } from "./user-menu";
-import { groupSidebar, type SidebarGroupId, type SidebarSection } from "@/lib/tasks/model";
+import { GITHUB_SECTIONS, SIDEBAR_SECTIONS, type SidebarSection } from "@/lib/tasks/model";
 import { ColorDot, NewLabelDialog, ProjectDialog } from "../tasks/organize";
 import { sidebarCounts } from "@/lib/tasks/counts";
 import { NotificationBell, useToday } from "../tasks/notifications";
@@ -29,109 +30,187 @@ import { useConnection } from "./connection";
 import { useTasksOnly } from "./tasks-only";
 import { CUSTOMIZE_SIDEBAR_EVENT, CustomizeSidebarDialog, useSidebarLayout } from "./sidebar-customize";
 
-type NavItem = { href: string; label: string; icon: IconName; count?: number; match?: (p: string) => boolean; drop?: DropTarget };
+/** One sidebar link. `home` is the section it belongs to while it is not a favorite. */
+type NavItem = {
+  key: string;
+  home: SidebarSection;
+  href: string;
+  label: string;
+  icon?: IconName;
+  /** A colored dot instead of an icon (projects, labels, the dimension's options). */
+  dot?: ReactNode;
+  count?: number;
+  match?: (p: string) => boolean;
+  /** Dropping a task here files, schedules or labels it. */
+  drop?: DropTarget;
+};
+
+type DragItem = { key: string; home: SidebarSection; from: SidebarList };
+type DropAt = { list: SidebarList; key: string | null; after: boolean };
+
+/** Dragging sidebar items to reorder them, and the star that makes one a favorite. */
+const NavDndContext = createContext<{
+  drag: DragItem | null;
+  over: DropAt | null;
+  start: (d: DragItem) => void;
+  hover: (at: DropAt) => void;
+  drop: (at: DropAt) => void;
+  end: () => void;
+  toggle: (key: string) => void;
+} | null>(null);
+
+function useNavDnd() {
+  const c = useContext(NavDndContext);
+  if (!c) throw new Error("sidebar row outside the sidebar");
+  return c;
+}
+
+const isNavDrag = (e: DragEvent) => e.dataTransfer.types.includes(NAV_DRAG_TYPE);
+const lowerHalf = (e: DragEvent) => {
+  const r = e.currentTarget.getBoundingClientRect();
+  return e.clientY > r.top + r.height / 2;
+};
+const dropLine = "pointer-events-none absolute inset-x-1 z-10 h-0.5 rounded-full bg-[var(--brand-border)]";
 
 export function openPalette() {
   window.dispatchEvent(new CustomEvent(PALETTE_EVENT));
 }
 
-function NavLink({ item, onNavigate }: { item: NavItem; onNavigate?: () => void }) {
+/** A sidebar link: drag it to reorder its list or onto Favorites; the star adds it to Favorites or takes it out. */
+function NavRow({ item, list, onNavigate }: { item: NavItem; list: SidebarList; onNavigate?: () => void }) {
   const path = usePathname();
   const active = item.match ? item.match(path) : path === item.href || path.startsWith(`${item.href}/`);
   const drop = useTaskDrop(item.drop ?? { kind: "inbox" });
+  const dnd = useNavDnd();
+  const favorite = list === "favorites";
+  const labelId = useId();
+  // An item moves inside its own list, into Favorites, or from Favorites back to its section.
+  const accepts = (e: DragEvent) => Boolean(dnd.drag) && isNavDrag(e) && (favorite || list === dnd.drag!.home);
+  const line = dnd.over?.list === list && dnd.over.key === item.key ? (dnd.over.after ? "after" : "before") : null;
   return (
-    <Link
-      href={item.href}
-      onClick={onNavigate}
-      aria-current={active ? "page" : undefined}
-      {...(item.drop ? drop.handlers : {})}
-      data-drop-target={item.drop?.kind}
-      className={`group flex h-7 items-center gap-2 rounded-md px-2 text-[13px] font-medium transition-colors ${
-        active ? "bg-active text-fg" : "text-muted hover:bg-hover hover:text-fg"
-      } ${item.drop && drop.over ? "ring-2 ring-brand-border bg-brand-soft" : ""}`}
+    <div
+      className="group/row relative"
+      data-nav-item={item.key}
+      draggable
+      onDragStart={(e) => {
+        e.dataTransfer.setData(NAV_DRAG_TYPE, item.key);
+        e.dataTransfer.effectAllowed = "move";
+        dnd.start({ key: item.key, home: item.home, from: list });
+      }}
+      onDragEnd={dnd.end}
+      onDragOver={(e) => {
+        if (!accepts(e)) return;
+        e.preventDefault();
+        e.stopPropagation();
+        e.dataTransfer.dropEffect = "move";
+        dnd.hover({ list, key: item.key, after: lowerHalf(e) });
+      }}
+      onDrop={(e) => {
+        if (!accepts(e)) return;
+        e.preventDefault();
+        e.stopPropagation();
+        dnd.drop({ list, key: item.key, after: lowerHalf(e) });
+      }}
     >
-      <Icon name={item.icon} size={15} className={active ? "text-fg" : "text-faint group-hover:text-muted"} />
-      <span className="min-w-0 flex-1 truncate">{item.label}</span>
-      {item.count != null && item.count > 0 && <span className="text-[11px] tabular-nums text-faint">{item.count.toLocaleString()}</span>}
-    </Link>
-  );
-}
-
-function ProjectLink({
-  href,
-  label,
-  color,
-  count,
-  shape = "circle",
-  onNavigate,
-  drop: target,
-}: {
-  href: string;
-  label: string;
-  color: string;
-  count?: number;
-  shape?: "circle" | "tag";
-  onNavigate?: () => void;
-  /** Dropping a task here files it (a project) or labels it (a label). */
-  drop?: DropTarget;
-}) {
-  const path = usePathname();
-  const active = path === href;
-  const drop = useTaskDrop(target ?? { kind: "inbox" });
-  return (
-    <Link
-      href={href}
-      onClick={onNavigate}
-      aria-current={active ? "page" : undefined}
-      {...(target ? drop.handlers : {})}
-      data-drop-target={target?.kind}
-      className={`flex h-7 items-center gap-2 rounded-md px-2 text-[13px] font-medium ${active ? "bg-active text-fg" : "text-muted hover:bg-hover hover:text-fg"} ${target && drop.over ? "ring-2 ring-brand-border bg-brand-soft" : ""}`}
-    >
-      <span className="grid size-[15px] place-items-center">
-        <ColorDot color={color} size={8} shape={shape} />
-      </span>
-      <span className="min-w-0 flex-1 truncate">{label}</span>
-      {count != null && count > 0 && <span className="text-[11px] tabular-nums text-faint">{count}</span>}
-    </Link>
-  );
-}
-
-/** A sub-section inside a group (Projects, Labels, Views, the dimension): its own collapsible heading. */
-function Section({ title, children, action }: { title: string; children: React.ReactNode; action?: React.ReactNode }) {
-  const [open, setOpen] = useState(true);
-  return (
-    <div className="mt-2.5" data-sidebar-section={title}>
-      <div className="group flex h-6 items-center px-2">
-        <button type="button" onClick={() => setOpen((o) => !o)} className="flex flex-1 items-center gap-1 text-[11.5px] font-medium text-faint hover:text-muted">
-          {title}
-          <Icon name={open ? "chevronDown" : "chevronRight"} size={12} className="opacity-0 group-hover:opacity-100" />
-        </button>
-        {action}
-      </div>
-      {open && <div className="mt-0.5 space-y-px">{children}</div>}
+      {line && <span aria-hidden className={`${dropLine} ${line === "after" ? "-bottom-px" : "-top-px"}`} />}
+      <Link
+        href={item.href}
+        onClick={onNavigate}
+        draggable={false}
+        aria-current={active ? "page" : undefined}
+        {...(item.drop ? drop.handlers : {})}
+        data-drop-target={item.drop?.kind}
+        className={`flex h-7 items-center gap-2 rounded-md px-2 text-[13px] font-medium transition-colors ${
+          active ? "bg-active text-fg" : "text-muted hover:bg-hover hover:text-fg"
+        } ${item.drop && drop.over ? "ring-2 ring-brand-border bg-brand-soft" : ""} ${dnd.drag?.key === item.key ? "opacity-50" : ""}`}
+      >
+        {item.icon ? (
+          <Icon name={item.icon} size={15} className={active ? "text-fg" : "text-faint group-hover/row:text-muted"} />
+        ) : (
+          <span className="grid size-[15px] shrink-0 place-items-center">{item.dot}</span>
+        )}
+        <span id={labelId} className="min-w-0 flex-1 truncate">{item.label}</span>
+        {/* The star takes the count's place while the row is hovered. */}
+        {item.count != null && item.count > 0 && (
+          <span className="text-[11px] tabular-nums text-faint group-hover/row:invisible group-has-[button:focus-visible]/row:invisible">{item.count.toLocaleString()}</span>
+        )}
+      </Link>
+      <button
+        type="button"
+        onClick={() => dnd.toggle(item.key)}
+        aria-pressed={favorite}
+        // The name is the same on every row and the row's label describes it: an item can be called anything,
+        // and a name with the label in it would answer to "Backlog" or "Add section" as the page's own buttons do.
+        aria-label={favorite ? "Unfavorite" : "Favorite"}
+        aria-describedby={labelId}
+        title={favorite ? "Remove from favorites" : "Add to favorites"}
+        className="absolute right-1 top-1 grid size-5 place-items-center rounded text-faint opacity-0 hover:bg-active hover:text-fg focus-visible:opacity-100 group-hover/row:opacity-100"
+      >
+        <Icon name="star" size={12} fill={favorite ? "currentColor" : "none"} />
+      </button>
     </div>
   );
 }
 
-/** One of the two groups (HOME-SPEC §2.1): a heading, the lead section's links, then the sub-sections. */
-function Group({ id, title, children, action }: { id: SidebarGroupId; title: string; children: React.ReactNode; action?: React.ReactNode }) {
+/** The rows of one list. A drop below the last row (or on an empty list) puts the item at the end. */
+function NavList({ list, items, onNavigate, children }: { list: SidebarList; items: NavItem[]; onNavigate?: () => void; children?: ReactNode }) {
+  const dnd = useNavDnd();
+  const accepts = (e: DragEvent) => Boolean(dnd.drag) && isNavDrag(e) && (list === "favorites" || list === dnd.drag!.home);
+  return (
+    <div
+      className="relative space-y-px"
+      data-nav-list={list}
+      onDragOver={(e) => {
+        if (!accepts(e)) return;
+        e.preventDefault();
+        dnd.hover({ list, key: null, after: true });
+      }}
+      onDrop={(e) => {
+        if (!accepts(e)) return;
+        e.preventDefault();
+        dnd.drop({ list, key: null, after: true });
+      }}
+    >
+      {items.map((item) => (
+        <NavRow key={item.key} item={item} list={list} onNavigate={onNavigate} />
+      ))}
+      {children}
+      {dnd.over?.list === list && dnd.over.key === null && <span aria-hidden className={`${dropLine} -bottom-px`} />}
+    </div>
+  );
+}
+
+/** An archived project: a plain link, not a drop target and not reorderable. */
+function ArchivedLink({ href, label, color, onNavigate }: { href: string; label: string; color: string; onNavigate?: () => void }) {
+  const active = usePathname() === href;
+  return (
+    <Link href={href} onClick={onNavigate} aria-current={active ? "page" : undefined} className={`flex h-7 items-center gap-2 rounded-md px-2 text-[13px] font-medium ${active ? "bg-active text-fg" : "text-muted hover:bg-hover hover:text-fg"}`}>
+      <span className="grid size-[15px] place-items-center">
+        <ColorDot color={color} size={8} />
+      </span>
+      <span className="min-w-0 flex-1 truncate">{label}</span>
+    </Link>
+  );
+}
+
+/** A sidebar section (Favorites, Tasks, Projects, Labels, GitHub, Views, the dimension): a collapsible heading and its rows. */
+function Section({ title, children, action, first }: { title: string; children: React.ReactNode; action?: React.ReactNode; first?: boolean }) {
   const [open, setOpen] = useState(true);
   return (
-    <div className="mt-4" role="group" aria-label={title} data-sidebar-group={id}>
+    <div className={first ? "" : "mt-3"} role="group" aria-label={title} data-sidebar-section={title}>
       <div className="group flex h-6 items-center px-2">
         <h2 className="flex flex-1">
-          <button type="button" onClick={() => setOpen((o) => !o)} aria-expanded={open} className="flex flex-1 items-center gap-1 text-[11.5px] font-semibold text-muted hover:text-fg">
+          <button type="button" onClick={() => setOpen((o) => !o)} aria-expanded={open} className="flex flex-1 items-center gap-1 text-[11.5px] font-medium text-faint hover:text-muted">
             {title}
             <Icon name={open ? "chevronDown" : "chevronRight"} size={12} className="opacity-0 group-hover:opacity-100" />
           </button>
         </h2>
         {action}
       </div>
-      {open && <div className="mt-0.5">{children}</div>}
+      {open && <div className="mt-0.5 space-y-px">{children}</div>}
     </div>
   );
 }
-
 
 export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
   const tasksOnly = useTasksOnly();
@@ -166,8 +245,7 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
   const [newLabel, setNewLabel] = useState(false);
   const [saveView, setSaveView] = useState(false);
   const [ramble, setRamble] = useState(false);
-  const { sections } = useSidebarLayout();
-  const groups = useMemo(() => groupSidebar(sections), [sections]);
+  const { layout, sections, saveItems } = useSidebarLayout();
   const [customize, setCustomize] = useState(false);
   const inDrawer = Boolean(onNavigate);
   useEffect(() => {
@@ -179,46 +257,98 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
     return () => window.removeEventListener(CUSTOMIZE_SIDEBAR_EVENT, show);
   }, [inDrawer]);
   const taskCounts = useMemo(() => sidebarCounts(tasks, projects, today), [tasks, projects, today]);
-  const taskNav: NavItem[] = [
-    { href: "/tasks", label: "Inbox", icon: "inbox", count: taskCounts.inbox, match: (p) => p === "/tasks", drop: { kind: "inbox" } },
-    { href: "/tasks/today", label: "Today", icon: "star", count: taskCounts.due, drop: { kind: "today" } },
-    { href: "/tasks/upcoming", label: "Upcoming", icon: "calendar", drop: { kind: "upcoming" } },
-    { href: "/tasks/completed", label: "Completed", icon: "circleCheck" },
-    // Saved task views (item 12) come after the four built-in lists.
-    ...taskViews.map((v) => ({ href: `/tasks/views/${v.id}`, label: v.name, icon: "sliders" as IconName })),
-  ];
-
   const current = meta.releases.find((r) => r.id === meta.currentReleaseId);
   const triage = useTriageCount();
   const { unseen: watchUnseen } = useWatchlist();
-  const home: NavItem = { href: "/home", label: "Home", icon: "home" };
-  const primary: NavItem[] = [
-    { href: "/triage", label: "Triage", icon: "inbox", count: triage },
-    { href: "/my", label: "My issues", icon: "user", count: counts.mine },
-    { href: "/watching", label: "Watching", icon: "star", count: watchUnseen },
+  const projectKey = (id: string) => `/tasks/p/${id}`;
+  const page = (home: SidebarSection, href: string, label: string, icon: IconName, more: Partial<NavItem> = {}): NavItem => ({ key: href, home, href, label, icon, ...more });
+  // In each section's default order. Home and the three issue lists belong to the GitHub lists
+  // (HOME-SPEC §2.4); without GitHub, Home sits with the task lists so unstarring it cannot lose it.
+  const taskItems: NavItem[] = [
+    ...(tasksOnly ? [page("tasks", "/home", "Home", "home")] : []),
+    page("tasks", "/tasks", "Inbox", "inbox", { count: taskCounts.inbox, match: (p) => p === "/tasks", drop: { kind: "inbox" } }),
+    page("tasks", "/tasks/today", "Today", "star", { count: taskCounts.due, drop: { kind: "today" } }),
+    page("tasks", "/tasks/upcoming", "Upcoming", "calendar", { drop: { kind: "upcoming" } }),
+    page("tasks", "/tasks/completed", "Completed", "circleCheck"),
+    // Saved task views (item 12) come after the four built-in lists.
+    ...taskViews.map((v) => page("tasks", `/tasks/views/${v.id}`, v.name, "sliders")),
+    ...projects
+      .filter((p) => !p.archived)
+      .map((p): NavItem => ({ key: projectKey(p.id), home: "projects", href: projectKey(p.id), label: p.name, dot: <ColorDot color={p.color} size={8} />, count: taskCounts.perProject.get(p.id), drop: { kind: "project", id: p.id, name: p.name } })),
+    ...labels.map((l): NavItem => ({ key: `/tasks/l/${l.id}`, home: "labels", href: `/tasks/l/${l.id}`, label: l.name, dot: <ColorDot color={l.color} size={8} shape="tag" />, count: taskCounts.perLabel.get(l.id), drop: { kind: "label", name: l.name } })),
   ];
-  const workspace: NavItem[] = [
-    { href: "/issues", label: "All issues", icon: "layers", match: (p) => p === "/issues" },
+  const githubItems: NavItem[] = [
+    page("workspace", "/home", "Home", "home"),
+    page("workspace", "/triage", "Triage", "inbox", { count: triage }),
+    page("workspace", "/my", "My issues", "user", { count: counts.mine }),
+    page("workspace", "/watching", "Watching", "star", { count: watchUnseen }),
+    page("workspace", "/issues", "All issues", "layers", { match: (p) => p === "/issues" }),
     // Sprint features show only with a mapped Sprint field (§4.1).
     ...(sprints
       ? [
-          { href: "/backlog", label: "Backlog", icon: "list" as IconName, count: counts.backlog },
-          { href: "/releases", label: "Releases", icon: "rocket" as IconName, match: (p: string) => p === "/releases" },
-          ...(current ? [{ href: `/releases/${current.id}`, label: `Current · ${current.title}`, icon: "calendar" as IconName }] : []),
+          page("workspace", "/backlog", "Backlog", "list", { count: counts.backlog }),
+          page("workspace", "/releases", "Releases", "rocket", { match: (p) => p === "/releases" }),
+          ...(current ? [page("workspace", `/releases/${current.id}`, `Current · ${current.title}`, "calendar", { key: CURRENT_KEY })] : []),
         ]
       : []),
-    { href: "/epics", label: "Epics", icon: "epic" },
-    { href: "/insights", label: "Insights", icon: "chart" },
+    page("workspace", "/epics", "Epics", "epic"),
+    page("workspace", "/insights", "Insights", "chart"),
+    ...views.map((v) => page("views", `/views/${v.id}`, v.name, v.layout === "board" ? "board" : v.layout === "table" ? "table" : "list")),
+    ...(dim?.options ?? []).map((t): NavItem => ({ key: `/teams/${t.id}`, home: "teams", href: `/teams/${t.id}`, label: plainName(t.name) || t.name, dot: <OptionDot color={t.color} size={8} /> })),
   ];
+  // The GitHub pages need GitHub data: in tasks-only mode they are not shown, starred or not.
+  const items = tasksOnly ? taskItems : [...githubItems, ...taskItems];
+  const lists = arrangeSidebar(items, layout);
+  const rows = (id: SidebarSection) => lists.sections[id] ?? [];
+
+  // Everything a stored key can still point at, shown now or not (the other mode's pages, archived projects).
+  const known = new Set([...taskItems, ...githubItems].map((i) => i.key).concat(projects.map((p) => projectKey(p.id))));
+  const exists = (key: string) => known.has(key);
+  const shown = () => ({
+    favorites: lists.favorites.map((i) => i.key),
+    sections: Object.fromEntries(SIDEBAR_SECTIONS.map((id) => [id, rows(id).map((i) => i.key)])) as Record<SidebarSection, string[]>,
+  });
+  const [drag, setDrag] = useState<DragItem | null>(null);
+  const [over, setOver] = useState<DropAt | null>(null);
+  const endDrag = () => {
+    setDrag(null);
+    setOver(null);
+  };
+  const dnd = {
+    drag,
+    over,
+    start: setDrag,
+    // Dragover fires many times a second: keep the same state while the line has not moved.
+    hover: (at: DropAt) => setOver((o) => (o && o.list === at.list && o.key === at.key && o.after === at.after ? o : at)),
+    drop: (at: DropAt) => {
+      const change = drag && dropItem(layout, shown(), drag, { list: at.list, target: at.key, after: at.after }, exists);
+      endDrag();
+      if (change) void saveItems(change);
+    },
+    end: endDrag,
+    toggle: (key: string) => void saveItems(toggleFavorite(layout, shown().favorites, key, exists)),
+  };
+
+  /** The Tasks heading carries the task actions. */
+  const taskActions = (
+    <>
+      <button type="button" onClick={() => setRamble(true)} title="Ramble: speak your tasks" aria-label="Ramble" className="grid size-5 place-items-center rounded text-faint hover:bg-hover hover:text-fg">
+        <Icon name="mic" size={13} />
+      </button>
+      <button type="button" onClick={() => setSaveView(true)} title="Save view" aria-label="Save view" className="grid size-5 place-items-center rounded text-faint hover:bg-hover hover:text-fg">
+        <Icon name="sliders" size={13} />
+      </button>
+      <button type="button" onClick={() => openCompose()} title="New task" aria-label="New task" className="grid size-5 place-items-center rounded text-faint hover:bg-hover hover:text-fg">
+        <Icon name="plus" size={13} />
+      </button>
+    </>
+  );
 
   const blocks: Record<SidebarSection, React.ReactNode> = {
-    // The leads carry no heading of their own: the group's heading names them.
     tasks: (
-      <div key="tasks" className="space-y-px">
-        {taskNav.map((n) => (
-          <NavLink key={n.href} item={n} onNavigate={onNavigate} />
-        ))}
-      </div>
+      <Section key="tasks" title="Tasks" action={taskActions}>
+        <NavList list="tasks" items={rows("tasks")} onNavigate={onNavigate} />
+      </Section>
     ),
     projects: (
       <Section
@@ -230,11 +360,7 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
           </button>
         }
       >
-        {projects
-          .filter((p) => !p.archived)
-          .map((p) => (
-            <ProjectLink key={p.id} href={`/tasks/p/${p.id}`} label={p.name} color={p.color} count={taskCounts.perProject.get(p.id)} onNavigate={onNavigate} drop={{ kind: "project", id: p.id, name: p.name }} />
-          ))}
+        <NavList list="projects" items={rows("projects")} onNavigate={onNavigate} />
         {projects.every((p) => p.archived) && <p className="px-2 py-1 text-[12px] text-faint">No projects yet</p>}
         {projects.some((p) => p.archived) && (
           <details className="px-2 text-[12px] text-faint">
@@ -242,7 +368,7 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
             {projects
               .filter((p) => p.archived)
               .map((p) => (
-                <ProjectLink key={p.id} href={`/tasks/p/${p.id}`} label={p.name} color={p.color} onNavigate={onNavigate} />
+                <ArchivedLink key={p.id} href={projectKey(p.id)} label={p.name} color={p.color} onNavigate={onNavigate} />
               ))}
           </details>
         )}
@@ -258,18 +384,14 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
           </button>
         }
       >
-        {labels.map((l) => (
-          <ProjectLink key={l.id} href={`/tasks/l/${l.id}`} label={l.name} color={l.color} shape="tag" count={taskCounts.perLabel.get(l.id)} onNavigate={onNavigate} drop={{ kind: "label", name: l.name }} />
-        ))}
+        <NavList list="labels" items={rows("labels")} onNavigate={onNavigate} />
         {labels.length === 0 && <p className="px-2 py-1 text-[12px] text-faint">No labels yet</p>}
       </Section>
     ),
     workspace: (
-      <div key="workspace" className="space-y-px">
-        {workspace.map((n) => (
-          <NavLink key={n.href} item={n} onNavigate={onNavigate} />
-        ))}
-      </div>
+      <Section key="workspace" title="GitHub">
+        <NavList list="workspace" items={rows("workspace")} onNavigate={onNavigate} />
+      </Section>
     ),
     views: (
       <Section
@@ -281,54 +403,17 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
           </Link>
         }
       >
-        {views.map((v) => (
-          <NavLink
-            key={v.id}
-            onNavigate={onNavigate}
-            item={{
-              href: `/views/${v.id}`,
-              label: v.name,
-              icon: v.layout === "board" ? "board" : v.layout === "table" ? "table" : "list",
-            }}
-          />
-        ))}
+        <NavList list="views" items={rows("views")} onNavigate={onNavigate} />
         {views.length === 0 && <p className="px-2 py-1 text-[12px] text-faint">No views yet</p>}
       </Section>
     ),
     teams: (
       <Section key="teams" title={dim?.name ?? "Dimensions"}>
         {!dim && <p className="px-2 py-1 text-[12px] text-faint">No dimension mapped</p>}
-        {(dim?.options ?? []).map((t) => (
-          <Link
-            key={t.id}
-            href={`/teams/${t.id}`}
-            onClick={onNavigate}
-            className="flex h-7 items-center gap-2 rounded-md px-2 text-[13px] font-medium text-muted hover:bg-hover hover:text-fg"
-          >
-            <span className="grid size-[15px] place-items-center">
-              <OptionDot color={t.color} size={8} />
-            </span>
-            <span className="truncate">{plainName(t.name) || t.name}</span>
-          </Link>
-        ))}
+        <NavList list="teams" items={rows("teams")} onNavigate={onNavigate} />
       </Section>
     ),
   };
-
-  /** The Tasks heading carries the task actions (they used to sit on the Tasks section). */
-  const taskActions = (
-    <>
-      <button type="button" onClick={() => setRamble(true)} title="Ramble: speak your tasks" aria-label="Ramble" className="grid size-5 place-items-center rounded text-faint hover:bg-hover hover:text-fg">
-        <Icon name="mic" size={13} />
-      </button>
-      <button type="button" onClick={() => setSaveView(true)} title="Save view" aria-label="Save view" className="grid size-5 place-items-center rounded text-faint hover:bg-hover hover:text-fg">
-        <Icon name="sliders" size={13} />
-      </button>
-      <button type="button" onClick={() => openCompose()} title="New task" aria-label="New task" className="grid size-5 place-items-center rounded text-faint hover:bg-hover hover:text-fg">
-        <Icon name="plus" size={13} />
-      </button>
-    </>
-  );
 
   return (
     <div className="flex h-full flex-col px-2.5 pb-2.5 pt-3">
@@ -367,22 +452,24 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
         <Kbd>⌘K</Kbd>
       </button>
 
-      <nav aria-label="Main" className="mt-3 min-h-0 flex-1 overflow-y-auto pr-0.5">
-        <div className="space-y-px">
-          <NavLink item={home} onNavigate={onNavigate} />
-          {!tasksOnly && primary.map((n) => (
-            <NavLink key={n.href} item={n} onNavigate={onNavigate} />
-          ))}
-        </div>
+      <nav
+        aria-label="Main"
+        className="mt-3 min-h-0 flex-1 overflow-y-auto pr-0.5"
+        onDragLeave={(e) => {
+          // The pointer left the sidebar: no list would take the drop.
+          if (!(e.relatedTarget instanceof Node) || !e.currentTarget.contains(e.relatedTarget)) setOver(null);
+        }}
+      >
+        <NavDndContext.Provider value={dnd}>
+          <Section title="Favorites" first>
+            <NavList list="favorites" items={lists.favorites} onNavigate={onNavigate}>
+              {lists.favorites.length === 0 && <p className="px-2 py-1 text-[12px] text-faint">Star a page, or drag it here, to keep it on top</p>}
+            </NavList>
+          </Section>
 
-        {groups
-          // The GitHub group needs GitHub data; a group with every section hidden has no heading either.
-          .filter((g) => g.visible && !(tasksOnly && g.id === "github"))
-          .map((g) => (
-            <Group key={g.id} id={g.id} title={g.label} action={g.id === "tasks" ? taskActions : undefined}>
-              {g.sections.filter((x) => !x.hidden).map((x) => blocks[x.id])}
-            </Group>
-          ))}
+          {/* The sections in the viewer's own order (Customize). The GitHub ones need GitHub data. */}
+          {sections.filter((x) => !x.hidden && !(tasksOnly && GITHUB_SECTIONS.includes(x.id))).map((x) => blocks[x.id])}
+        </NavDndContext.Provider>
         <ProjectDialog open={newProject} onClose={() => setNewProject(false)} />
         <NewLabelDialog open={newLabel} onClose={() => setNewLabel(false)} />
         <SaveTaskViewDialog open={saveView} onClose={() => setSaveView(false)} />

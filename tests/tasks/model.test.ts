@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { addDays, dueLabel, localToday } from "@/lib/tasks/dates";
-import { compareTasks, createTaskSchema, groupSidebar, HOME_PANELS, patchTaskSchema, prefsSchema, resolveHome, resolveSidebar, SIDEBAR_SECTIONS, startPath, type Task } from "@/lib/tasks/model";
+import { compareTasks, createTaskSchema, HOME_PANELS, patchTaskSchema, prefsSchema, resolveHome, resolveSidebar, SIDEBAR_SECTIONS, startPath, type Task } from "@/lib/tasks/model";
 
 function task(p: Partial<Task>): Task {
   return {
@@ -107,40 +107,11 @@ describe("sidebar layout", () => {
   });
 });
 
-describe("sidebar groups (HOME-SPEC §2.2)", () => {
-  const ids = (layout: Parameters<typeof resolveSidebar>[0]) => groupSidebar(resolveSidebar(layout)).map((g) => [g.id, g.sections.map((s) => s.id)]);
-
-  it("Tasks, then GitHub, each led by its own lists", () => {
-    expect(ids(null)).toEqual([
-      ["tasks", ["tasks", "projects", "labels"]],
-      ["github", ["workspace", "views", "teams"]],
-    ]);
-    expect(groupSidebar(resolveSidebar(null)).map((g) => [g.label, g.lead])).toEqual([["Tasks", "tasks"], ["GitHub", "workspace"]]);
-  });
-
-  it("keeps the stored relative order of the sub-sections inside a group", () => {
-    expect(ids({ order: ["labels", "teams", "projects", "views"], hidden: [] })).toEqual([
-      ["tasks", ["tasks", "labels", "projects"]],
-      ["github", ["workspace", "teams", "views"]],
-    ]);
-  });
-
-  it("reads a stored order with a GitHub section before a Tasks one as Tasks first", () => {
-    expect(ids({ order: ["workspace", "views", "teams", "tasks", "projects", "labels"], hidden: [] }).map(([id]) => id)).toEqual(["tasks", "github"]);
-  });
-
-  it("keeps the lead first wherever the stored order put it", () => {
-    expect(ids({ order: ["projects", "labels", "tasks", "views", "workspace"], hidden: [] })).toEqual([
-      ["tasks", ["tasks", "projects", "labels"]],
-      ["github", ["workspace", "views", "teams"]],
-    ]);
-  });
-
-  it("hides a group whose sections are all hidden, and only then", () => {
-    const groups = (hidden: Parameters<typeof resolveSidebar>[0] & object) => groupSidebar(resolveSidebar(hidden)).map((g) => g.visible);
-    expect(groups({ order: [], hidden: ["workspace", "views", "teams"] })).toEqual([true, false]);
-    expect(groups({ order: [], hidden: ["workspace", "views"] })).toEqual([true, true]);
-    expect(groups({ order: [], hidden: ["tasks"] })).toEqual([true, true]);
+describe("sidebar sections in any order (HOME-SPEC §2.5)", () => {
+  it("keeps a stored order that mixes the task and GitHub sections", () => {
+    const out = resolveSidebar({ order: ["workspace", "projects", "views", "tasks", "teams", "labels"], hidden: ["teams"] });
+    expect(out.map((s) => s.id)).toEqual(["workspace", "projects", "views", "tasks", "teams", "labels"]);
+    expect(out.filter((s) => s.hidden).map((s) => s.id)).toEqual(["teams"]);
   });
 });
 
