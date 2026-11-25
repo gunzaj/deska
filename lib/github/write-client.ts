@@ -3,7 +3,7 @@
 // WRITE_MODE=on (off in production until IT/security sign-off).
 import { gqlClient, restClient } from "./client";
 import { githubTarget, pinnedProjectId, type GithubTarget } from "../config";
-import { NonRetryableError, type WriteClient } from "../outbox/worker";
+import { NonRetryableError, type PostedComment, type WriteClient } from "../outbox/worker";
 import { dimFieldId, isDimKey, type FieldRef, type ProjectFieldMap } from "../sync/field-map";
 import type { CreateIssuePayload } from "../outbox/create";
 import type { WriteGate } from "../writes/gate";
@@ -42,6 +42,8 @@ export const ALLOWED_REST_WRITES: readonly string[] = [
   "issues.removeLabel",
   "issues.addAssignees",
   "issues.removeAssignees",
+  // Post a comment on an issue. Comments are never edited or deleted.
+  "issues.createComment",
 ];
 
 /**
@@ -522,6 +524,41 @@ export class GitHubWriteClient implements WriteClient {
   /** Add an existing issue to the pinned project (W3); reuses the item lookup. */
   async addProjectItem(issueNodeId: string): Promise<void> {
     await this.itemFor(issueNodeId);
+  }
+
+  /** Post a comment on the issue (SPEC §4.8), as the token's user. */
+  async addComment(issueNodeId: string, body: string): Promise<PostedComment> {
+    const res = await this.restWrite("issues.createComment", {
+      owner: this.owner,
+      repo: this.repo,
+      issue_number: await this.issueNumber(issueNodeId),
+      body,
+    });
+    const data = ((res as { data?: unknown } | null)?.data ?? {}) as { id?: unknown; html_url?: unknown };
+    return { id: data.id == null ? "" : String(data.id), url: typeof data.html_url === "string" ? data.html_url : "" };
+  }
+
+  /**
+   * A comment with this text that the token's user posted on the issue at or
+   * after `since`. A comment whose answer was lost (a timeout, a 502 after GitHub
+   * committed) is looked up before it is sent again, so a retry never posts twice.
+   */
+  async findComment(issueNodeId: string, body: string, since: Date): Promise<PostedComment | null> {
+    const me = await this.rest.users.getAuthenticated();
+    const login = me.data.login.toLowerCase();
+    // A little slack for clock skew between this machine and GitHub.
+    const from = new Date(since.getTime() - 60_000);
+    const rows = await this.rest.paginate(this.rest.issues.listComments, {
+      owner: this.owner,
+      repo: this.repo,
+      issue_number: await this.issueNumber(issueNodeId),
+      since: from.toISOString(),
+      per_page: 100,
+    });
+    // GitHub stores a comment with its line endings normalised and its ends trimmed.
+    const text = (s: string) => s.replace(/\r\n/g, "\n").trim();
+    const hit = rows.find((c) => c.user?.login?.toLowerCase() === login && text(c.body ?? "") === text(body) && new Date(c.created_at).getTime() >= from.getTime());
+    return hit ? { id: String(hit.id), url: hit.html_url } : null;
   }
 
   async closeIssue(issueNodeId: string): Promise<void> {

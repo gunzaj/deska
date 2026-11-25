@@ -387,6 +387,44 @@ describe("GitHubWriteClient", () => {
     expect(await client().findCreatedIssue({ ...payload, title: "Nothing like it" }, since)).toBeNull();
   });
 
+  it("posts a comment on the issue's number and returns its ID and link", async () => {
+    server.use(
+      http.post("https://api.github.com/repos/:owner/:repo/issues/:n/comments", async ({ request }) => {
+        rest.push({ method: "POST", path: new URL(request.url).pathname, body: await request.json() });
+        return HttpResponse.json({ id: 9001, html_url: "https://github.com/acme/widgets/issues/4242#issuecomment-9001" }, { status: 201 });
+      }),
+    );
+    const made = await client().addComment("I_1", "Looks good to me.");
+    expect(made).toEqual({ id: "9001", url: "https://github.com/acme/widgets/issues/4242#issuecomment-9001" });
+    expect(rest).toEqual([{ method: "POST", path: "/repos/acme/widgets/issues/4242/comments", body: { body: "Looks good to me." } }]);
+  });
+
+  it("refuses a comment on an issue that moved to another repository", async () => {
+    issueRepo = "acme/other";
+    await expect(client().addComment("I_1", "hello")).rejects.toThrow(/now lives in acme\/other/);
+    expect(rest).toHaveLength(0);
+  });
+
+  it("finds a comment an unconfirmed try already posted: same author, same text, since the job was queued", async () => {
+    const since = new Date("2026-11-10T10:00:00Z");
+    const seen: URLSearchParams[] = [];
+    server.use(
+      http.get("https://api.github.com/user", () => HttpResponse.json({ login: "alice" })),
+      http.get("https://api.github.com/repos/:owner/:repo/issues/:n/comments", ({ request }) => {
+        seen.push(new URL(request.url).searchParams);
+        return HttpResponse.json([
+          { id: 1, user: { login: "bob" }, body: "Same text", created_at: "2026-11-10T10:00:01Z", html_url: "https://github.com/acme/widgets/issues/4242#issuecomment-1" },
+          { id: 2, user: { login: "alice" }, body: "Other text", created_at: "2026-11-10T10:00:01Z", html_url: "https://github.com/acme/widgets/issues/4242#issuecomment-2" },
+          { id: 3, user: { login: "alice" }, body: "Same text", created_at: "2026-11-09T10:00:00Z", html_url: "https://github.com/acme/widgets/issues/4242#issuecomment-3" },
+          { id: 4, user: { login: "Alice" }, body: "Same text\r\n", created_at: "2026-11-10T10:00:02Z", html_url: "https://github.com/acme/widgets/issues/4242#issuecomment-4" },
+        ]);
+      }),
+    );
+    expect(await client().findComment("I_1", "Same text", since)).toEqual({ id: "4", url: "https://github.com/acme/widgets/issues/4242#issuecomment-4" });
+    expect(seen[0]?.get("since")).toBe("2026-11-10T09:59:00.000Z");
+    expect(await client().findComment("I_1", "Never posted", since)).toBeNull();
+  });
+
   it("rejects an unknown field", async () => {
     await expect(client().applyField("I_1", "nonsense", "x")).rejects.toThrow(/unsupported field/);
   });
@@ -406,7 +444,7 @@ describe("the operation allowlist (SPEC §4.8, W0)", () => {
     ]) {
       expect(() => assertAllowedMutation(q), q).toThrow(/allowlist/);
     }
-    for (const op of ["issues.delete", "issues.removeAllLabels", "repos.delete", "issues.transfer"]) {
+    for (const op of ["issues.delete", "issues.removeAllLabels", "repos.delete", "issues.transfer", "issues.updateComment", "issues.deleteComment"]) {
       expect(() => assertAllowedRest(op), op).toThrow(/allowlist/);
     }
   });
@@ -424,7 +462,7 @@ describe("the operation allowlist (SPEC §4.8, W0)", () => {
       "addRelatesTo",
       "removeRelatesTo",
     ]);
-    expect(ALLOWED_REST_WRITES).toEqual(["issues.update", "issues.create", "issues.addLabels", "issues.removeLabel", "issues.addAssignees", "issues.removeAssignees"]);
+    expect(ALLOWED_REST_WRITES).toEqual(["issues.update", "issues.create", "issues.addLabels", "issues.removeLabel", "issues.addAssignees", "issues.removeAssignees", "issues.createComment"]);
     expect(() => assertAllowedMutation(`mutation($project:ID!, $content:ID!) { addProjectV2ItemById(input:{projectId:$project, contentId:$content}) { item { id } } }`)).not.toThrow();
   });
 

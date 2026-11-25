@@ -39,7 +39,7 @@ A **classic PAT** is also accepted, for when an org has not approved a fine-grai
 | Permission | Read-only use | With writes (later, opt-in) | Used for |
 |---|---|---|---|
 | Repository → Metadata | Read (mandatory) | Read | Repo info, assignable users, labels, milestones |
-| Repository → Issues | **Read** | **Read and write** | Issues, sub-issues, issue types on issues, comments, rendered bodies. With writes: fields, labels, assignees, close/reopen, create |
+| Repository → Issues | **Read** | **Read and write** | Issues, sub-issues, issue types on issues, comments, rendered bodies. With writes: fields, labels, assignees, close/reopen, create, post a comment |
 | Organization → Projects | **Read** | **Read and write** | Project fields, options, iterations, item values. With writes: set values, add new issues to the project |
 | Organization → Issue types | Read, optional | Read, optional | The org's issue types. If refused, Type shows as unavailable instead of failing |
 | Anything else | Not requested | Not requested | — |
@@ -119,7 +119,7 @@ Exports from Settings contain the same data as a backup, and never the token.
 - Never deletes issues, comments, project items or anything else on GitHub.
 - Never creates, renames or deletes project fields, options or iterations.
 - Never removes items from a project.
-- Never edits issue titles or bodies, posts GitHub comments or changes parent/sub-issue links.
+- Never edits issue titles or bodies, and never edits or deletes a comment. (With writes on it can post a comment and link or unlink issues, each only after your action.)
 - Never writes to a project other than the pinned one.
 - Never touches pull requests.
 - Never sends data anywhere except the GitHub API and, only if the user turned AI assist on and it passed "Test connection", the AI provider the user chose (see "AI assist").

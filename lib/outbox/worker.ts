@@ -27,7 +27,17 @@ export interface WriteClient {
    * second issue.
    */
   findCreatedIssue?(payload: CreateIssuePayload, since: Date): Promise<{ nodeId: string; number: number } | null>;
+  /** Post a comment on the issue and return its ID and link (SPEC §4.8). */
+  addComment?(issueNodeId: string, body: string): Promise<PostedComment>;
+  /**
+   * The comment an earlier, unconfirmed try of this job already posted, or null.
+   * Called before a comment is sent again, so a lost answer never posts it twice.
+   */
+  findComment?(issueNodeId: string, body: string, since: Date): Promise<PostedComment | null>;
 }
+
+/** A comment GitHub confirmed: its REST ID and its link. */
+export type PostedComment = { id: string; url: string };
 
 /**
  * A failure that trying again cannot fix (the issue now lives in another repo,
@@ -108,6 +118,7 @@ export async function attemptEntry(
   onStep?: (step: string, result?: unknown) => Promise<void>,
 ): Promise<Attempt> {
   if (entry.op === "create") return applyCreate(entry, client, onStep);
+  if (entry.op === "comment") return applyComment(entry, client, onStep);
   // A close also sets Status (§4.8), so it needs the Done Status before its
   // first step: checked inside the steps, the issue was closed first and the
   // job failed afterwards. A close queued behind another edit, or one waiting
@@ -238,6 +249,34 @@ async function findEarlierCreate(entry: OutboxEntry, client: WriteClient, payloa
     throw new NonRetryableError("an earlier try may already have created this issue; check GitHub before creating it again");
   }
   return client.findCreatedIssue(payload, new Date(entry.createdAt));
+}
+
+/**
+ * Post a comment (SPEC §4.8). A comment only adds to the thread, so there is no
+ * stale check. The posted comment is recorded as the job's step, and a try whose
+ * answer was lost looks for the comment on GitHub before sending it again.
+ */
+async function applyComment(entry: OutboxEntry, client: WriteClient, onStep?: (step: string, result?: unknown) => Promise<void>): Promise<Attempt> {
+  if (entry.step === "add-comment") return { status: "done", error: null, tried: true };
+  const body = (entry.next as { body?: unknown } | null)?.body;
+  try {
+    if (typeof body !== "string" || !body.trim()) throw new NonRetryableError("the comment is empty; nothing was written");
+    if (!client.addComment) throw new NonRetryableError("this build cannot post comments");
+    let posted: PostedComment | null = null;
+    if (entry.attempts > 0) {
+      if (!client.findComment || !entry.createdAt) {
+        throw new NonRetryableError("an earlier try may already have posted this comment; check GitHub before posting it again");
+      }
+      posted = await client.findComment(entry.issueNodeId, body, new Date(entry.createdAt));
+    }
+    if (!posted) posted = await client.addComment(entry.issueNodeId, body);
+    await onStep?.("add-comment", posted);
+    return { status: "done", error: null, tried: true };
+  } catch (e) {
+    const tries = entry.attempts + 1;
+    if (isRetryable(e) && tries < MAX_ATTEMPTS) return { status: "retry", error: String(e), tried: true };
+    return { status: "failed", error: e instanceof NonRetryableError ? e.message : String(e), tried: true };
+  }
 }
 
 /** Run the remaining steps of a multi-step job, recording each after it succeeds. */

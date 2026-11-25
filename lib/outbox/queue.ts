@@ -1,4 +1,4 @@
-export type OutboxOp = "update" | "close" | "reopen" | "create";
+export type OutboxOp = "update" | "close" | "reopen" | "create" | "comment";
 
 /**
  * `pending`: not sent yet (or waiting for a retry); `sending`: claimed by the

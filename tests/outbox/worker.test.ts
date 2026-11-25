@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { needsBulkConfirm, type OutboxEntry } from "@/lib/outbox/queue";
-import { isRetryable, processEntry, type AuditRecord, type WriteClient } from "@/lib/outbox/worker";
+import { attemptEntry, isRetryable, processEntry, type AuditRecord, type WriteClient } from "@/lib/outbox/worker";
 
 function fakeClient(remote: Record<string, unknown>, failTimes = 0): WriteClient & { log: string[]; remote: Record<string, unknown> } {
   let failures = 0;
@@ -251,5 +251,82 @@ describe("write-back hardening (regression)", () => {
     await expect(processEntry(e, client, audit, "X")).resolves.toBeUndefined();
     expect(e.status).toBe("failed");
     expect(audit.at(-1)?.result).toBe("failed");
+  });
+});
+
+describe("posting a comment (SPEC §4.8)", () => {
+  const comment = (over: Partial<OutboxEntry> = {}) =>
+    entry({ op: "comment", field: "comment", base: null, next: { body: "Looks good to me." }, createdAt: "2026-11-10T10:00:00.000Z", ...over });
+
+  function commenter(opts: { fail?: number; earlier?: { id: string; url: string } | null; lookup?: boolean } = {}) {
+    const calls: string[] = [];
+    const client: WriteClient = {
+      ...fakeClient({}),
+      async readField() {
+        calls.push("read");
+        return null;
+      },
+      async addComment(node, body) {
+        calls.push(`post ${node} ${body}`);
+        if (opts.fail) throw Object.assign(new Error("boom"), { status: opts.fail });
+        return { id: "9001", url: "https://github.com/acme/widgets/issues/1#issuecomment-9001" };
+      },
+    };
+    if (opts.lookup !== false) {
+      client.findComment = async () => {
+        calls.push("find");
+        return opts.earlier ?? null;
+      };
+    }
+    return { client, calls };
+  }
+
+  it("posts without reading the issue first and records the comment as the job's step", async () => {
+    const { client, calls } = commenter();
+    const steps: [string, unknown][] = [];
+    const r = await attemptEntry(comment(), client, "", async (step, result) => void steps.push([step, result]));
+    expect(r).toMatchObject({ status: "done", tried: true });
+    expect(calls).toEqual(["post I_1 Looks good to me."]);
+    expect(steps).toEqual([["add-comment", { id: "9001", url: "https://github.com/acme/widgets/issues/1#issuecomment-9001" }]]);
+  });
+
+  it("a retry looks for the comment first: one an earlier try posted is not posted again", async () => {
+    const { client, calls } = commenter({ earlier: { id: "77", url: "u" } });
+    const steps: [string, unknown][] = [];
+    const r = await attemptEntry(comment({ attempts: 1 }), client, "", async (step, result) => void steps.push([step, result]));
+    expect(r.status).toBe("done");
+    expect(calls).toEqual(["find"]);
+    expect(steps).toEqual([["add-comment", { id: "77", url: "u" }]]);
+  });
+
+  it("a retry that finds nothing posts the comment", async () => {
+    const { client, calls } = commenter({ earlier: null });
+    expect((await attemptEntry(comment({ attempts: 1 }), client, "")).status).toBe("done");
+    expect(calls).toEqual(["find", "post I_1 Looks good to me."]);
+  });
+
+  it("a retry with no way to look fails instead of risking a second comment", async () => {
+    const { client, calls } = commenter({ lookup: false });
+    const r = await attemptEntry(comment({ attempts: 1 }), client, "");
+    expect(r).toMatchObject({ status: "failed", error: expect.stringMatching(/may already have posted/) });
+    expect(calls).toEqual([]);
+  });
+
+  it("a job whose step is recorded is done without another request", async () => {
+    const { client, calls } = commenter();
+    expect((await attemptEntry(comment({ step: "add-comment", attempts: 1 }), client, "")).status).toBe("done");
+    expect(calls).toEqual([]);
+  });
+
+  it("retries a 5xx and fails a refusal (a locked issue) with GitHub's reason", async () => {
+    expect((await attemptEntry(comment(), commenter({ fail: 502 }).client, "")).status).toBe("retry");
+    const r = await attemptEntry(comment(), commenter({ fail: 403 }).client, "");
+    expect(r).toMatchObject({ status: "failed", error: expect.stringContaining("boom") });
+  });
+
+  it("refuses an empty comment", async () => {
+    const { client, calls } = commenter();
+    expect(await attemptEntry(comment({ next: { body: "  " } }), client, "")).toMatchObject({ status: "failed", error: expect.stringMatching(/empty/) });
+    expect(calls).toEqual([]);
   });
 });
