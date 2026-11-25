@@ -70,6 +70,40 @@ body {
     opacity: 1;
   }
 }
+/* Completing a task: the circle dips, overshoots and sends out a ring; the tick lands a beat later. */
+@keyframes deska-check-pop {
+  0% {
+    transform: scale(1);
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--check-c) 50%, transparent);
+  }
+  30% {
+    transform: scale(0.82);
+  }
+  65% {
+    transform: scale(1.18);
+  }
+  100% {
+    transform: scale(1);
+    box-shadow: 0 0 0 8px transparent;
+  }
+}
+@keyframes deska-check-tick {
+  0%,
+  30% {
+    opacity: 0;
+    transform: scale(0.3);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+.anim-check-pop {
+  animation: deska-check-pop 320ms cubic-bezier(0.3, 1.4, 0.6, 1) both;
+}
+.anim-check-tick {
+  animation: deska-check-tick 320ms ease-out both;
+}
 .anim-pop {
   animation: deska-pop 120ms ease-out;
 }

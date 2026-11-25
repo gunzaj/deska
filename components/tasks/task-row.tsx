@@ -125,9 +125,12 @@ export function TaskRow({
           e.preventDefault();
           openTask(task.id);
         } else if (action === "complete") {
-          // Same as the checkbox: a repeating task moves to its next date.
+          // Same as the checkbox, and through it so the completion pop plays:
+          // a repeating task moves to its next date.
           e.preventDefault();
-          toggleComplete(task);
+          const check = e.currentTarget.querySelector<HTMLElement>('[role="checkbox"]');
+          if (check) check.click();
+          else toggleComplete(task);
         } else if (action === "next" || action === "prev") {
           e.preventDefault();
           const rows = [...document.querySelectorAll<HTMLElement>("[data-task-row]")];
