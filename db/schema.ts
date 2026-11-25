@@ -1,7 +1,7 @@
 // Full v1 schema from SPEC §7. Key rule: everything references issues.id
 // (internal uuid), never GitHub node IDs or numbers directly.
 import { sql } from "drizzle-orm";
-import type { ProjectSource, SidebarLayout } from "../lib/tasks/model";
+import type { HomeLayout, ProjectSource, SidebarLayout, StartPage } from "../lib/tasks/model";
 import {
   type AnyPgColumn,
   boolean,
@@ -513,6 +513,10 @@ export const userPrefs = pgTable("user_prefs", {
   sidebar: jsonb("sidebar").$type<SidebarLayout>(),
   /** A dimension option ID every list and Insights filter by by default ("My default", §4.1); null = no default. */
   defaultTeam: text("default_team"),
+  /** Where "/" opens: home, my or today (HOME-SPEC §3.1); null = Home. */
+  startPage: text("start_page").$type<StartPage>(),
+  /** Home's panel order and hidden panels (HOME-SPEC §5); null = default. */
+  home: jsonb("home").$type<HomeLayout>(),
 });
 
 // Comments on a task (SPEC §12.7). Deska-only; visibility follows the task.

@@ -20,6 +20,7 @@ import { PEEK_PARAM, recentIssues, useOpenIssue } from "./open-issue";
 import { useOpenIssueInTab } from "./tabs";
 import { useApp } from "./provider";
 import { CUSTOMIZE_SIDEBAR_EVENT } from "./sidebar-customize";
+import { CUSTOMIZE_HOME_EVENT } from "@/lib/client/home";
 
 type Item = {
   id: string;
@@ -134,6 +135,7 @@ export function CommandPalette() {
     const cur = meta.releases.find((r) => r.id === meta.currentReleaseId);
     const next = meta.releases.find((r) => r.id === meta.nextReleaseId);
     const nav: Item[] = [
+      { id: "nav:home", section: "Go to", label: "Home", keywords: "start overview dashboard cockpit today", icon: ico("home"), hint: <Kbd>G H</Kbd>, run: go("/home") },
       { id: "nav:triage", section: "Go to", label: "Triage", keywords: "inbox untriaged", icon: ico("inbox"), hint: <Kbd>G T</Kbd>, run: go("/triage") },
       { id: "nav:watching", section: "Go to", label: "Watching", keywords: "starred follow changes watchlist", icon: ico("star"), run: go("/watching") },
       { id: "nav:my", section: "Go to", label: "My issues", icon: ico("user"), hint: <Kbd>G M</Kbd>, run: go("/my") },
@@ -191,6 +193,7 @@ export function CommandPalette() {
       },
       { id: "act:system", section: "Actions", label: "Use system theme", keywords: "theme appearance auto", icon: ico("monitor"), run: () => setTheme("system") },
       { id: "act:sidebar", section: "Actions", label: "Customize sidebar", keywords: "hide show reorder sections navigation", icon: ico("sliders"), run: () => window.dispatchEvent(new CustomEvent(CUSTOMIZE_SIDEBAR_EVENT)) },
+      { id: "act:home", section: "Actions", label: "Customize Home", keywords: "hide show reorder panels dashboard", icon: ico("sliders"), run: () => { router.push("/home"); setTimeout(() => window.dispatchEvent(new CustomEvent(CUSTOMIZE_HOME_EVENT)), 0); } },
       {
         id: "act:copy",
         section: "Actions",
@@ -215,7 +218,7 @@ export function CommandPalette() {
     const sprints = sprintOn(meta);
     const sprintNav = new Set(["nav:backlog", "nav:cur", "nav:next", "nav:plan", "nav:releases"]);
     return [...nav.filter((n) => sprints || !sprintNav.has(n.id)), ...viewItems, ...actions, ...teams, ...(sprints ? releases : [])];
-  }, [data, views, theme, openCompose, go, setTheme, syncNow]);
+  }, [data, views, theme, openCompose, go, setTheme, syncNow, router]);
 
   const targetActions = useMemo<Item[]>(() => {
     if (!target) return [];

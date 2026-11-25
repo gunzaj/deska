@@ -42,6 +42,8 @@ test("saving a task view puts it after Completed and opens it with its filters",
   await expect(page.getByRole("listitem").filter({ hasText: mine })).toBeVisible();
   await expect(page.getByText(other)).toHaveCount(0);
   await expect(nav.getByRole("link", { name })).toBeVisible();
+  // Saved task views sit in the Tasks group, right after the four built-in lists (HOME-SPEC §2.1).
+  await expect.poll(() => nav.locator('[data-sidebar-group="tasks"]').getByRole("link").evaluateAll((els) => els.slice(0, 5).map((e) => e.querySelector("span")?.textContent ?? ""))).toEqual(["Inbox", "Today", "Upcoming", "Completed", name]);
 
   // It survives a reload: the view is in the sidebar and its filter still runs.
   await page.reload();

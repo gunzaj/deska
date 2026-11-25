@@ -22,6 +22,9 @@ export function priorityLabel(p: Priority): string {
   return `${o.short} ${o.label}`;
 }
 
+/** Length of the completion pop; matches `.anim-check-pop` in globals.css. */
+const CHECK_POP_MS = 320;
+
 /** Round checkbox, ringed in the priority colour, as in Todoist. */
 export function TaskCheck({
   done,
@@ -38,31 +41,44 @@ export function TaskCheck({
   disabled?: boolean;
 }) {
   const c = PRIORITY_COLOR[priority];
+  // Completing plays a short pop first (as in Todoist): the row often leaves
+  // the list as soon as the task is done, so the toggle waits for it.
+  const [popping, setPopping] = useState(false);
+  const filled = done || popping;
   return (
     <button
       type="button"
       role="checkbox"
-      aria-checked={done}
+      aria-checked={filled}
       disabled={disabled}
       aria-label={done ? `Mark "${title}" as not done` : `Complete "${title}"`}
       onClick={(e) => {
         e.stopPropagation();
-        onToggle();
+        if (popping) return;
+        if (done || window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+          onToggle();
+          return;
+        }
+        setPopping(true);
+        window.setTimeout(() => {
+          onToggle();
+          setPopping(false);
+        }, CHECK_POP_MS);
       }}
       // A 24×24 touch target (WCAG 2.5.8, UI-PASS §8) around the 18 px circle;
       // the negative margin keeps the row's layout as it was.
       className="group/check -m-[3px] grid size-6 shrink-0 place-items-center rounded-full disabled:cursor-not-allowed disabled:opacity-50"
     >
       <span
-        className="grid size-[18px] place-items-center rounded-full border-[1.6px] transition-colors"
-        style={{ borderColor: c, background: done ? c : `color-mix(in srgb, ${c} ${priority === 4 ? 0 : 10}%, transparent)` }}
+        className={`grid size-[18px] place-items-center rounded-full border-[1.6px] transition-colors ${popping ? "anim-check-pop" : ""}`}
+        style={{ borderColor: c, background: filled ? c : `color-mix(in srgb, ${c} ${priority === 4 ? 0 : 10}%, transparent)`, ["--check-c" as string]: c }}
       >
         <Icon
           name="check"
           size={11}
           strokeWidth={3}
-          className={done ? "text-surface" : "opacity-0 transition-opacity group-hover/check:opacity-100"}
-          style={done ? undefined : { color: c }}
+          className={filled ? `text-surface ${popping ? "anim-check-tick" : ""}` : "opacity-0 transition-opacity group-hover/check:opacity-100"}
+          style={filled ? undefined : { color: c }}
         />
       </span>
     </button>

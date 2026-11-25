@@ -71,6 +71,13 @@
       "when": 1794409193467,
       "tag": "0009_robust_starhawk",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1795558639447,
+      "tag": "0010_h1_home_prefs",
+      "breakpoints": true
     }
   ]
 }

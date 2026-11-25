@@ -18,7 +18,7 @@ import { useWatchlist } from "../watch/store";
 import { useDefaultScope } from "./team-scope";
 import { primaryDimension, sprintOn } from "@/lib/client/explorer";
 import { UserMenu } from "./user-menu";
-import { type SidebarSection } from "@/lib/tasks/model";
+import { groupSidebar, type SidebarGroupId, type SidebarSection } from "@/lib/tasks/model";
 import { ColorDot, NewLabelDialog, ProjectDialog } from "../tasks/organize";
 import { sidebarCounts } from "@/lib/tasks/counts";
 import { NotificationBell, useToday } from "../tasks/notifications";
@@ -96,12 +96,13 @@ function ProjectLink({
   );
 }
 
+/** A sub-section inside a group (Projects, Labels, Views, the dimension): its own collapsible heading. */
 function Section({ title, children, action }: { title: string; children: React.ReactNode; action?: React.ReactNode }) {
   const [open, setOpen] = useState(true);
   return (
-    <div className="mt-4">
+    <div className="mt-2.5" data-sidebar-section={title}>
       <div className="group flex h-6 items-center px-2">
-        <button type="button" onClick={() => setOpen((o) => !o)} className="flex flex-1 items-center gap-1 text-[11.5px] font-semibold text-faint hover:text-muted">
+        <button type="button" onClick={() => setOpen((o) => !o)} className="flex flex-1 items-center gap-1 text-[11.5px] font-medium text-faint hover:text-muted">
           {title}
           <Icon name={open ? "chevronDown" : "chevronRight"} size={12} className="opacity-0 group-hover:opacity-100" />
         </button>
@@ -112,9 +113,25 @@ function Section({ title, children, action }: { title: string; children: React.R
   );
 }
 
+/** One of the two groups (HOME-SPEC §2.1): a heading, the lead section's links, then the sub-sections. */
+function Group({ id, title, children, action }: { id: SidebarGroupId; title: string; children: React.ReactNode; action?: React.ReactNode }) {
+  const [open, setOpen] = useState(true);
+  return (
+    <div className="mt-4" role="group" aria-label={title} data-sidebar-group={id}>
+      <div className="group flex h-6 items-center px-2">
+        <h2 className="flex flex-1">
+          <button type="button" onClick={() => setOpen((o) => !o)} aria-expanded={open} className="flex flex-1 items-center gap-1 text-[11.5px] font-semibold text-muted hover:text-fg">
+            {title}
+            <Icon name={open ? "chevronDown" : "chevronRight"} size={12} className="opacity-0 group-hover:opacity-100" />
+          </button>
+        </h2>
+        {action}
+      </div>
+      {open && <div className="mt-0.5">{children}</div>}
+    </div>
+  );
+}
 
-/** Sidebar blocks that need GitHub data; hidden in "tasks only" mode. */
-const GITHUB_SECTIONS: SidebarSection[] = ["workspace", "views", "teams"];
 
 export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
   const tasksOnly = useTasksOnly();
@@ -150,6 +167,7 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
   const [saveView, setSaveView] = useState(false);
   const [ramble, setRamble] = useState(false);
   const { sections } = useSidebarLayout();
+  const groups = useMemo(() => groupSidebar(sections), [sections]);
   const [customize, setCustomize] = useState(false);
   const inDrawer = Boolean(onNavigate);
   useEffect(() => {
@@ -173,6 +191,7 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
   const current = meta.releases.find((r) => r.id === meta.currentReleaseId);
   const triage = useTriageCount();
   const { unseen: watchUnseen } = useWatchlist();
+  const home: NavItem = { href: "/home", label: "Home", icon: "home" };
   const primary: NavItem[] = [
     { href: "/triage", label: "Triage", icon: "inbox", count: triage },
     { href: "/my", label: "My issues", icon: "user", count: counts.mine },
@@ -193,28 +212,13 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
   ];
 
   const blocks: Record<SidebarSection, React.ReactNode> = {
+    // The leads carry no heading of their own: the group's heading names them.
     tasks: (
-      <Section
-        key="tasks"
-        title="Tasks"
-        action={
-          <>
-            <button type="button" onClick={() => setRamble(true)} title="Ramble: speak your tasks" aria-label="Ramble" className="grid size-5 place-items-center rounded text-faint hover:bg-hover hover:text-fg">
-              <Icon name="mic" size={13} />
-            </button>
-            <button type="button" onClick={() => setSaveView(true)} title="Save view" aria-label="Save view" className="grid size-5 place-items-center rounded text-faint hover:bg-hover hover:text-fg">
-              <Icon name="sliders" size={13} />
-            </button>
-            <button type="button" onClick={() => openCompose()} title="New task" aria-label="New task" className="grid size-5 place-items-center rounded text-faint hover:bg-hover hover:text-fg">
-              <Icon name="plus" size={13} />
-            </button>
-          </>
-        }
-      >
+      <div key="tasks" className="space-y-px">
         {taskNav.map((n) => (
           <NavLink key={n.href} item={n} onNavigate={onNavigate} />
         ))}
-      </Section>
+      </div>
     ),
     projects: (
       <Section
@@ -261,18 +265,18 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
       </Section>
     ),
     workspace: (
-      <Section key="workspace" title="Workspace">
+      <div key="workspace" className="space-y-px">
         {workspace.map((n) => (
           <NavLink key={n.href} item={n} onNavigate={onNavigate} />
         ))}
-      </Section>
+      </div>
     ),
     views: (
       <Section
         key="views"
         title="Views"
         action={
-          <Link href="/views/new" onClick={onNavigate} title="New view" className="grid size-5 place-items-center rounded text-faint hover:bg-hover hover:text-fg">
+          <Link href="/views/new" onClick={onNavigate} title="New view" aria-label="New view" className="grid size-5 place-items-center rounded text-faint hover:bg-hover hover:text-fg">
             <Icon name="plus" size={13} />
           </Link>
         }
@@ -310,6 +314,21 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
       </Section>
     ),
   };
+
+  /** The Tasks heading carries the task actions (they used to sit on the Tasks section). */
+  const taskActions = (
+    <>
+      <button type="button" onClick={() => setRamble(true)} title="Ramble: speak your tasks" aria-label="Ramble" className="grid size-5 place-items-center rounded text-faint hover:bg-hover hover:text-fg">
+        <Icon name="mic" size={13} />
+      </button>
+      <button type="button" onClick={() => setSaveView(true)} title="Save view" aria-label="Save view" className="grid size-5 place-items-center rounded text-faint hover:bg-hover hover:text-fg">
+        <Icon name="sliders" size={13} />
+      </button>
+      <button type="button" onClick={() => openCompose()} title="New task" aria-label="New task" className="grid size-5 place-items-center rounded text-faint hover:bg-hover hover:text-fg">
+        <Icon name="plus" size={13} />
+      </button>
+    </>
+  );
 
   return (
     <div className="flex h-full flex-col px-2.5 pb-2.5 pt-3">
@@ -350,12 +369,20 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
 
       <nav aria-label="Main" className="mt-3 min-h-0 flex-1 overflow-y-auto pr-0.5">
         <div className="space-y-px">
+          <NavLink item={home} onNavigate={onNavigate} />
           {!tasksOnly && primary.map((n) => (
             <NavLink key={n.href} item={n} onNavigate={onNavigate} />
           ))}
         </div>
 
-        {sections.filter((x) => !x.hidden && !(tasksOnly && GITHUB_SECTIONS.includes(x.id))).map((x) => blocks[x.id])}
+        {groups
+          // The GitHub group needs GitHub data; a group with every section hidden has no heading either.
+          .filter((g) => g.visible && !(tasksOnly && g.id === "github"))
+          .map((g) => (
+            <Group key={g.id} id={g.id} title={g.label} action={g.id === "tasks" ? taskActions : undefined}>
+              {g.sections.filter((x) => !x.hidden).map((x) => blocks[x.id])}
+            </Group>
+          ))}
         <ProjectDialog open={newProject} onClose={() => setNewProject(false)} />
         <NewLabelDialog open={newLabel} onClose={() => setNewLabel(false)} />
         <SaveTaskViewDialog open={saveView} onClose={() => setSaveView(false)} />

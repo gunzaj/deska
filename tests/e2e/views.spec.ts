@@ -42,3 +42,23 @@ test("a copied view imports as a new view with the same filters and layout; ther
   expect(new Set(copies.map((v) => `${v.layout}/${v.groupBy}`))).toEqual(new Set(["board/status"]));
   await context.close();
 });
+
+// HOME-SPEC §2.1: the Views sub-section of the GitHub group has its own "+".
+test("the Views + in the sidebar opens New view; the saved view is listed under Views", async ({ browser }) => {
+  const { context, page } = await as(browser);
+  const name = unique("Sidebar view");
+  await page.goto("/home");
+  const views = page.getByRole("navigation", { name: "Main" }).locator('[data-sidebar-group="github"] [data-sidebar-section="Views"]');
+  await views.getByRole("link", { name: "New view" }).click();
+  await expect(page).toHaveURL(/\/views\/new$/);
+  await expect(page.getByRole("heading", { name: "New view", level: 1 })).toBeVisible();
+  await page.locator("main").getByRole("button", { name: "Save view" }).click();
+  const dialog = page.getByRole("dialog", { name: "Save as view" });
+  await dialog.getByLabel("View name").fill(name);
+  await dialog.getByRole("button", { name: "Save view" }).click();
+  await page.waitForURL(/\/views\/(?!new$)[^/]+$/);
+  await expect(views.getByRole("link", { name })).toBeVisible();
+  const id = new URL(page.url()).pathname.split("/").pop()!;
+  await page.request.delete(`/api/views?id=${encodeURIComponent(id)}`);
+  await context.close();
+});

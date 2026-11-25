@@ -31,18 +31,21 @@ function scopeAdded(key: string, releaseId: string, since: string): Promise<stri
   return req;
 }
 
-/** Issues F0 saw set to this Release on or after its start. A failed load just means none are shown. */
-export function useScopeAdded(release: ClientRelease): { ids: string[]; loaded: boolean } {
+/** Issues F0 saw set to this Release on or after its start. A failed load just means none are shown. Without a release (Home with no sprint in progress) nothing is asked. */
+export function useScopeAdded(release: ClientRelease | null): { ids: string[]; loaded: boolean } {
   const [state, setState] = useState<{ key: string; ids: string[] } | null>(null);
-  const key = `${release.id}:${release.startDate}`;
+  const id = release?.id ?? null;
+  const since = release?.startDate ?? null;
+  const key = id && since ? `${id}:${since}` : null;
   useEffect(() => {
+    if (!key || !id || !since) return;
     let live = true;
-    void scopeAdded(key, release.id, release.startDate).then((ids) => live && setState({ key, ids }));
+    void scopeAdded(key, id, since).then((ids) => live && setState({ key, ids }));
     return () => {
       live = false;
     };
-  }, [release.id, release.startDate, key]);
-  return state?.key === key ? { ids: state.ids, loaded: true } : { ids: [], loaded: false };
+  }, [id, since, key]);
+  return key && state?.key === key ? { ids: state.ids, loaded: true } : { ids: [], loaded: false };
 }
 
 const explorer = (filters: Parameters<typeof encodeState>[0]["filters"]) => `/issues?s=${encodeState({ ...PRESETS.all, filters })}`;

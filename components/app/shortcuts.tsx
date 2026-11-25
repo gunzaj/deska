@@ -25,6 +25,7 @@ const GROUPS: { title: string; keys: [string[], string][] }[] = [
   {
     title: "Navigation",
     keys: [
+      [["G", "H"], "Home"],
       [["G", "T"], "Triage"],
       [["G", "M"], "My issues"],
       [["G", "D"], "Tasks inbox"],
@@ -104,6 +105,7 @@ export function GlobalShortcuts() {
       if (Date.now() - pendingG.current < 1200) {
         const cur = data.meta.currentReleaseId;
         const dest: Record<string, string | null> = {
+          h: "/home",
           t: "/triage",
           e: "/epics",
           m: "/my",

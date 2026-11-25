@@ -59,7 +59,7 @@ const PENDING_MS = 4000;
 const BLANK: TabsState = { tabs: [{ id: "blank", entries: ["/"], index: 0 }], active: "blank", closed: [] };
 
 /** Home routes "/" redirects to: launching on one of them shows the saved active tab. */
-const HOME = new Set(["/my", "/tasks"]);
+const HOME = new Set(["/home", "/my", "/tasks/today"]);
 
 /** The main scroller of the page shown: the tallest scrolling area in the content panel. */
 function mainScroller(): HTMLElement | null {
