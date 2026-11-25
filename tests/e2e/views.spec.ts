@@ -43,12 +43,12 @@ test("a copied view imports as a new view with the same filters and layout; ther
   await context.close();
 });
 
-// HOME-SPEC §2.1: the Views sub-section of the GitHub group has its own "+".
+// HOME-SPEC §2.1: the Views section has its own "+".
 test("the Views + in the sidebar opens New view; the saved view is listed under Views", async ({ browser }) => {
   const { context, page } = await as(browser);
   const name = unique("Sidebar view");
   await page.goto("/home");
-  const views = page.getByRole("navigation", { name: "Main" }).locator('[data-sidebar-group="github"] [data-sidebar-section="Views"]');
+  const views = page.getByRole("navigation", { name: "Main" }).locator('[data-sidebar-section="Views"]');
   await views.getByRole("link", { name: "New view" }).click();
   await expect(page).toHaveURL(/\/views\/new$/);
   await expect(page.getByRole("heading", { name: "New view", level: 1 })).toBeVisible();

@@ -72,6 +72,25 @@ Drag-and-drop targets (Inbox, Today, Upcoming, projects, labels) keep working ex
 - Unit (`tests/tasks/`): the group partition keeps relative order, ignores cross-group order, keeps leads first, and hides a group whose sections are all hidden.
 - e2e: update `sidebar-identity.spec.ts` and `task-views.spec.ts` for the new headings; extend `views.spec.ts` to create a view from the Views "+"; tasks-only mode shows no Triage/My issues/Watching and no GitHub group.
 
+### 2.4 Favorites and manual order (v1.4.3)
+
+- **Favorites** is the top section, with its own heading. It replaces the unheaded primary list of §2.1: Home, Triage, My issues and Watching are the default favorites.
+- Every sidebar item (built-in page, saved view, task view, project, label, dimension option) has a star, shown on hover or keyboard focus. Starring moves the item to the end of Favorites; unstarring returns it to its own section. Home, Triage, My issues and Watching belong to the GitHub lists, on top. In tasks-only mode Home belongs to the task lists.
+- Every list is reordered by dragging: Favorites, the task lists, Projects, Labels, the GitHub lists, Views and the dimension. A drop on Favorites stars the item at that place; a favorite dropped on its own section is unstarred there; a drop on any other section does nothing. Archived projects are not reorderable.
+- Storage: `user_prefs.sidebar` gains two optional keys, `favorites` (item keys in order; absent = the default four) and `items` (per section, the item keys in order). No migration. An item's key is its path (`/views/<id>`, `/tasks/p/<id>`); the current sprint's link is `current`. Items not in a stored order come after it in their default order. A starred item keeps its slot in its section's order; keys of deleted things are dropped on the next change.
+- Customize sidebar orders and hides sections only (§2.5); its Reset keeps the favorites and the item order.
+- The rules are pure (`lib/client/sidebar-items.ts`) and unit-tested (`tests/client/sidebar-items.test.ts`); e2e in `sidebar-identity.spec.ts`.
+
+### 2.5 Sections in any order (v1.4.3)
+
+This replaces the two groups of §2.1 and §2.2.
+
+- Below Favorites the sidebar is six sections, each with its own heading: **Tasks** (the task lists and saved task views; its heading carries Ramble, Save view and New task), **Projects**, **Labels**, **GitHub** (the issue lists), **Views** and the mapped dimension. There is no group heading above them and no lead section.
+- Customize sidebar is one list: any section moves up or down past any other, and any section can be hidden. The stored order in `user_prefs.sidebar.order` is used as it is; the default order is unchanged, so nothing moves for a user who never customized. No migration.
+- Favorites stays on top and is not in the Customize list.
+- In tasks-only mode the GitHub, Views and dimension sections are not shown, wherever they are in the order.
+- e2e: `sidebar-identity.spec.ts` (default order, a section moved past the others, hide and Reset).
+
 ---
 
 ## 3. H1 — Home page

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { groupSidebar, resolveSidebar, type SidebarSection } from "@/lib/tasks/model";
+import { resolveSidebar, type SidebarLayout, type SidebarSection } from "@/lib/tasks/model";
 import { Icon } from "../icons";
 import { Dialog } from "../ui/dialog";
 import { usePrefs } from "../tasks/notifications";
@@ -10,21 +10,33 @@ import { usePrefs } from "../tasks/notifications";
 export const CUSTOMIZE_SIDEBAR_EVENT = "deska:customize-sidebar";
 
 export const SECTION_LABELS: Record<SidebarSection, string> = {
-  tasks: "Task lists",
+  tasks: "Tasks",
   projects: "Projects",
   labels: "Labels",
-  workspace: "Issue lists",
+  workspace: "GitHub",
   views: "Views",
   teams: "First dimension",
 };
 
-/** The viewer's sidebar sections in their order, with a save that persists to prefs. */
+/** The viewer's sidebar sections in their order, with saves that persist to prefs. */
 export function useSidebarLayout() {
   const { prefs, setPrefs } = usePrefs();
-  const sections = resolveSidebar(prefs.sidebar);
+  const layout = prefs.sidebar;
+  const sections = resolveSidebar(layout);
+  // Favorites and the order of the items are not this dialog's to change: a save or a Reset here keeps them.
+  const kept = { ...(layout?.favorites && { favorites: layout.favorites }), ...(layout?.items && { items: layout.items }) };
   const save = (next: { id: SidebarSection; hidden: boolean }[] | null) =>
-    setPrefs({ sidebar: next && { order: next.map((s) => s.id), hidden: next.filter((s) => s.hidden).map((s) => s.id) } });
-  return { sections, save };
+    setPrefs({
+      sidebar: next
+        ? { order: next.map((s) => s.id), hidden: next.filter((s) => s.hidden).map((s) => s.id), ...kept }
+        : Object.keys(kept).length
+          ? { order: [], hidden: [], ...kept }
+          : null,
+    });
+  /** Save the favorites and the item order (sidebar-items.ts); the sections stay as they are. */
+  const saveItems = (change: Pick<SidebarLayout, "favorites" | "items">) =>
+    setPrefs({ sidebar: { order: layout?.order ?? [], hidden: layout?.hidden ?? [], ...(change.favorites && { favorites: change.favorites }), ...(change.items && { items: change.items }) } });
+  return { layout, sections, save, saveItems };
 }
 
 /** Show, hide and reorder sidebar sections. Changes apply as you make them. */
@@ -42,17 +54,12 @@ export function CustomizeSidebarDialog({ open, onClose }: { open: boolean; onClo
     setRows(next);
     void save(next);
   };
-  const groups = groupSidebar(rows);
-  /** Swap a sub-section with its neighbour in the same group; the stored order of everything else stays. */
+  /** Swap a section with its neighbour. */
   const move = (id: SidebarSection, by: -1 | 1) => {
-    const group = groups.find((g) => g.sections.some((s) => s.id === id));
-    if (!group) return;
-    const movable = group.sections.filter((s) => s.id !== group.lead);
-    const other = movable[movable.findIndex((s) => s.id === id) + by];
-    if (!other) return;
+    const i = rows.findIndex((r) => r.id === id);
+    const j = i + by;
+    if (i < 0 || j < 0 || j >= rows.length) return;
     const next = [...rows];
-    const i = next.findIndex((r) => r.id === id);
-    const j = next.findIndex((r) => r.id === other.id);
     [next[i], next[j]] = [next[j]!, next[i]!];
     apply(next);
   };
@@ -70,51 +77,34 @@ export function CustomizeSidebarDialog({ open, onClose }: { open: boolean; onClo
           <Icon name="x" size={14} />
         </button>
       </div>
-      {groups.map((g) => {
-        const movable = g.sections.filter((s) => s.id !== g.lead);
-        return (
-          <div key={g.id} className="px-2 pt-2">
-            <h3 className="px-2 text-[11.5px] font-semibold text-faint">{g.label}</h3>
-            <ul className="py-1" aria-label={`${g.label} sections`}>
-              {g.sections.map((r) => {
-                const at = movable.findIndex((s) => s.id === r.id);
-                const lead = r.id === g.lead;
-                return (
-                  <li key={r.id} className="flex h-8 items-center gap-2 rounded-md px-2 hover:bg-hover">
-                    <label className="flex min-w-0 flex-1 items-center gap-2 text-[13px]">
-                      <input type="checkbox" checked={!r.hidden} onChange={() => toggle(r.id)} aria-label={`Show ${SECTION_LABELS[r.id]}`} />
-                      <span className={`truncate ${r.hidden ? "text-faint" : "text-fg"}`}>{SECTION_LABELS[r.id]}</span>
-                    </label>
-                    {/* The lead is always first in its group, so it has nothing to move past. */}
-                    {!lead && (
-                      <>
-                        <button
-                          type="button"
-                          onClick={() => move(r.id, -1)}
-                          disabled={at === 0}
-                          aria-label={`Move ${SECTION_LABELS[r.id]} up`}
-                          className="grid size-6 place-items-center rounded text-faint hover:bg-active hover:text-fg disabled:opacity-30 disabled:hover:bg-transparent"
-                        >
-                          <Icon name="chevronDown" size={13} className="rotate-180" />
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => move(r.id, 1)}
-                          disabled={at === movable.length - 1}
-                          aria-label={`Move ${SECTION_LABELS[r.id]} down`}
-                          className="grid size-6 place-items-center rounded text-faint hover:bg-active hover:text-fg disabled:opacity-30 disabled:hover:bg-transparent"
-                        >
-                          <Icon name="chevronDown" size={13} />
-                        </button>
-                      </>
-                    )}
-                  </li>
-                );
-              })}
-            </ul>
-          </div>
-        );
-      })}
+      <ul className="px-2 py-2" aria-label="Sidebar sections">
+        {rows.map((r, at) => (
+          <li key={r.id} className="flex h-8 items-center gap-2 rounded-md px-2 hover:bg-hover">
+            <label className="flex min-w-0 flex-1 items-center gap-2 text-[13px]">
+              <input type="checkbox" checked={!r.hidden} onChange={() => toggle(r.id)} aria-label={`Show ${SECTION_LABELS[r.id]}`} />
+              <span className={`truncate ${r.hidden ? "text-faint" : "text-fg"}`}>{SECTION_LABELS[r.id]}</span>
+            </label>
+            <button
+              type="button"
+              onClick={() => move(r.id, -1)}
+              disabled={at === 0}
+              aria-label={`Move ${SECTION_LABELS[r.id]} up`}
+              className="grid size-6 place-items-center rounded text-faint hover:bg-active hover:text-fg disabled:opacity-30 disabled:hover:bg-transparent"
+            >
+              <Icon name="chevronDown" size={13} className="rotate-180" />
+            </button>
+            <button
+              type="button"
+              onClick={() => move(r.id, 1)}
+              disabled={at === rows.length - 1}
+              aria-label={`Move ${SECTION_LABELS[r.id]} down`}
+              className="grid size-6 place-items-center rounded text-faint hover:bg-active hover:text-fg disabled:opacity-30 disabled:hover:bg-transparent"
+            >
+              <Icon name="chevronDown" size={13} />
+            </button>
+          </li>
+        ))}
+      </ul>
       <div className="flex items-center justify-between border-t border-line px-4 py-2.5 text-[12px] text-faint">
         <span>Hidden pages stay reachable from ⌘K.</span>
         <button type="button" onClick={reset} className="rounded px-1.5 py-0.5 text-muted hover:bg-hover hover:text-fg">

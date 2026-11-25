@@ -1202,13 +1202,13 @@ test.describe("desktop shell", () => {
       await expect(session.win.locator("[data-home-panel]")).toHaveCount(1);
       await expect(session.win.getByRole("tab")).toHaveText([/^Today/, /^Upcoming/]);
       await expect(session.win.locator("[data-home-create-issue]")).toHaveCount(0);
-      // The sidebar: Home and the Tasks group; no issue lists and no GitHub group.
+      // The sidebar: Home and the Tasks section; no issue lists and no GitHub section.
       const nav = session.win.getByRole("navigation", { name: "Main" });
       // (The test also has a task project called "Home": the first link is the page.)
       await expect(nav.getByRole("link", { name: "Home", exact: true }).first()).toHaveAttribute("href", "/home");
       for (const name of ["Triage", "My issues", "Watching"]) await expect(nav.getByRole("link", { name })).toHaveCount(0);
-      await expect(nav.locator('[data-sidebar-group="tasks"]')).toBeVisible();
-      await expect(nav.locator('[data-sidebar-group="github"]')).toHaveCount(0);
+      await expect(nav.locator('[data-sidebar-section="Tasks"]')).toBeVisible();
+      await expect(nav.locator('[data-sidebar-section="GitHub"]')).toHaveCount(0);
       const titles = await session.win.evaluate(() => fetch("/api/tasks").then((r) => r.json()).then((b: { tasks: { title: string }[] }) => b.tasks.map((t) => t.title)));
       expect(titles).toContain("Buy milk");
 
