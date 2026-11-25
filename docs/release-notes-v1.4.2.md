@@ -1,10 +1,10 @@
-# Deska 1.5.0
+# Deska 1.4.2
 
 A macOS app for working with GitHub Issues and a GitHub Project: filtering, fast triage, parent issue progress, a sprint view, and personal tasks that stay on your Mac.
 
 **Writes are possible, and off until you turn them on.** Deska stays read-only until your token has write permissions and you switch on Settings → GitHub writes.
 
-## What's new in 1.5.0
+## What's new in 1.4.2
 
 A Home page, a sidebar in two groups, and comments from the issue panel. One database migration (two new settings columns); it runs on first launch, after the automatic backup.
 
@@ -15,6 +15,11 @@ A Home page, a sidebar in two groups, and comments from the issue panel. One dat
 - **Make Home yours.** Customize Home hides and reorders the panels. Settings → General → Start page chooses where Deska opens: Home, My issues or Today.
 - **Sidebar in two groups.** Home, Triage, My issues and Watching stay on top. Below them, a Tasks group (your lists, saved task views, projects and labels) and a GitHub group (issue lists, saved views with their own "+", and your first mapped field). Nothing was removed. Your hidden sections and their order are kept.
 - **Comment from Deska.** With GitHub writes on, the issue panel has a comment box under the thread. Markdown works; ⌘↵ posts.
+- **A small animation when you complete a task.** The checkbox fills and pops before the task leaves the list, from a click or from `E` on a row. It is off when macOS is set to reduce motion.
+
+### Fixed
+
+- Creating an issue no longer fails when the project's own auto-add workflow adds the issue before Deska does. Deska now uses that project item and goes on to set the fields and Type.
 
 ### Changed
 
@@ -27,7 +32,7 @@ Everything from 1.4.1 is still included.
 
 ## Install
 
-1. Download `Deska-1.5.0-universal.dmg` (Apple silicon and Intel) and drag Deska to Applications (replace the old version; your data stays).
+1. Download `Deska-1.4.2-universal.dmg` (Apple silicon and Intel) and drag Deska to Applications (replace the old version; your data stays).
 2. Open it. See below: the app is not signed with a Developer ID yet.
 3. Connect GitHub with a fine-grained personal access token or your GitHub CLI login, pick your repository and project, and map the fields. [`docs/handoff.md`](https://github.com/gunzaj/deska/blob/main/docs/handoff.md) lists the exact permissions, for read-only use and for writes.
 
