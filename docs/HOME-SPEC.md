@@ -19,7 +19,7 @@ Each is the spec's default until the maintainer says otherwise. Marked **[Defaul
 | H-C | What is in the "Today" tab of My work? | **Tasks only** (due today or earlier). A task linked to an issue shows the issue's number and Status on its row. Issues have their own tab, "This sprint". |
 | H-D | Can the sidebar groups be reordered? | **No.** Tasks, then GitHub. Inside a group the sub-sections reorder and any section can be hidden, as today. |
 | H-E | When is one of my issues "quiet" (H2, Needs attention)? | Open, assigned to me, not updated for **14 days**. |
-| H-F | Version | H1 ships as **1.5.0**; H2 and H3 as 1.5.x. |
+| H-F | Version | H1 ships as **1.5.0**; H2 and H3 as 1.5.x. **[Changed at the maintainer's request]** H1–H3 shipped together as **1.4.2**. |
 
 ---
 
