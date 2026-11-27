@@ -9,12 +9,17 @@ import { LocalDataSettings } from "@/components/github/local-data-settings";
 import { ProjectSettings } from "@/components/github/project-settings";
 import { WritesSettings } from "@/components/github/writes-settings";
 import { GeneralSettings } from "@/components/tasks/general-settings";
+// Read at build time on the server; the page ships only the version string.
+import pkg from "@/package.json";
 
 export const metadata: Metadata = { title: "Settings" };
 
 export default function SettingsPage() {
   return (
-    <Page title="Settings">
+    <Page
+      title="Settings"
+      actions={<span className="text-[12px] tabular-nums text-faint">Deska {pkg.version}</span>}
+    >
       <div className="mx-auto max-w-2xl space-y-8 px-6 py-6">
         <GeneralSettings />
         <GithubSettings />
