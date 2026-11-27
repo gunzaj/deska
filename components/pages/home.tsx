@@ -4,7 +4,7 @@
 // `homeModel`; this file only renders it. Home reads what the client already
 // has and changes nothing but a local task's completion.
 import Link from "next/link";
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { CalendarPanel } from "../calendar/calendar-panel";
 import { useCalendar } from "../calendar/use-calendar";
 import { countMeetings } from "@/lib/calendar/layout";
@@ -12,9 +12,9 @@ import { optionColor } from "@/lib/client/colors";
 import { EDITING_OFF } from "@/lib/client/edit";
 import { formatDate, lastDay, longAgo, plainName } from "@/lib/client/format";
 import { CUSTOMIZE_HOME_EVENT, greeting, homeModel, longDate, RISK_LABEL, type HomeModel, type HomeSprint, type HomeTab, type HomeTabId, type HomeTile } from "@/lib/client/home";
+import { moveHomePanel, type HomePanel, type HomeSize } from "@/lib/tasks/model";
 import { progressText } from "@/lib/client/progress";
 import type { ClientIssue } from "@/lib/client/types";
-import type { HomePanel } from "@/lib/tasks/model";
 import { DefaultScopeChip } from "../app/default-scope-chip";
 import { useOpenIssue } from "../app/open-issue";
 import { useAppData } from "../app/provider";
@@ -33,12 +33,17 @@ import { subCounts, TaskRow } from "../tasks/task-row";
 import { useSnoozes } from "../triage/snoozes";
 import { btn } from "../ui/popover";
 import { useWatchlist, type WatchKind } from "../watch/store";
-import { CustomizeHomeDialog, PANEL_LABELS, useHomeLayout } from "./home-customize";
+import { HiddenPanels, HomeEditBar, PANEL_LABELS, useHomeLayout } from "./home-customize";
 import { useScopeAdded } from "./release-risk";
 
 const TAB_KEY = "deska.home.tab";
-/** Panels of the wide column; the others sit in the narrow one. */
-const MAIN: ReadonlySet<HomePanel> = new Set(["work", "sprint", "epics"]);
+/** A panel's width on the 12-column grid at 900 px and wider; one column below that. */
+const SPAN: Record<HomeSize, string> = {
+  third: "min-[900px]:col-span-4",
+  half: "min-[900px]:col-span-6",
+  wide: "min-[900px]:col-span-8",
+  full: "min-[900px]:col-span-12",
+};
 
 /** Whether AI may run: "Plan my day" is hidden while it is off. A local read; nothing is sent to a model. */
 function useAiReady(): boolean {
@@ -424,10 +429,16 @@ export function HomePage() {
   const { snoozes } = useSnoozes();
   const { unseen, changes } = useWatchlist();
   const aiReady = useAiReady();
-  const { panels } = useHomeLayout();
-  const [customize, setCustomize] = useState(false);
+  const { panels, save } = useHomeLayout();
+  const [editing, setEditing] = useState(false);
+  // The panel being dragged, and the panel it would land on (before or after it).
+  // The ref is the source of truth for the drop handlers: the browser fires
+  // dragover before React has committed the state set in dragstart.
+  const dragRef = useRef<HomePanel | null>(null);
+  const [drag, setDrag] = useState<HomePanel | null>(null);
+  const [over, setOver] = useState<{ id: HomePanel; after: boolean } | null>(null);
   useEffect(() => {
-    const show = () => setCustomize(true);
+    const show = () => setEditing(true);
     window.addEventListener(CUSTOMIZE_HOME_EVENT, show);
     return () => window.removeEventListener(CUSTOMIZE_HOME_EVENT, show);
   }, []);
@@ -459,15 +470,34 @@ export function HomePage() {
     attention: model.attention && <Attention key="attention" rows={model.attention} />,
     changes: model.changes && <Changes key="changes" changes={model.changes} />,
   };
-  // What this install can show at all: Customize lists only those.
+  // What this install can show at all: Customize offers only those.
   const available = useMemo(() => {
     const has: Record<HomePanel, boolean> = { work: true, sprint: model.sprint != null, epics: model.epics != null, calendar: true, attention: model.attention != null, changes: model.changes != null };
     return new Set((Object.keys(has) as HomePanel[]).filter((id) => has[id]));
   }, [model]);
   const shown = panels.filter((p) => !p.hidden && available.has(p.id));
-  const main = shown.filter((p) => MAIN.has(p.id));
-  const side = shown.filter((p) => !MAIN.has(p.id));
+  const hidden = panels.filter((p) => p.hidden && available.has(p.id));
+  // A two-thirds panel only shares a row with a third. With none shown (tasks-only
+  // mode, or the narrow panels hidden) it fills the row instead of leaving a gap.
+  const noThird = !shown.some((p) => p.size === "third");
+  const span = (size: HomeSize) => SPAN[size === "wide" && noThird ? "full" : size];
   const writeOff = !meta.writeMode;
+
+  // Every change goes straight to prefs, as in Customize sidebar.
+  const apply = (next: typeof panels) => void save(next);
+  const move = (id: HomePanel, by: -1 | 1) => {
+    const other = shown[shown.findIndex((p) => p.id === id) + by];
+    if (other) apply(moveHomePanel(panels, id, other.id, by > 0));
+  };
+  const resize = (id: HomePanel, size: HomeSize) => apply(panels.map((p) => (p.id === id ? { ...p, size } : p)));
+  const setHidden = (id: HomePanel, value: boolean) => apply(panels.map((p) => (p.id === id ? { ...p, hidden: value } : p)));
+  const drop = (target: HomePanel, after: boolean) => {
+    const moving = dragRef.current;
+    if (moving && moving !== target) apply(moveHomePanel(panels, moving, target, after));
+    dragRef.current = null;
+    setDrag(null);
+    setOver(null);
+  };
 
   return (
     <Page
@@ -489,7 +519,14 @@ export function HomePage() {
               <Kbd>Q</Kbd>
             </span>
           </button>
-          <button type="button" onClick={() => setCustomize(true)} className={btn.icon} aria-label="Customize Home" title="Customize Home">
+          <button
+            type="button"
+            onClick={() => setEditing((x) => !x)}
+            className={`${btn.icon} ${editing ? "bg-active text-fg" : ""}`}
+            aria-label="Customize Home"
+            aria-pressed={editing}
+            title={editing ? "Done customizing Home" : "Customize Home"}
+          >
             <Icon name="sliders" size={14} />
           </button>
         </>
@@ -517,12 +554,90 @@ export function HomePage() {
           ))}
         </div>
 
-        <div className={`grid gap-4 ${main.length && side.length ? "min-[900px]:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]" : ""}`}>
-          {main.length > 0 && <div className="min-w-0 space-y-4">{main.map((p) => blocks[p.id])}</div>}
-          {side.length > 0 && <div className="min-w-0 space-y-4">{side.map((p) => blocks[p.id])}</div>}
+        {editing && (
+          <div data-home-edit-toolbar className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-xl border border-line bg-surface px-3 py-2 shadow-raised">
+            <span className="flex items-center gap-1.5 text-[12.5px] font-semibold">
+              <Icon name="sliders" size={14} />
+              Customize Home
+            </span>
+            <span className="text-[12px] text-faint">Drag a panel by its handle, choose a width, or hide it.</span>
+            <span className="ml-auto flex items-center gap-1.5">
+              <button type="button" onClick={() => void save(null)} className="rounded px-1.5 py-0.5 text-[12px] text-muted hover:bg-hover hover:text-fg">
+                Reset
+              </button>
+              <button type="button" onClick={() => setEditing(false)} className={btn.outline}>
+                Done
+              </button>
+            </span>
+          </div>
+        )}
+
+        <div className="grid grid-cols-1 gap-4 min-[900px]:grid-flow-row-dense min-[900px]:grid-cols-12" data-home-grid>
+          {shown.map((p, i) => {
+            const line = drag && over?.id === p.id ? (over.after ? "after" : "before") : null;
+            return (
+              <div
+                key={p.id}
+                data-home-widget={p.id}
+                data-size={p.size}
+                className={`relative col-span-1 min-w-0 ${span(p.size)} ${drag === p.id ? "opacity-50" : ""}`}
+                onDragOver={
+                  editing
+                    ? (e) => {
+                        const moving = dragRef.current;
+                        if (!moving || moving === p.id) return;
+                        e.preventDefault();
+                        e.dataTransfer.dropEffect = "move";
+                        const r = e.currentTarget.getBoundingClientRect();
+                        const after = e.clientY > r.top + r.height / 2;
+                        // dragover fires many times a second: keep the state object while nothing changed.
+                        setOver((was) => (was?.id === p.id && was.after === after ? was : { id: p.id, after }));
+                      }
+                    : undefined
+                }
+                onDrop={
+                  editing
+                    ? (e) => {
+                        if (!dragRef.current) return;
+                        e.preventDefault();
+                        const r = e.currentTarget.getBoundingClientRect();
+                        drop(p.id, e.clientY > r.top + r.height / 2);
+                      }
+                    : undefined
+                }
+              >
+                {line && <span aria-hidden className={`pointer-events-none absolute inset-x-0 z-10 h-0.5 rounded-full bg-brand-border ${line === "after" ? "-bottom-2" : "-top-2"}`} />}
+                {editing && (
+                  <HomeEditBar
+                    id={p.id}
+                    size={p.size}
+                    first={i === 0}
+                    last={i === shown.length - 1}
+                    dragging={drag === p.id}
+                    onMove={(by) => move(p.id, by)}
+                    onSize={(size) => resize(p.id, size)}
+                    onHide={() => setHidden(p.id, true)}
+                    onDragStart={(e) => {
+                      e.dataTransfer.setData("text/plain", p.id);
+                      e.dataTransfer.effectAllowed = "move";
+                      dragRef.current = p.id;
+                      setDrag(p.id);
+                    }}
+                    onDragEnd={() => {
+                      dragRef.current = null;
+                      setDrag(null);
+                      setOver(null);
+                    }}
+                  />
+                )}
+                {blocks[p.id]}
+              </div>
+            );
+          })}
         </div>
+
+        {editing && <HiddenPanels rows={hidden} onShow={(id) => setHidden(id, false)} />}
       </div>
-      <CustomizeHomeDialog open={customize} onClose={() => setCustomize(false)} available={available} />
     </Page>
   );
 }

@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import { getViewerLogin } from "@/lib/session";
-import { readTabs, readTasksOnly } from "@/lib/settings";
+import { readListPrefs, readTabs, readTasksOnly } from "@/lib/settings";
 import { TasksOnlyProvider } from "@/components/app/tasks-only";
 import { desktopGuard } from "@/lib/desktop/guard";
 import { needsFirstImport, needsProjectSetup } from "@/lib/server/project-setup";
@@ -34,10 +34,12 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   // Tabs come back after a relaunch in the desktop app only: the browser preview and e2e start fresh.
   const persistTabs = desktopGuard() !== null;
   const savedTabs = persistTabs ? await readTabs() : null;
+  // The built-in lists' saved filters and display options, so a page opens with them on the first frame.
+  const listPrefs = await readListPrefs();
 
   return (
     <TasksOnlyProvider value={tasksOnly}>
-      <AppProvider viewer={viewer}>
+      <AppProvider viewer={viewer} listPrefs={listPrefs}>
         <AppShell savedTabs={savedTabs} persistTabs={persistTabs}>
           {children}
         </AppShell>

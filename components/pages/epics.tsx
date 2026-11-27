@@ -14,7 +14,8 @@ const EPIC_DEFAULTS: ExplorerState = { ...PRESETS.all, sort: [{ field: "progress
 
 /**
  * The Epics list, built on the shared Explorer: search, every applicable issue
- * filter, saved views and the viewer's default team all behave as on /issues.
+ * filter, saved views, saved page defaults and the viewer's default team all
+ * behave as on /issues.
  */
 export function EpicsPage() {
   return (
@@ -23,6 +24,7 @@ export function EpicsPage() {
       icon={<Icon name="epic" size={15} />}
       base={EPIC_BASE}
       defaults={EPIC_DEFAULTS}
+      prefsKey="epics"
       emptyTitle="No epics"
       emptyHint="Issues with sub-issues on GitHub appear here."
     />

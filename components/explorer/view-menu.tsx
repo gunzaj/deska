@@ -43,9 +43,13 @@ export function ViewMenu({ onRename, onDuplicate, onCopy, onDelete }: { onRename
 }
 
 /**
- * The header controls of a saved view or of the filters that could become one:
- * Reset and Save while modified, the watch star, and the menu (rename,
- * duplicate, copy as a string, delete with Undo).
+ * The header controls of a saved view, a built-in list or of the filters that
+ * could become one: Reset and Save while modified, the watch star, and the menu
+ * (rename, duplicate, copy as a string, delete with Undo).
+ *
+ * A built-in list saves its own defaults: Save keeps the current filters and
+ * display options, Reset returns to them, and the ⋯ menu forgets them again
+ * ("Reset to default"). Saving a named view stays available in that menu.
  */
 export function ViewActions({
   view,
@@ -53,24 +57,46 @@ export function ViewActions({
   onReset,
   onSave,
   onOpenDialog,
+  page,
 }: {
   view?: View;
   modified: boolean;
   onReset: () => void;
-  /** Overwrite the view with the current state. */
+  /** Overwrite the view, or the built-in page's defaults, with the current state. */
   onSave: () => void | Promise<void>;
   /** "new": save as a new view or a copy; "rename". */
   onOpenDialog: (kind: "new" | "rename") => void;
+  /** A built-in page: whether it has saved defaults, and how to forget them. */
+  page?: { saved: boolean; onResetToDefault: () => void };
 }) {
   const { removeView, restoreView } = useAppViews();
   const { toast } = useToast();
   const router = useRouter();
   if (!view) {
     return (
-      <button type="button" onClick={() => onOpenDialog("new")} className={btn.ghost} title="Save these filters as a view">
-        <Icon name="plus" size={14} />
-        <span className="hidden sm:inline">Save view</span>
-      </button>
+      <>
+        {modified ? (
+          <>
+            <button type="button" onClick={onReset} className={btn.ghost}>
+              Reset
+            </button>
+            <button type="button" onClick={() => void onSave()} className={btn.primary} title="Save these filters and display options as this page's default">
+              Save
+            </button>
+          </>
+        ) : (
+          <button type="button" onClick={() => onOpenDialog("new")} className={btn.ghost} title="Save these filters as a view">
+            <Icon name="plus" size={14} />
+            <span className="hidden sm:inline">Save view</span>
+          </button>
+        )}
+        {(modified || page?.saved) && (
+          <PageMenu
+            onSaveAsView={() => onOpenDialog("new")}
+            onResetToDefault={page?.saved ? page.onResetToDefault : undefined}
+          />
+        )}
+      </>
     );
   }
   return (
@@ -115,6 +141,35 @@ export function ViewActions({
           });
         }}
       />
+    </>
+  );
+}
+
+/** The ⋯ menu of a built-in list: save the state as a named view, or forget the page's defaults. */
+function PageMenu({ onSaveAsView, onResetToDefault }: { onSaveAsView: () => void; onResetToDefault?: () => void }) {
+  const ref = useRef<HTMLButtonElement>(null);
+  const [open, setOpen] = useState(false);
+  const pick = (id: string) => {
+    setOpen(false);
+    if (id === "new") onSaveAsView();
+    if (id === "reset") onResetToDefault?.();
+  };
+  return (
+    <>
+      <button ref={ref} type="button" aria-label="List options" onClick={() => setOpen(true)} className={btn.icon}>
+        <Icon name="more" size={16} />
+      </button>
+      <Popover anchor={ref} open={open} onClose={() => setOpen(false)} align="end" width={240}>
+        <PickList
+          autoFocus
+          placeholder="Action…"
+          onPick={pick}
+          items={[
+            { id: "new", label: "Save as view…", icon: <Icon name="plus" size={13} className="text-faint" /> },
+            ...(onResetToDefault ? [{ id: "reset", label: "Reset to default", icon: <Icon name="refresh" size={13} className="text-faint" /> }] : []),
+          ]}
+        />
+      </Popover>
     </>
   );
 }

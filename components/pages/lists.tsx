@@ -22,6 +22,7 @@ export function MyIssuesPage() {
       icon={<Icon name="user" size={15} />}
       base={ME}
       defaults={PRESETS.my}
+      prefsKey="my"
       emptyTitle="Nothing assigned to you"
       emptyHint={data.meta.demo ? "Sample preview. Your GitHub assignments show up after the cache is synced." : "Issues assigned to you on GitHub show up here."}
     />
@@ -29,7 +30,7 @@ export function MyIssuesPage() {
 }
 
 export function AllIssuesPage() {
-  return <Explorer title="All issues" icon={<Icon name="layers" size={15} />} defaults={PRESETS.all} />;
+  return <Explorer title="All issues" icon={<Icon name="layers" size={15} />} defaults={PRESETS.all} prefsKey="issues" />;
 }
 
 export function BacklogPage() {
@@ -40,6 +41,7 @@ export function BacklogPage() {
         icon={<Icon name="list" size={15} />}
         base={NO_RELEASE}
         defaults={PRESETS.backlog}
+        prefsKey="backlog"
         emptyTitle="Backlog is empty"
         emptyHint="Every open issue is planned into a Release."
       />
@@ -54,5 +56,14 @@ export function DimensionValuePage({ id }: { id: string }) {
   const option = dim?.options.find((o) => o.id === id);
   const base = useMemo<Filter[]>(() => (dim ? [{ field: dim.key, op: "in", values: [id] }] : []), [dim, id]);
   if (!dim || !option) notFound();
-  return <Explorer key={id} title={plainName(option.name) || option.name} icon={<OptionDot color={option.color} size={10} />} base={base} defaults={PRESETS.team} />;
+  return (
+    <Explorer
+      key={id}
+      title={plainName(option.name) || option.name}
+      icon={<OptionDot color={option.color} size={10} />}
+      base={base}
+      defaults={PRESETS.team}
+      prefsKey={`dimension:${id}`}
+    />
+  );
 }

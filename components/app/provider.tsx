@@ -5,6 +5,7 @@ import type { ClientData, ClientIssue, ClientOption, ClientRelease, DimKey, Sing
 import { preloadAppFetches } from "@/lib/client/preload";
 import type { RelativeRelease } from "@/lib/views/engine";
 import type { TaskView, TaskViewDraft } from "@/lib/tasks/views";
+import type { ListPrefs, ListState } from "@/lib/views/list-prefs";
 import type { View } from "@/lib/views/view";
 import { isUnauthorized } from "@/lib/client/session";
 import { ToastProvider } from "../ui/toast";
@@ -59,6 +60,10 @@ type ViewsCtx = {
   taskViews: TaskView[];
   upsertTaskView: (v: TaskViewDraft) => Promise<TaskView | null>;
   removeTaskView: (id: string) => Promise<boolean>;
+  /** The built-in lists' own filters and display options, by page key (§4.2). */
+  listPrefs: ListPrefs;
+  saveListPref: (key: string, state: ListState) => Promise<boolean>;
+  clearListPref: (key?: string) => Promise<boolean>;
 };
 
 type ThemeCtx = { theme: Theme; setTheme: (t: Theme) => void };
@@ -92,7 +97,7 @@ export function useApp(): Ctx {
   return useMemo(() => ({ ...d, ...s, ...v, ...t }), [d, s, v, t]);
 }
 
-export function AppProvider({ viewer, children }: { viewer: string; children: ReactNode }) {
+export function AppProvider({ viewer, listPrefs = {}, children }: { viewer: string; listPrefs?: ListPrefs; children: ReactNode }) {
   const [wire, setWire] = useState<WireData | null>(null);
   const [views, setViews] = useState<View[] | null>(null);
   const [taskViews, setTaskViews] = useState<TaskView[] | null>(null);
@@ -132,7 +137,7 @@ export function AppProvider({ viewer, children }: { viewer: string; children: Re
 
   if (!wire || !views || !taskViews) return <Loading viewer={viewer} error={loadError} retry={() => void load()} />;
   return (
-    <Loaded viewer={viewer} initialWire={wire} initialViews={views} initialTaskViews={taskViews} initialEtag={etag}>
+    <Loaded viewer={viewer} initialWire={wire} initialViews={views} initialTaskViews={taskViews} initialEtag={etag} initialListPrefs={listPrefs}>
       {children}
     </Loaded>
   );
@@ -144,6 +149,7 @@ function Loaded({
   initialViews,
   initialTaskViews,
   initialEtag,
+  initialListPrefs,
   children,
 }: {
   viewer: string;
@@ -151,11 +157,16 @@ function Loaded({
   initialViews: View[];
   initialTaskViews: TaskView[];
   initialEtag: string | null;
+  initialListPrefs: ListPrefs;
   children: ReactNode;
 }) {
   const { data, refresh, staleSince, wireIssue, overlayIssue, clearOverlay, commitIssue } = useIssueData(viewer, initialWire, initialEtag);
   const { sync, syncNow } = useSyncStatus(refresh);
-  const { views, upsertView, removeView, restoreView, taskViews, upsertTaskView, removeTaskView } = useViews(initialViews, initialTaskViews);
+  const { views, upsertView, removeView, restoreView, taskViews, upsertTaskView, removeTaskView, listPrefs, saveListPref, clearListPref } = useViews(
+    initialViews,
+    initialTaskViews,
+    initialListPrefs,
+  );
   const { theme, setTheme } = useTheme();
 
   const dataValue = useMemo<DataCtx>(() => {
@@ -190,8 +201,8 @@ function Loaded({
   }, [data, refresh, wireIssue, overlayIssue, clearOverlay, commitIssue]);
   const syncValue = useMemo<SyncCtx>(() => ({ sync, syncNow, staleSince }), [sync, syncNow, staleSince]);
   const viewsValue = useMemo<ViewsCtx>(
-    () => ({ views, upsertView, removeView, restoreView, taskViews, upsertTaskView, removeTaskView }),
-    [views, upsertView, removeView, restoreView, taskViews, upsertTaskView, removeTaskView],
+    () => ({ views, upsertView, removeView, restoreView, taskViews, upsertTaskView, removeTaskView, listPrefs, saveListPref, clearListPref }),
+    [views, upsertView, removeView, restoreView, taskViews, upsertTaskView, removeTaskView, listPrefs, saveListPref, clearListPref],
   );
   const themeValue = useMemo<ThemeCtx>(() => ({ theme, setTheme }), [theme, setTheme]);
 
