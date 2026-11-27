@@ -8,6 +8,7 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { readFileSync } from "node:fs";
 import type { CalendarEvent, CalendarFixture, CalendarInfo, CalendarReadStatus } from "./bridge";
+import { meetingUrl } from "./navigation";
 
 const REQUEST_TIMEOUT_MS = 10_000;
 /** The macOS prompt waits for a person: the answer may take minutes, not seconds. */
@@ -29,7 +30,7 @@ function isEvent(v: unknown): v is CalendarEvent {
 
 /**
  * Only the fields of CALENDAR-SPEC §2.2 leave this module. A helper that ever
- * sent more (notes, attendee emails, an alarm) cannot leak it through here.
+ * sent more (notes' text, attendee emails, an alarm) cannot leak it through here.
  */
 function pickEvent(e: CalendarEvent): CalendarEvent {
   const status = e.myStatus;
@@ -43,6 +44,8 @@ function pickEvent(e: CalendarEvent): CalendarEvent {
     timeZone: typeof e.timeZone === "string" ? e.timeZone : null,
     location: typeof e.location === "string" ? e.location : null,
     url: typeof e.url === "string" ? e.url : null,
+    // Checked again here: only a link on the allowlist may come out of the notes.
+    meetingUrl: typeof e.meetingUrl === "string" && meetingUrl(e.meetingUrl) ? e.meetingUrl : null,
     myStatus: status === "accepted" || status === "declined" || status === "tentative" || status === "pending" || status === "delegated" || status === "unknown" ? status : null,
     organizerIsMe: e.organizerIsMe === true,
     attendeeCount: typeof e.attendeeCount === "number" && e.attendeeCount >= 0 ? e.attendeeCount : 0,

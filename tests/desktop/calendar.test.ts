@@ -30,6 +30,7 @@ const events = [
     allDay: false,
     myStatus: "accepted",
     notes: "Secret notes",
+    meetingUrl: "https://meet.google.com/abc-defg-hij",
     attendees: [{ email: "alice@example.com" }],
   },
   { id: "b", calendarId: "work", title: "Later", start: "2026-11-27T15:00:00Z", end: "2026-11-27T16:00:00Z", allDay: false },
@@ -48,9 +49,10 @@ describe("CalendarHelper fixtures (§2.2)", () => {
     expect(first).toMatchObject({ id: "a", title: "Design review", allDay: false });
     // Notes and attendee details are not part of the shape, even if a fixture has them.
     expect(first).not.toHaveProperty("notes");
+    expect(first!.meetingUrl).toBe("https://meet.google.com/abc-defg-hij");
     expect(first).not.toHaveProperty("attendees");
     expect(Object.keys(first!).sort()).toEqual(
-      ["allDay", "attendeeCount", "calendarId", "end", "id", "isRecurring", "location", "myStatus", "occurrenceDate", "organizerIsMe", "start", "timeZone", "title", "url"].sort(),
+      ["allDay", "attendeeCount", "calendarId", "end", "id", "isRecurring", "location", "meetingUrl", "myStatus", "occurrenceDate", "organizerIsMe", "start", "timeZone", "title", "url"].sort(),
     );
   });
 
@@ -70,6 +72,13 @@ describe("CalendarHelper fixtures (§2.2)", () => {
     const helper = new CalendarHelper(null, fixtureFile("bad-window.json", { status: "fullAccess", calendars, events }));
     await expect(helper.events("2026-11-28T00:00:00Z", "2026-11-27T00:00:00Z", ["work"])).rejects.toThrow("invalid calendar window");
     await expect(helper.events("2026-01-01T00:00:00Z", "2026-03-01T00:00:00Z", ["work"])).rejects.toThrow("invalid calendar window");
+  });
+
+  it("drops a link from the notes that is not on the meeting allowlist", async () => {
+    const odd = [{ id: "x", calendarId: "work", title: "X", start: "2026-11-27T10:00:00Z", end: "2026-11-27T11:00:00Z", allDay: false, meetingUrl: "https://evil.example/join" }];
+    const helper = new CalendarHelper(null, fixtureFile("odd-link.json", { status: "fullAccess", calendars, events: odd }));
+    const [first] = await helper.events("2026-11-27T00:00:00Z", "2026-11-28T00:00:00Z", ["work"]);
+    expect(first!.meetingUrl).toBeNull();
   });
 
   it("reads nothing with write-only access", async () => {

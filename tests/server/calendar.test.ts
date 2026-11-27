@@ -49,6 +49,7 @@ const ev = (over: Partial<CalendarEvent> & Pick<CalendarEvent, "id" | "calendarI
   timeZone: null,
   location: null,
   url: null,
+  meetingUrl: null,
   myStatus: "accepted",
   organizerIsMe: false,
   attendeeCount: 0,
@@ -95,6 +96,18 @@ describe("GET /api/calendar/events (§2.2, §3.2)", () => {
     expect(body.events[0]!.calendarTitle).toBe("Work");
     expect(body.events[0]!.joinUrl).toBe("https://acme.zoom.us/j/1");
     expect(body.prefs.workStart).toBe("08:00");
+  });
+
+  it("offers Join from the link the helper found in the notes when URL and location have none", async () => {
+    state.events = [
+      ev({ id: "meet", calendarId: "work", start: "2026-11-27T10:00:00Z", end: "2026-11-27T11:00:00Z", location: "Room 3 [Meet hardware]", meetingUrl: "https://meet.google.com/abc-defg-hij" }),
+      ev({ id: "other", calendarId: "work", start: "2026-11-27T12:00:00Z", end: "2026-11-27T13:00:00Z", meetingUrl: "https://evil.example/abc" }),
+    ];
+    const body = (await (await eventsRoute.GET(get(`/api/calendar/events?${DAY}`))).json()) as { events: { id: string; joinUrl: string | null }[] };
+    expect(body.events.map((e) => [e.id, e.joinUrl])).toEqual([
+      ["meet", "https://meet.google.com/abc-defg-hij"],
+      ["other", null],
+    ]);
   });
 
   it("reads nothing when reading is off or macOS said no", async () => {

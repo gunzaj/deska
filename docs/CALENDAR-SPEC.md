@@ -62,7 +62,7 @@ A is the default: it is the only option that is read-write, provider-neutral and
   - `status` → `notDetermined | denied | restricted | fullAccess | writeOnly`.
   - `requestAccess` → asks macOS for full access (macOS 14+ `requestFullAccessToEvents`). Only sent after the user clicks "Connect calendars".
   - `calendars` → `[{ id, title, color, source, allowsWrite }]`.
-  - `events { from, to, calendarIds }` → `[{ id, calendarId, title, start, end, allDay, timeZone, location, url, myStatus, organizerIsMe, attendeeCount, isRecurring, occurrenceDate }]`. Window up to 42 days. Notes are **not** read.
+  - `events { from, to, calendarIds }` → `[{ id, calendarId, title, start, end, allDay, timeZone, location, url, meetingUrl, myStatus, organizerIsMe, attendeeCount, isRecurring, occurrenceDate }]`. Window up to 42 days. Notes are **not returned**: the helper searches them only for the first link on the §6 meeting allowlist and returns that as `meetingUrl` (changed in 1.5.0 at the maintainer's request: Google Meet and Teams links are only in the notes, so Join was missing for them).
   - `changed` (pushed by the helper) on `EKEventStoreChangedNotification`, so Deska refreshes when Calendar syncs.
   - C3 only: `upsertDeskaEvent`, `removeDeskaEvent`, writing only the generic fields of §5.2.
 - `Info.plist` gets `NSCalendarsFullAccessUsageDescription` ("Deska shows your meetings next to your tasks.") through `extendInfo` in `desktop/build/electron-builder.json`; the entitlements file gets `com.apple.security.personal-information.calendars`.
@@ -211,7 +211,7 @@ Tests: unit for the pairing rules and the generic fields; e2e with the fixture h
 
 - **No new network access.** EventKit is local; macOS syncs the accounts. `SPEC.md` §2.2's "nothing is loaded from the network" stays true.
 - **Navigation (C-G).** §2.2 allows only `https://github.com/*` to open externally. "Join" widens it to a fixed allowlist of meeting hosts (`meet.google.com`, `*.zoom.us`, `teams.microsoft.com`, `teams.live.com`, `*.webex.com`), `https` only, matched exactly in main, with a test. Any other URL in an event shows as plain text. The link is taken from the event's URL field, or else the first allowlisted link in its location.
-- **Least data.** The helper never reads event notes or attendee names and emails, only a count. Titles and locations are held in memory, never written to the database, logs or backups **[Default C-F]**.
+- **Least data.** The helper never reads attendee names and emails, only a count, and never returns event notes: it searches them for an allowlisted meeting link and returns only that link. Titles and locations are held in memory, never written to the database, logs or backups **[Default C-F]**.
 - **AI.** Event data is not sent to any AI feature unless C4 is turned on; Settings → AI lists it per feature when it is.
 - **Preload bridge.** One addition: `calendar.connect()` (triggers the permission request) and `calendar.status()`. No event data passes through the bridge; the renderer reads it from the server route.
 - `docs/security.md` gets a Calendar section: the permission, what the helper reads, the write limits of C3 (only Deska's own generic blocks) and the navigation allowlist.

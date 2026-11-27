@@ -7,8 +7,10 @@
 // Out: {"id":1,"ok":true,"result":"fullAccess"}
 //      {"event":"changed"}                    (Calendar.app or a sync changed)
 //
-// Only the fields of §2.2 are read: never notes, never attendee names or
-// emails (a count only). Anything that is not one of the four commands is
+// Only the fields of §2.2 are read: never attendee names or emails (a count
+// only). An event's notes are searched here for one thing, a meeting link on
+// the allowlist below (Google Meet and Teams put theirs only there); the link
+// is all that leaves this process, never the notes' text. Anything that is not one of the four commands is
 // refused, so this tool cannot write to a calendar (C3 adds the only writes).
 //
 // The app keeps this process running for as long as Deska runs and kills it on
@@ -39,6 +41,37 @@ let isoMillis: ISO8601DateFormatter = {
 
 func parseInstant(_ text: String) -> Date? {
     return iso.date(from: text) ?? isoMillis.date(from: text)
+}
+
+// The meeting allowlist (CALENDAR-SPEC §6, C-G). The same lists are in
+// desktop/navigation.ts and lib/calendar/join.ts; a test fails if they differ.
+let meetingHosts = ["meet.google.com", "teams.microsoft.com", "teams.live.com"]
+let meetingHostSuffixes = ["zoom.us", "webex.com"]
+
+func isMeetingURL(_ url: URL) -> Bool {
+    guard url.scheme?.lowercased() == "https",
+          url.user == nil, url.password == nil,
+          url.port == nil || url.port == 443,
+          let host = url.host?.lowercased()
+    else { return false }
+    if meetingHosts.contains(host) { return true }
+    return meetingHostSuffixes.contains { host == $0 || host.hasSuffix("." + $0) }
+}
+
+let linkDetector = try? NSDataDetector(types: NSTextCheckingResult.CheckingType.link.rawValue)
+/** Notes can be long (a pasted agenda); a meeting link sits in the invitation text. */
+let maxNotesScanned = 50_000
+
+/// The first allowlisted meeting link in an event's notes, or nil. Nothing
+/// else about the notes is returned or kept.
+func meetingLink(inNotes notes: String?) -> String? {
+    guard let notes, !notes.isEmpty, let linkDetector else { return nil }
+    let text = String(notes.prefix(maxNotesScanned))
+    let range = NSRange(text.startIndex..., in: text)
+    for match in linkDetector.matches(in: text, options: [], range: range) {
+        if let url = match.url, isMeetingURL(url) { return url.absoluteString }
+    }
+    return nil
 }
 
 func writeLine(_ object: [String: Any]) {
@@ -132,6 +165,7 @@ func eventObject(_ event: EKEvent) -> [String: Any] {
     if let zone = event.timeZone { object["timeZone"] = zone.identifier }
     if let location = event.location, !location.isEmpty { object["location"] = location }
     if let url = event.url?.absoluteString { object["url"] = url }
+    if event.hasNotes, let link = meetingLink(inNotes: event.notes) { object["meetingUrl"] = link }
     if let occurrence = event.occurrenceDate { object["occurrenceDate"] = iso.string(from: occurrence) }
     return object
 }

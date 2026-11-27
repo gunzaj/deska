@@ -13,6 +13,7 @@ function event(over: Partial<CalendarEventView> & Pick<CalendarEventView, "start
     timeZone: null,
     location: null,
     url: null,
+    meetingUrl: null,
     myStatus: "accepted",
     organizerIsMe: false,
     attendeeCount: 0,
