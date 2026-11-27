@@ -26,7 +26,7 @@ const SHARED_SETTINGS = /(ai-settings|user-menu|filters|release-team|settings-ti
 // server (each server below carries its project's name). A warmed `next dev`
 // holds about 4 GB and the mocked one grows to 7 GB while the specs run: the
 // three together filled a 16 GB CI runner, which then died without a message.
-// CI runs the projects one after another (ci.yml); a local run without the
+// CI runs the projects one after another (checks.yml); a local run without the
 // variable runs everything together, as before.
 const PROJECTS = ["mocks", "mocks-settings", "e2e-db"];
 const ONLY = process.env.E2E_PROJECT;
