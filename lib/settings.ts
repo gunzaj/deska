@@ -9,6 +9,7 @@ import { inArray } from "drizzle-orm";
 import { dbDir, getDb } from "@/db";
 import { appSettings } from "@/db/schema";
 import { ConfigError, displayRepo, githubTarget, type GithubTarget } from "./config";
+import { parseCalendarPrefs, type CalendarPrefs } from "./calendar/settings";
 import { parseAiSettings, type AiSettings } from "./ai/types";
 import { parseMapping, type FieldMapping } from "./sync/field-map";
 
@@ -35,6 +36,7 @@ const KEYS = {
   aiEndpointModes: "ai.endpoint-modes",
   theme: "ui.theme",
   tabs: "ui.tabs",
+  calendar: "calendar.prefs",
 } as const;
 
 type Cache = { loaded: Promise<void> | null; values: Map<string, unknown>; version: number };
@@ -137,6 +139,24 @@ export async function readTabs(): Promise<unknown> {
 
 export async function saveTabs(tabs: unknown): Promise<void> {
   await setCosmetic(KEYS.tabs, tabs);
+}
+
+/**
+ * Settings → Calendar (CALENDAR-SPEC §3.1). `knownIds` drops calendar IDs this
+ * Mac does not have, which is how prefs from a backup taken on another Mac
+ * lose them (§3.1).
+ */
+export async function readCalendarPrefs(knownIds?: Iterable<string>): Promise<CalendarPrefs> {
+  try {
+    return parseCalendarPrefs(await get(KEYS.calendar), knownIds);
+  } catch {
+    return parseCalendarPrefs(null);
+  }
+}
+
+export async function saveCalendarPrefs(prefs: CalendarPrefs): Promise<void> {
+  // No list or issue depends on these: saving must not bump the data ETag.
+  await setCosmetic(KEYS.calendar, prefs);
 }
 
 /** Bumped by every save: part of the data ETag, so a remap reaches the browser. */

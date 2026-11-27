@@ -45,5 +45,11 @@ Thumbs.db
 .vscode/
 *.swp
 
+# Calendar helper's Swift build output (scripts/desktop.mjs builds it)
+desktop/calendar/.build/
+
+# Local agent settings (not part of the project)
+.claude/
+
 # Local PGlite databases (DESKA_DB_DIR)
 .deska-db/

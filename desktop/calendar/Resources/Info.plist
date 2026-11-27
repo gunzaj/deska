@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleIdentifier</key>
+  <string>app.deska.desktop.calendar</string>
+  <key>CFBundleName</key>
+  <string>Deska Calendar</string>
+  <key>CFBundleDisplayName</key>
+  <string>Deska Calendar</string>
+  <key>CFBundleVersion</key>
+  <string>1</string>
+  <key>CFBundleShortVersionString</key>
+  <string>1.0</string>
+  <key>NSCalendarsFullAccessUsageDescription</key>
+  <string>Deska shows your meetings next to your tasks.</string>
+  <key>NSCalendarsUsageDescription</key>
+  <string>Deska shows your meetings next to your tasks.</string>
+</dict>
+</plist>

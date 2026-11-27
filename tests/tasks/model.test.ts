@@ -133,7 +133,7 @@ describe("start page and Home layout (HOME-SPEC §3.1, §5)", () => {
   it("Home panels: saved order first, panels added later at the end, unknown ones dropped", () => {
     expect(resolveHome(null)).toEqual(HOME_PANELS.map((id) => ({ id, hidden: false })));
     const out = resolveHome({ order: ["changes", "work", "gone" as never], hidden: ["epics"] });
-    expect(out.map((p) => p.id)).toEqual(["changes", "work", "sprint", "epics", "attention"]);
+    expect(out.map((p) => p.id)).toEqual(["changes", "work", "sprint", "epics", "calendar", "attention"]);
     expect(out.filter((p) => p.hidden).map((p) => p.id)).toEqual(["epics"]);
     expect(prefsSchema.safeParse({ home: { order: ["work"], hidden: ["sprint"] } }).success).toBe(true);
     expect(prefsSchema.safeParse({ home: { order: ["tiles"], hidden: [] } }).success).toBe(false);

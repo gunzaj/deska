@@ -41,7 +41,7 @@ test("Customize Home hides and reorders panels, and the layout survives a reload
   const { context, page } = await as(browser);
   await page.goto("/home");
   const panels = () => page.locator("[data-home-panel]").evaluateAll((els) => els.map((e) => (e as HTMLElement).dataset.homePanel));
-  await expect.poll(panels).toEqual(["work", "sprint", "epics", "attention", "changes"]);
+  await expect.poll(panels).toEqual(["work", "sprint", "epics", "calendar", "attention", "changes"]);
 
   await page.getByRole("button", { name: "Customize Home" }).click();
   const dialog = page.getByRole("dialog", { name: "Customize Home" });
@@ -53,19 +53,19 @@ test("Customize Home hides and reorders panels, and the layout survives a reload
   await done;
   await expect(dialog.getByRole("button", { name: "Move Current sprint up" })).toBeDisabled();
   await dialog.getByRole("button", { name: "Close" }).click();
-  await expect.poll(panels).toEqual(["sprint", "work", "attention", "changes"]);
+  await expect.poll(panels).toEqual(["sprint", "work", "calendar", "attention", "changes"]);
   // The tiles are not part of the layout.
   await expect(page.locator("[data-home-tile]")).toHaveCount(5);
 
   await page.reload();
-  await expect.poll(panels).toEqual(["sprint", "work", "attention", "changes"]);
+  await expect.poll(panels).toEqual(["sprint", "work", "calendar", "attention", "changes"]);
 
   await page.getByRole("button", { name: "Customize Home" }).click();
   done = saved(page);
   await dialog.getByRole("button", { name: "Reset" }).click();
   await done;
   await dialog.getByRole("button", { name: "Close" }).click();
-  await expect.poll(panels).toEqual(["work", "sprint", "epics", "attention", "changes"]);
+  await expect.poll(panels).toEqual(["work", "sprint", "epics", "calendar", "attention", "changes"]);
   await context.close();
 });
 

@@ -386,7 +386,7 @@ test.describe("desktop shell", () => {
       // The renderer has no Node, only the typed bridge.
       expect(await win.evaluate(() => typeof (globalThis as { require?: unknown }).require)).toBe("undefined");
       expect(await win.evaluate(() => typeof (globalThis as { process?: unknown }).process)).toBe("undefined");
-      expect(await win.evaluate(() => Object.keys(window.deska ?? {}).sort())).toEqual(["aiKey", "appInfo", "desktop", "github", "notify", "onOpenTask", "openExternal", "quickAdd", "token", "transcribeKey"]);
+      expect(await win.evaluate(() => Object.keys(window.deska ?? {}).sort())).toEqual(["aiKey", "appInfo", "calendar", "desktop", "github", "notify", "onOpenTask", "openExternal", "quickAdd", "token", "transcribeKey"]);
       expect(await win.evaluate(() => window.deska!.appInfo())).toMatchObject({ name: "Deska", platform: "darwin" });
       // main refuses anything that is not a GitHub PAT, with its own words.
       expect(await win.evaluate(() => window.deska!.token.set("ghp_classic").then(() => "stored", (e: Error) => e.message))).toContain("GitHub personal access token");
@@ -571,7 +571,11 @@ test.describe("desktop shell", () => {
       // The bridge refuses non-GitHub URLs too.
       expect(await win.evaluate(() => window.deska!.openExternal("https://example.com/"))).toBe(false);
       expect(await win.evaluate(() => window.deska!.openExternal("https://github.com/acme/widgets"))).toBe(true);
-      expect(await opened()).toHaveLength(3);
+      // C1 (§4.11): a meeting link on the allowlist opens; http or another host does not.
+      expect(await win.evaluate(() => window.deska!.openExternal("https://meet.google.com/abc-defg-hij"))).toBe(true);
+      expect(await win.evaluate(() => window.deska!.openExternal("http://meet.google.com/abc-defg-hij"))).toBe(false);
+      expect(await win.evaluate(() => window.deska!.openExternal("https://example.com/meeting"))).toBe(false);
+      expect(await opened()).toHaveLength(4);
     } finally {
       await app.close();
     }
@@ -1199,7 +1203,10 @@ test.describe("desktop shell", () => {
       await session.win.waitForURL(`${session.origin}/home`, { timeout: 60_000 });
       await expect(session.win.locator("[data-home-tile]")).toHaveCount(1, { timeout: 60_000 });
       await expect(session.win.locator('[data-home-tile="due"]')).toBeVisible();
-      await expect(session.win.locator("[data-home-panel]")).toHaveCount(1);
+      await expect(session.win.locator("[data-home-panel]")).toHaveCount(2);
+      await expect(session.win.locator('[data-home-panel="work"]')).toBeVisible();
+      // CALENDAR-SPEC §3.6: the Calendar panel works in tasks-only mode too.
+      await expect(session.win.locator('[data-home-panel="calendar"]')).toBeVisible();
       await expect(session.win.getByRole("tab")).toHaveText([/^Today/, /^Upcoming/]);
       await expect(session.win.locator("[data-home-create-issue]")).toHaveCount(0);
       // The sidebar: Home and the Tasks section; no issue lists and no GitHub section.

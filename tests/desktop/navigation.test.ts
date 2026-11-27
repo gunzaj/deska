@@ -17,6 +17,12 @@ describe("classifyUrl", () => {
     expect(classifyUrl("https://github.com/", APP)).toBe("github");
   });
 
+  it("sends meeting links on the calendar allowlist there too (CALENDAR-SPEC §6)", () => {
+    for (const url of ["https://meet.google.com/abc-defg-hij", "https://teams.microsoft.com/l/meetup-join/x", "https://teams.live.com/meet/1", "https://zoom.us/j/1", "https://acme.zoom.us/j/1", "https://acme.webex.com/meet/alice"]) {
+      expect(classifyUrl(url, APP), url).toBe("meeting");
+    }
+  });
+
   it("blocks everything else", () => {
     // Credentials in a github.com URL (built, not written out as user:pw@host).
     const withCredentials = Object.assign(new URL("https://github.com/acme"), { username: "user", password: "pw" }).href;
@@ -33,6 +39,13 @@ describe("classifyUrl", () => {
       "javascript:alert(1)",
       "mailto:alice@example.com",
       "not a url",
+      // Meeting links are https only, on exactly these hosts (§6).
+      "http://meet.google.com/abc",
+      "https://meet.google.com.evil.example/abc",
+      "https://sub.meet.google.com/abc",
+      "https://meet.google.com:8443/abc",
+      "https://evil.example/?u=https://zoom.us/j/1",
+      "https://notzoom.us/j/1",
     ]) {
       expect(classifyUrl(url, APP), url).toBe("blocked");
     }

@@ -25,6 +25,32 @@ for (const p of PAGES) {
   });
 }
 
+test("390px: the Calendar panel shows meetings without sideways scroll", async ({ browser }) => {
+  const { context, page } = await as(browser);
+  await page.setViewportSize({ width: 390, height: 844 });
+  const at = (h: number, m = 0) => {
+    const d = new Date();
+    d.setHours(h, m, 0, 0);
+    return d.toISOString();
+  };
+  await page.route("**/api/calendar/events**", (route) =>
+    route.fulfill({
+      json: {
+        status: "fullAccess",
+        connected: true,
+        calendars: [{ id: "work", title: "Work", color: "#3366cc" }],
+        events: [{ id: "a", calendarId: "work", title: "Design review", start: at(10), end: at(11), allDay: false, timeZone: null, location: null, url: null, myStatus: "accepted", organizerIsMe: false, attendeeCount: 0, isRecurring: false, occurrenceDate: null, calendarTitle: "Work", calendarColor: "#3366cc", joinUrl: null }],
+        readAt: new Date().toISOString(),
+        prefs: { hideDeclined: true, weekStart: "monday", workStart: "08:00", workEnd: "18:00" },
+      },
+    }),
+  );
+  await page.goto("/home");
+  await expect(page.locator('[data-home-panel="calendar"]')).toContainText("Design review");
+  expect(await noSideScroll(page)).toBe(true);
+  await context.close();
+});
+
 test("375px: release progress and epic progress are visible", async ({ browser }) => {
   const { context, page } = await as(browser);
   await page.setViewportSize({ width: 375, height: 812 });

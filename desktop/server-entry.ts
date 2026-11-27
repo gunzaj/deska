@@ -43,6 +43,22 @@ const SYNC = Symbol.for("deska.syncService");
 // lib/desktop/reminders.ts sends reminders and the badge count to main through this.
 const MAIN = Symbol.for("deska.mainChannel");
 (globalThis as Record<symbol, unknown>)[MAIN] = (msg: ServerReply) => reply(msg);
+// lib/calendar/provider.ts asks main for calendar data through this; answers
+// arrive as `calendar-result` (CALENDAR-SPEC §2.2). No event data is logged.
+const CALENDAR = Symbol.for("deska.calendarRequest");
+let calendarNextId = 1;
+const calendarPending = new Map<number, { resolve: (v: unknown) => void; reject: (e: Error) => void; timer: NodeJS.Timeout }>();
+(globalThis as Record<symbol, unknown>)[CALENDAR] = (cmd: "status" | "calendars" | "events", args: Record<string, unknown> = {}) =>
+  new Promise<unknown>((resolve, reject) => {
+    const id = calendarNextId++;
+    const timer = setTimeout(() => {
+      calendarPending.delete(id);
+      reject(new Error("calendar helper did not answer"));
+    }, 15_000);
+    timer.unref?.();
+    calendarPending.set(id, { resolve, reject, timer });
+    reply({ type: "calendar-request", id, cmd, ...args } as ServerReply);
+  });
 let started = false;
 
 type SyncHandle = { request(reason: string): Promise<unknown>; stop(): Promise<void> };
@@ -153,7 +169,14 @@ onMessage((msg) => {
     (globalThis as Record<symbol, unknown>)[TRANSCRIBE_KEY] = typeof msg.key === "string" && msg.key ? msg.key : undefined;
     reply({ type: "transcribe-key-ack", id: msg.id });
   } else if (msg.type === "backup-mirror") setBackupMirror(typeof msg.dir === "string" ? msg.dir : null);
-  else if (msg.type === "token") {
+  else if (msg.type === "calendar-result") {
+    const pending = calendarPending.get(msg.id);
+    if (!pending) return;
+    calendarPending.delete(msg.id);
+    clearTimeout(pending.timer);
+    if (msg.ok) pending.resolve(msg.result);
+    else pending.reject(new Error(msg.error));
+  } else if (msg.type === "token") {
     setToken(msg.token, msg.source, msg.auth, msg.reread === true);
     reply({ type: "token-ack", id: msg.id });
     if (msg.token) requestSync("token");

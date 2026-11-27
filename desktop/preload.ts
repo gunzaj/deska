@@ -43,9 +43,20 @@ const bridge: DeskaBridge = {
     useCli: () => invoke("deska:github-use-cli"),
     recheck: () => invoke("deska:github-recheck"),
   },
+  calendar: {
+    status: () => invoke("deska:calendar-status"),
+    connect: () => invoke("deska:calendar-connect"),
+    openEvent: (id) => invoke("deska:calendar-open-event", String(id)),
+    openSettings: () => invoke("deska:calendar-open-settings"),
+    onChanged: (listener) => {
+      const handler = () => listener();
+      ipcRenderer.on("deska:calendar-changed", handler);
+      return () => void ipcRenderer.removeListener("deska:calendar-changed", handler);
+    },
+  },
 };
 
 contextBridge.exposeInMainWorld(
   "deska",
-  Object.freeze({ ...bridge, token: Object.freeze(bridge.token), desktop: Object.freeze(bridge.desktop), quickAdd: Object.freeze(bridge.quickAdd), github: Object.freeze(bridge.github), aiKey: Object.freeze(bridge.aiKey), transcribeKey: Object.freeze(bridge.transcribeKey) }),
+  Object.freeze({ ...bridge, token: Object.freeze(bridge.token), desktop: Object.freeze(bridge.desktop), quickAdd: Object.freeze(bridge.quickAdd), github: Object.freeze(bridge.github), calendar: Object.freeze(bridge.calendar), aiKey: Object.freeze(bridge.aiKey), transcribeKey: Object.freeze(bridge.transcribeKey) }),
 );

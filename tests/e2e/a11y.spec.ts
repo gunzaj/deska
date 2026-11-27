@@ -57,6 +57,39 @@ test("axe: Home in the dark theme has no serious or critical violations", async 
   await context.close();
 });
 
+// CALENDAR-SPEC §3.5: the Calendar panel in both themes, with meetings in it.
+const calendarFixture = () => {
+  const at = (h: number, m = 0) => {
+    const d = new Date();
+    d.setHours(h, m, 0, 0);
+    return d.toISOString();
+  };
+  return {
+    status: "fullAccess",
+    connected: true,
+    calendars: [{ id: "work", title: "Work", color: "#3366cc" }],
+    events: [
+      { id: "a", calendarId: "work", title: "Design review", start: at(10), end: at(11), allDay: false, timeZone: null, location: "Room 2", url: null, myStatus: "accepted", organizerIsMe: false, attendeeCount: 3, isRecurring: false, occurrenceDate: null, calendarTitle: "Work", calendarColor: "#3366cc", joinUrl: "https://acme.zoom.us/j/1" },
+      { id: "b", calendarId: "work", title: "Pairing", start: at(10, 30), end: at(11, 30), allDay: false, timeZone: null, location: null, url: null, myStatus: "accepted", organizerIsMe: false, attendeeCount: 0, isRecurring: false, occurrenceDate: null, calendarTitle: "Work", calendarColor: "#3366cc", joinUrl: null },
+    ],
+    readAt: new Date().toISOString(),
+    prefs: { hideDeclined: true, weekStart: "monday", workStart: "08:00", workEnd: "18:00" },
+  };
+};
+
+for (const scheme of ["light", "dark"] as const) {
+  test(`axe: the Calendar panel has no serious or critical violations (${scheme})`, async ({ browser }) => {
+    const { context, page } = await as(browser, "alice", { colorScheme: scheme });
+    await page.emulateMedia({ reducedMotion: "reduce", colorScheme: scheme });
+    await page.route("**/api/calendar/events**", (route) => route.fulfill({ json: calendarFixture() }));
+    await page.goto("/home");
+    await expect(page.locator('[data-home-panel="calendar"]')).toHaveAttribute("data-calendar-state", "connected");
+    await expect(page.locator("[data-calendar-timed]")).toHaveCount(2);
+    expect(await audit(page)).toEqual([]);
+    await context.close();
+  });
+}
+
 test("Tab reaches the first issue row; Enter opens the panel; Esc closes it and focus is back on the row", async ({ browser }) => {
   const { context, page } = await as(browser);
   await page.goto("/backlog");

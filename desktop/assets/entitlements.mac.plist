@@ -12,5 +12,10 @@
     <!-- Ramble records audio (item 13). -->
     <key>com.apple.security.device.audio-input</key>
     <true/>
+    <!-- Calendar reading/writing goes through EventKit in the bundled helper
+         (CALENDAR-SPEC §2.2, C-A). Reading needs "full access", which is also
+         what C3's generic busy blocks will write with. -->
+    <key>com.apple.security.personal-information.calendars</key>
+    <true/>
   </dict>
 </plist>
