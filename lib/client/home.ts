@@ -53,6 +53,8 @@ export type HomeInput = {
   watch?: { unseen: number; changes: Readonly<Record<string, readonly FieldChange[]>> };
   /** Issues put into the current sprint after it started (`useScopeAdded`). */
   scopeAdded?: { ids: readonly string[]; loaded: boolean };
+  /** Today's meetings, when calendar reading is on (CALENDAR-SPEC §3.2): the context line says how many. */
+  calendar?: { connected: boolean; meetings: number };
 };
 
 export type HomeTileId = "due" | "mine" | "triage" | "watching" | "sprint";
@@ -276,8 +278,10 @@ export function homeModel(input: HomeInput): HomeModel {
   ];
   const todayTab: HomeTab = { id: "today", kind: "tasks", label: "Today", ...tab(due), href: "/tasks/today", empty: "Nothing due today" };
   const upcomingTab: HomeTab = { id: "upcoming", kind: "tasks", label: "Upcoming", ...tab(upcoming), href: "/tasks/upcoming", empty: "Nothing due this week" };
+  // "3 meetings today", only while calendar reading is on (CALENDAR-SPEC §3.2).
+  const meetingLine = input.calendar?.connected ? `${input.calendar.meetings} meeting${input.calendar.meetings === 1 ? "" : "s"} today` : "";
 
-  if (tasksOnly) return { context: "", tiles, tabs: [todayTab, upcomingTab], sprint: null, attention: null, changes: null, epics: null };
+  if (tasksOnly) return { context: meetingLine, tiles, tabs: [todayTab, upcomingTab], sprint: null, attention: null, changes: null, epics: null };
 
   const meta = metaOn(data.meta, today);
   const onDay: ClientData = meta === data.meta ? data : { ...data, meta };
@@ -326,6 +330,7 @@ export function homeModel(input: HomeInput): HomeModel {
   }
   tabs.push(upcomingTab);
   if (needs.length) context.push(`${needs.length} issue${needs.length === 1 ? "" : "s"} need${needs.length === 1 ? "s" : ""} triage`);
+  if (meetingLine) context.push(meetingLine);
 
   return {
     context: context.join(" · "),

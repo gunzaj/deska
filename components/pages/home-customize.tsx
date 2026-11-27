@@ -12,6 +12,7 @@ export const PANEL_LABELS: Record<HomePanel, string> = {
   work: "My work",
   sprint: "Current sprint",
   epics: "Epics in this sprint",
+  calendar: "Calendar",
   attention: "Needs attention",
   changes: "What changed",
 };

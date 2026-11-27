@@ -11,10 +11,11 @@ import net from "node:net";
 import path from "node:path";
 import { app, BrowserWindow, dialog, globalShortcut, ipcMain, Menu, nativeImage, Notification, powerMonitor, safeStorage, session, shell, utilityProcess, type IpcMainInvokeEvent, type UtilityProcess, type WebContents } from "electron";
 import { AI_KEY, CHANNELS, DEFAULT_DESKTOP_PREFS, CLASSIC_TOKEN, type AiKeyStatus, FINE_GRAINED_TOKEN, type DesktopPrefs, type DesktopState, type GithubAuthStatus, type ReminderAction, type ReminderItem, type ServerMessage, type ServerReply, type TokenAuth, type TokenStatus } from "./bridge";
+import { CalendarHelper } from "./calendar";
 import { fallbackPath, readGhLogin, readGhToken, resolveLoginPath, serverEnv, type GhRead } from "./gh";
 import { aboutDetails, parseBuildInfo, RELEASES_URL, type BuildInfo } from "./about";
 import { readJsonOrQuarantine, writeAtomic } from "./atomic";
-import { classifyUrl, requestAllowed } from "./navigation";
+import { classifyUrl, opensExternally, requestAllowed } from "./navigation";
 import { parseDesktopPrefs, parsePrefsPatch } from "./prefs";
 import { actionAt, actionRequest, reminderOptions } from "./reminder-notification";
 
@@ -45,6 +46,8 @@ type Server = {
 };
 
 let server: Server | null = null;
+/** The calendar helper (CALENDAR-SPEC §2.2); created once the app is ready. */
+let calendar: CalendarHelper | null = null;
 /** Set once boot has finished (token sent, server listening, recovery answered): until then no window may open. */
 let booted = false;
 /** A Dock click (activate) that came before `booted`: boot opens the one window. */
@@ -112,6 +115,37 @@ function serverLocation(): { mode: "production" | "development"; serverDir: stri
   return { mode: "production", serverDir: path.join(repoRoot, "desktop", "build", "server") };
 }
 
+/**
+ * Where `deska-calendar` is (CALENDAR-SPEC §2.2): beside the app's resources
+ * when packaged; in a dev checkout, a local `swift build` is found too.
+ */
+function calendarHelperPath(): string | null {
+  const candidates = app.isPackaged
+    ? [path.join(process.resourcesPath, "deska-calendar")]
+    : [
+        path.join(path.resolve(__dirname, "..", ".."), "desktop", "build", "calendar", "deska-calendar"),
+        path.join(path.resolve(__dirname, "..", ".."), "desktop", "calendar", ".build", "out", "Products", "Release", "deska-calendar"),
+        path.join(path.resolve(__dirname, "..", ".."), "desktop", "calendar", ".build", "release", "deska-calendar"),
+      ];
+  return candidates.find((p) => existsSync(p)) ?? null;
+}
+
+/**
+ * Starts the calendar helper. A fixture (`DESKA_CALENDAR_FIXTURE`) answers
+ * instead of EventKit in tests and dev, and is ignored in a packaged build.
+ * A change reported by Calendar.app re-reads every open window and tells the
+ * server; no event data goes over the bridge (CALENDAR-SPEC §6).
+ */
+function startCalendar(): CalendarHelper {
+  const fixture = !app.isPackaged && process.env.DESKA_CALENDAR_FIXTURE ? path.resolve(process.env.DESKA_CALENDAR_FIXTURE) : null;
+  const helper = new CalendarHelper(calendarHelperPath(), fixture);
+  helper.onChanged(() => {
+    server?.send({ type: "calendar-changed" });
+    for (const win of BrowserWindow.getAllWindows()) if (!win.isDestroyed()) win.webContents.send(CHANNELS.calendarChanged);
+  });
+  return helper;
+}
+
 function startServerProcess(port: number, secret: string): Server {
   const { mode, serverDir } = serverLocation();
   if (mode === "production" && !existsSync(path.join(serverDir, "server.js"))) {
@@ -141,6 +175,9 @@ function startServerProcess(port: number, secret: string): Server {
       // Automated tests point GitHub at a mock on 127.0.0.1; nothing else is
       // passed on (the server ignores any other value too, lib/config.ts).
       ...(LOOPBACK_API.test(process.env.DESKA_GITHUB_API_URL ?? "") ? { DESKA_GITHUB_API_URL: process.env.DESKA_GITHUB_API_URL! } : {}),
+      // Calendar fixtures answer in place of EventKit in tests and dev
+      // (CALENDAR-SPEC §2.2); main never passes this from a packaged build.
+      ...(!app.isPackaged && process.env.DESKA_CALENDAR_FIXTURE ? { DESKA_CALENDAR_FIXTURE: path.resolve(process.env.DESKA_CALENDAR_FIXTURE) } : {}),
     },
   };
   const entry = path.join(__dirname, "server-entry.js");
@@ -416,7 +453,7 @@ function lockDown(contents: WebContents, origin: string) {
     const where = classifyUrl(url, origin);
     if (where === "app") return;
     e.preventDefault();
-    if (where === "github") void shell.openExternal(url);
+    if (where === "github" || where === "meeting") void shell.openExternal(url);
     else log(`blocked navigation to ${new URL(url).protocol}//…`);
   };
   contents.on("will-navigate", guard);
@@ -427,7 +464,7 @@ function lockDown(contents: WebContents, origin: string) {
   contents.on("will-attach-webview", (e) => e.preventDefault());
   contents.setWindowOpenHandler(({ url }) => {
     const where = classifyUrl(url, origin);
-    if (where === "github") void shell.openExternal(url);
+    if (where === "github" || where === "meeting") void shell.openExternal(url);
     else if (where === "app") void contents.loadURL(url);
     else log("blocked a new window");
     return { action: "deny" };
@@ -649,7 +686,7 @@ function showReminders(items: ReminderItem[]) {
 function registerIpc() {
   ipcMain.handle(CHANNELS.appInfo, (e) => (fromApp(e) ? { name: app.getName(), version: app.getVersion(), platform: process.platform } : null));
   ipcMain.handle(CHANNELS.openExternal, async (e, url: unknown) => {
-    if (!fromApp(e) || typeof url !== "string" || classifyUrl(url, server!.origin) !== "github") return false;
+    if (!fromApp(e) || typeof url !== "string" || !opensExternally(url, server!.origin)) return false;
     await shell.openExternal(url);
     return true;
   });
@@ -777,6 +814,20 @@ function registerIpc() {
     const [w] = quickWindow.getContentSize();
     quickWindow.setContentSize(w ?? 600, Math.round(Math.min(Math.max(height, 160), 480)));
   });
+  // Calendar (CALENDAR-SPEC §6): the permission state, the one prompt, and
+  // two macOS hand-overs. No event data crosses the bridge.
+  ipcMain.handle(CHANNELS.calendarStatus, (e) => (fromApp(e) ? (calendar ? calendar.status() : Promise.resolve("unavailable")) : null));
+  ipcMain.handle(CHANNELS.calendarConnect, (e) => (fromApp(e) && calendar ? calendar.requestAccess() : "unavailable"));
+  ipcMain.handle(CHANNELS.calendarOpenEvent, async (e, id: unknown) => {
+    if (!fromApp(e) || typeof id !== "string" || !id || id.length > 500) return false;
+    // The documented EventKit hand-over; Calendar.app opens the event.
+    await shell.openExternal(`ical://ekevent/${encodeURIComponent(id)}`);
+    return true;
+  });
+  ipcMain.handle(CHANNELS.calendarOpenSettings, async (e) => {
+    if (!fromApp(e)) return;
+    await shell.openExternal("x-apple.systempreferences:com.apple.preference.security?Privacy_Calendars");
+  });
 }
 
 async function boot() {
@@ -811,6 +862,24 @@ async function boot() {
     if (m?.type === "transcribe-key-ack") {
       transcribeKeyAcks.get(m.id)?.();
       transcribeKeyAcks.delete(m.id);
+      return;
+    }
+    // The server reads calendar data through this one door (CALENDAR-SPEC
+    // §2.2). Only reads: the permission request is the page's click.
+    if (m?.type === "calendar-request") {
+      const id = m.id;
+      const cmd = m.cmd;
+      const args = { from: m.from, to: m.to, calendarIds: m.calendarIds };
+      void (async () => {
+        if (!calendar) throw new Error("calendar helper is not available");
+        if (cmd === "status") return calendar.status();
+        if (cmd === "calendars") return calendar.calendars();
+        const ids = Array.isArray(args.calendarIds) ? args.calendarIds.filter((x): x is string => typeof x === "string") : [];
+        return calendar.events(args.from ?? "", args.to ?? "", ids);
+      })().then(
+        (result) => s.send({ type: "calendar-result", id, ok: true, result }),
+        (error: unknown) => s.send({ type: "calendar-result", id, ok: false, error: error instanceof Error ? error.message.slice(0, 300) : "calendar error" }),
+      );
       return;
     }
     if (m?.type === "token-ack") tokenAcks.get(m.id)?.();
@@ -916,7 +985,10 @@ app.on("before-quit", (e) => {
 
 app.on("deska:quick-add" as never, openQuickAdd);
 app.on("deska:reminder-action" as never, ((item: ReminderItem, action: ReminderAction) => void runReminderAction(item, action)) as never);
-app.on("will-quit", () => globalShortcut.unregisterAll());
+app.on("will-quit", () => {
+  globalShortcut.unregisterAll();
+  calendar?.stop();
+});
 
 void app.whenReady().then(async () => {
   if (!primaryInstance) return;
@@ -924,6 +996,7 @@ void app.whenReady().then(async () => {
   applyAppIcon();
   installMenu();
   registerIpc();
+  calendar = startCalendar();
   powerMonitor.on("resume", onResume);
   try {
     await boot();

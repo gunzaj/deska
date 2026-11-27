@@ -275,7 +275,7 @@ export function startPath(page: StartPage | null | undefined, tasksOnly = false)
 }
 
 /** Home's panels a user can reorder or hide (HOME-SPEC §5), in their default order. */
-export const HOME_PANELS = ["work", "sprint", "epics", "attention", "changes"] as const;
+export const HOME_PANELS = ["work", "sprint", "epics", "calendar", "attention", "changes"] as const;
 export type HomePanel = (typeof HOME_PANELS)[number];
 export type HomeLayout = { order: HomePanel[]; hidden: HomePanel[] };
 const homePanel = z.enum(HOME_PANELS);

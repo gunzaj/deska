@@ -198,8 +198,8 @@ This reuses the Next.js app, API routes and Postgres SQL almost as-is. **[Defaul
 - **Per-launch secret:** main generates 256 random bits, passes them to the server over IPC and sets them as an `HttpOnly`, `SameSite=Strict` cookie on the window session before the first load. Every request (pages and API) without it gets 403.
 - Any `Host` other than `127.0.0.1:<port>` gets 403.
 - Origin check on mutating requests and a strict CSP (both exist in the predecessor).
-- Renderer: `contextIsolation: true`, `sandbox: true`, `nodeIntegration: false`, a minimal typed preload bridge (token entry, notifications, open-external, app info; **[D12]** the desktop settings, closing the quick-add window and a "open this task" event; **[AI0]** the AI API key: set, remove and whether one is stored, never the key; **[D15]** the GitHub sign-in source: its state, "use the GitHub CLI login" and "check again", never a token) and nothing else.
-- Navigation locked to the app origin. `https://github.com/*` opens in the default browser via `shell.openExternal`. Every other external URL is blocked.
+- Renderer: `contextIsolation: true`, `sandbox: true`, `nodeIntegration: false`, a minimal typed preload bridge (token entry, notifications, open-external, app info; **[D12]** the desktop settings, closing the quick-add window and a "open this task" event; **[AI0]** the AI API key: set, remove and whether one is stored, never the key; **[D15]** the GitHub sign-in source: its state, "use the GitHub CLI login" and "check again", never a token; **[C1]** the calendar permission: its state, the one "Connect calendars" click, "Open in Calendar", "Open System Settings" and a no-data "changed" event) and nothing else.
+- Navigation locked to the app origin. `https://github.com/*` opens in the default browser via `shell.openExternal`. **[C1]** A calendar event's Join link may also open there when it is `https` on the meeting allowlist of §4.11. Every other external URL is blocked.
 - Nothing is loaded from the network at runtime except the GitHub API and, **[after D14]** once the user sets one up, the AI endpoint of §4.9 (called from the server process only; the CSP doesn't change). (Automated tests may point the API at a mock on `http://127.0.0.1:<port>` with `DESKA_GITHUB_API_URL`; any other value is ignored.)
 - **[Fix D]** No window opens before startup finishes (after the recovery prompt); a Dock click during startup is remembered and opens exactly one window afterwards. `desktop:stage` strips every `.env*` file from the staged server and fails if any remain. Prefs and token files are written atomically (temp file, then rename); an unparsable prefs file is kept as `.bad` and the app starts with defaults. The GitHub CLI token counts as sent only after the server acknowledges it. The release job runs typecheck and `pnpm test` before building.
 
@@ -499,6 +499,26 @@ A page that answers "what needs me right now?" across personal tasks and GitHub 
 
 All selection logic is one pure module (`lib/client/home.ts`); the page only renders it. It reuses `dueCount`, `sprintStats`, `sprintTiming`, `releaseRisk`, `releasesOn`, `withDefaultScope`, the triage queue definitions (`lib/client/triage-queues.ts`) and the watchlist store.
 
+## 4.11 Calendar
+
+**[Added after v1.4.3, at the maintainer's request]** The decision record is [`CALENDAR-SPEC.md`](CALENDAR-SPEC.md). C1 (read-only meetings on Home) is built; C2 (Planner and drag and drop), C3 (opt-in generic busy blocks) and C4 (AI meetings) are not.
+
+**Where the meetings come from.** The calendars already in macOS Calendar, through EventKit: Google, iCloud, Exchange/Microsoft 365 and CalDAV accounts all arrive as Calendar.app already has them. There is **no OAuth flow, no client ID and no network call** of Deska's own (`§1.3` stays true). A small native helper, `deska-calendar` (a Swift package in `desktop/calendar/`), is built universal into `Deska.app/Contents/Resources/`; main spawns it once and talks one JSON object per line. The helper's whole interface is `status`, `requestAccess`, `calendars` and `events { from, to, calendarIds }` (window ≤ 42 days), plus a pushed `changed` when Calendar.app or a sync reports a change. It reads **no notes and no attendee names or emails** (a count only); titles, times, location and URL are held in memory and never written to the database, a log, a backup, an export or an AI input (C-F). C3 will add the only two write commands, and only for Deska's own generic blocks.
+
+**Permission.** Settings → Calendar reads the Calendars permission. "Connect calendars" is the only click that shows the macOS prompt (`requestFullAccessToEvents`); reading is never turned on silently. `denied` / `restricted` shows "Deska can't read your calendars" with a link to System Settings → Privacy & Security → Calendars, and hides nothing else. Because the app is signed ad hoc, macOS may ask again after an update (accepted, CALENDAR-SPEC §2.4); Settings says so. Missing helper (a dev checkout without the Swift build) reads as `unavailable` and shows the desktop-only line.
+
+**Settings → Calendar.** The calendars grouped by account, each with its colour and a checkbox; first connect turns on every calendar except subscribed holiday and birthday ones. "Hide declined events" (on), "Week starts on" (Monday) and "Working hours" (08:00–18:00). "Disconnect" stops reading and forgets the chosen calendars; it does not change macOS permissions. Stored as `calendar.prefs` in `app_settings` (never a migration); backups and exports carry it. Calendar IDs belong to one Mac, so IDs the current Mac does not know are dropped when prefs are read (and after an import). Tasks-only mode has the same Settings section.
+
+**Home panel.** A `calendar` panel in `HOME_PANELS`, so Customize Home can hide and move it; by default it is first in the narrow column. Header: "Today" (or "Tomorrow") and the date, with arrows that step to tomorrow and back. A line under it says "Next: \<title\> in N min" when a timed meeting starts within two hours, "Now: \<title\> · until HH:mm" while one runs, "Free until HH:mm" for a later one, or "No more meetings today". The body is today as a compact grid from the working-hours start (grown to fit anything earlier or later) to the end, with hour lines and a now-line; overlapping meetings sit side by side; all-day events sit in a band above the grid. Clicking an event opens a read-only popover: title, time (and the event's own zone when it differs), calendar, location, attendee count, **Join** when the event has an allowlisted meeting link, and **Open in Calendar**. Nothing is editable. Not connected: one line, "See your meetings here", and "Connect calendars". The header context line gains "N meetings today" while reading is on.
+
+**Join allowlist.** Join opens only `https` links, matched exactly in main: `meet.google.com`, `teams.microsoft.com`, `teams.live.com`, and `zoom.us` / `webex.com` including their subdomains (no credentials, no other port). The link is the event's own URL when it is on the list, else the first allowlisted link in its location. Any other URL stays plain text. Main's copy and the page's copy are kept equal by a test.
+
+**Refresh and time.** The panel reads on page load, on window focus, every 5 minutes, and on the helper's `changed`; a failed read keeps the last result, marked "Couldn't refresh · showing the last read" (an error is never an empty day, §3.3). Events are drawn in the viewer's zone (`user_prefs.tz`); an event created in another zone names that zone in the popover; all-day events are dates and are never shifted; positions are wall-clock, so a spring-forward day skips 02:00 and a fall-back day draws it once. Events crossing midnight are clipped to each day. Declined events are left out server-side when "Hide declined" is on.
+
+**Server routes.** `GET /api/calendar/events?from&to` (ISO instants, ≤ 42 days) returns `{ status, connected, calendars, events, readAt, prefs }`, with the calendar's title and colour on each event and the checked `joinUrl`. `GET /api/calendar` returns the permission, the calendars and the saved prefs; `PATCH /api/calendar` saves a validated patch. Main answers the server's reads over the existing IPC channel; **no event data crosses the preload bridge**. Tests and dev never run the helper: `DESKA_CALENDAR_FIXTURE=<file>` answers with fictional JSON in an unpackaged build only (e2e answers the route in the browser instead). The release build puts the helper in `extraResources` and declares `NSCalendarsFullAccessUsageDescription`; the entitlements file has `com.apple.security.personal-information.calendars`.
+
+**C1 does not** add a Planner link (there is no `/planner` until C2), timed tasks on the grid (C2), any calendar write (C3, maintainer's go) or any AI input (C4).
+
 ---
 
 # Part 5 — Build plan
@@ -664,6 +684,17 @@ All write tests use mocks. Real-GitHub verification goes in "Maintainer to-do" (
 - §4.10 Customize Home.
 - **Acceptance (mocks):** hiding and reordering panels survives a reload; Reset puts the default back.
 
+## Phase G — Calendar
+
+**[Added after v1.4.3, at the maintainer's request]** §4.11. C1 is one PR; C2–C4 follow as 1.5.x and C3 starts only after the maintainer's go.
+
+### C1 — Meetings on Home (read-only)
+- The Swift helper in `desktop/calendar/` and its build step; `desktop/calendar.ts` (spawn, JSON lines, fixture mode); the permission, Join and `changed` parts of `desktop/bridge.ts`, `desktop/main.ts` and `desktop/navigation.ts`; the two `/api/calendar` routes; `lib/calendar/` (types, prefs, layout, join, provider); Settings → Calendar; the `calendar` Home panel; `docs/security.md`.
+- **Acceptance (mocks):** the Settings section lists calendars and saves every change; Home shows today's meetings in order with the all-day band, the Next line and "N meetings today"; the popover shows time/calendar/location/people with Join and Open in Calendar; not-connected, denied and unavailable states; the arrows step to tomorrow and back; tasks-only mode shows the panel; a failed read keeps the old result marked stale; axe passes in both themes; no sideways scroll at 390 px.
+
+### C2 — Planner (next)
+- `duration_min` and quick add durations; `/planner`; drag and drop on the Planner and Home; keyboard moves; tasks on the grid. See CALENDAR-SPEC §4.
+
 ---
 
 # Part 6 — Test list (all pass for D14)
@@ -679,3 +710,4 @@ All write tests use mocks. Real-GitHub verification goes in "Maintainer to-do" (
 - No mutating GitHub call in a `DESKA_WRITES=off` build (request-log assertion across E2E).
 - Leak guard passes on every commit and in CI.
 - Home: every tile equals its page's count; tabs, sprint panel and the H2 lists with their caps; the sidebar groups; the start page.
+- Calendar: helper fixtures (status, calendars, window, fields dropped), prefs and unknown IDs, overlap columns, all-day band, declined filter, window growth, DST, midnight, next-meeting line, Join allowlist parity with main, both routes, Settings → Calendar, Home panel states, tomorrow arrows, tasks-only mode, axe in both themes, 390 px.

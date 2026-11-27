@@ -11,6 +11,7 @@ Electron main process
   ├─ window, menus, dock badge, global shortcut, native notifications
   ├─ token store (safeStorage → Keychain-backed key)
   ├─ login-shell PATH, resolved once per launch (finds `gh`)
+  ├─ calendar helper (deska-calendar, EventKit; reads on demand, no storage)
   └─ spawns ─► utilityProcess: Next.js standalone server
                  ├─ binds 127.0.0.1:<random free port>
                  ├─ API routes, view engine, task service
@@ -21,7 +22,7 @@ Renderer (BrowserWindow) loads http://127.0.0.1:<port>/ — the React UI
 ```
 
 - Everything runs on the user's Mac, as the user. There is no Deska server, account or telemetry.
-- The only network traffic is to the GitHub API (`api.github.com`), with the user's token.
+- The only network traffic is to the GitHub API (`api.github.com`), with the user's token, and to the AI endpoint the user sets up. Calendar data comes from EventKit on this Mac; macOS syncs the accounts, not Deska.
 - GitHub stays the source of truth. People without Deska see every issue on GitHub as usual.
 
 ## GitHub token
@@ -136,6 +137,17 @@ Optional and **off by default**; nothing is spawned or sent until the user picks
 - **Untrusted text.** Issue and task text goes into delimited data blocks that cannot close themselves, under instructions that say it is data. The schema is built per request with enums of real IDs, so a value that does not exist cannot come back. A model that is told by an issue to close it still only returns a suggestion: suggestions change nothing until the user accepts, and accepting a GitHub change goes through the write gate like a manual edit.
 - **The API key** follows the token's rules: entered through the preload bridge to the main process, encrypted with `safeStorage` (`ai-key.bin`), handed to the server over IPC, held in memory only, sent only as the `Authorization` header to the configured endpoint, redacted from logs and errors (also any `sk-…` shape), and never in an API answer, backup, export or `ai_results`. "Remove key" deletes it.
 - **Local cache.** Results are stored in `ai_results` so a suggestion can be shown again and marked outdated when its subject (an issue, a list, a task, or a day) changed. It is a cache, not part of backups or exports.
+
+## Calendar
+
+Optional and **off by default**; reading starts only when the user clicks "Connect calendars" in Settings → Calendar and macOS allows it.
+
+- **The permission.** macOS ties Calendars access to the app's code signature. Deska asks once, with `NSCalendarsFullAccessUsageDescription` ("Deska shows your meetings next to your tasks."). The app is signed ad hoc, so macOS may ask again after an update; Settings explains this. Denied or restricted access leaves the rest of Deska untouched.
+- **What reads the data.** A bundled Swift helper, `deska-calendar`, runs EventKit in a child process. Main spawns it and talks JSON lines; the renderer never sees it and the server gets events only over IPC. Reading is on demand for the shown window (at most 42 days) and nothing is written to disk.
+- **What is read.** Calendar metadata (id, title, colour, account, writable, subscribed/birthday) and, per event: id, calendar, title, start, end, all-day, time zone, location, URL, the user's own invitation status, whether the user is the organizer, an attendee **count**, whether it recurs and the occurrence date. **Never** notes, attendee names or emails, attachments or alarms.
+- **Where it goes.** Event data stays in main's and the server's memory and is handed to the page over the local server's `/api/calendar/events`. It is never stored in the database, a backup, an export, a log or `ai_results`, and it is not sent to GitHub or any AI feature (C4 would make it opt-in). The preload bridge carries only the permission state, the one access request, "Open in Calendar", "Open System Settings" and a no-data "changed" signal.
+- **Join links.** "Join" opens the event's meeting link in the default browser only when it is `https` on this exact allowlist: `meet.google.com`, `teams.microsoft.com`, `teams.live.com`, and `zoom.us` / `webex.com` with their subdomains; no credentials, no non-standard port. The link is the event's URL or the first allowlisted link in its location. Any other URL is plain text. Main enforces the same list as the page, and a test keeps them equal.
+- **Writes (C3, not built).** Reading uses macOS "full access", which can also write. C3 will add two helper commands only (`upsertDeskaEvent`, `removeDeskaEvent`) for **generic** blocks (fixed title, no notes, location or URL, no attendees), linked to tasks in a local table so Deska changes only events it created. The helper refuses any other write; a test fails if a third write command appears. Until then the helper has no write path at all.
 
 ## Write gate
 

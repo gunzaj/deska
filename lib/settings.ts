@@ -9,6 +9,7 @@ import { inArray } from "drizzle-orm";
 import { dbDir, getDb } from "@/db";
 import { appSettings } from "@/db/schema";
 import { ConfigError, displayRepo, githubTarget, type GithubTarget } from "./config";
+import { parseCalendarPrefs, type CalendarPrefs } from "./calendar/settings";
 import { parseAiSettings, type AiSettings } from "./ai/types";
 import { parseMapping, type FieldMapping } from "./sync/field-map";
 
@@ -35,6 +36,7 @@ const KEYS = {
   aiEndpointModes: "ai.endpoint-modes",
   theme: "ui.theme",
   tabs: "ui.tabs",
+  calendar: "calendar.prefs",
 } as const;
 
 type Cache = { loaded: Promise<void> | null; values: Map<string, unknown>; version: number };
@@ -139,6 +141,37 @@ export async function saveTabs(tabs: unknown): Promise<void> {
   await setCosmetic(KEYS.tabs, tabs);
 }
 
+/**
+ * Settings → Calendar (CALENDAR-SPEC §3.1). `knownIds` drops calendar IDs this
+ * Mac does not have, which is how prefs from a backup taken on another Mac
+ * lose them (§3.1).
+ */
+export async function readCalendarPrefs(knownIds?: Iterable<string>): Promise<CalendarPrefs> {
+  try {
+    return parseCalendarPrefs(await get(KEYS.calendar), knownIds);
+  } catch {
+    return parseCalendarPrefs(null);
+  }
+}
+
+export async function saveCalendarPrefs(prefs: CalendarPrefs): Promise<void> {
+  await set(KEYS.calendar, prefs);
+}
+
+/**
+ * After a backup or export was imported: calendar IDs belong to one Mac, so
+ * any the current Mac does not know are dropped (CALENDAR-SPEC §3.1). Without
+ * a calendar list (no helper, no fixture) the stored value is left alone.
+ */
+export async function normalizeImportedCalendarPrefs(knownIds: readonly string[]): Promise<void> {
+  if (knownIds.length === 0) return;
+  const stored = await get(KEYS.calendar);
+  if (!stored || typeof stored !== "object") return;
+  const prefs = parseCalendarPrefs(stored, knownIds);
+  const before = (stored as { calendarIds?: unknown }).calendarIds;
+  if (JSON.stringify(before) !== JSON.stringify(prefs.calendarIds)) await set(KEYS.calendar, prefs);
+}
+
 /** Bumped by every save: part of the data ETag, so a remap reaches the browser. */
 export function settingsVersion(): number {
   return cache().version;
@@ -225,9 +258,7 @@ export async function saveCloseDoneStatus(optionId: string | null): Promise<void
 /** AI assist settings (SPEC §4.9). Never the API key. */
 export async function readAiSettings(): Promise<AiSettings> {
   return parseAiSettings(await get(KEYS.ai));
-}
-
-export async function saveAiSettings(s: AiSettings): Promise<void> {
+}export async function saveAiSettings(s: AiSettings): Promise<void> {
   await set(KEYS.ai, s);
 }
 

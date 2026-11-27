@@ -12,6 +12,37 @@ export type AiKeyStatus = { stored: boolean; encryptionAvailable: boolean };
 /** Where the GitHub token comes from (SPEC §2.3): a pasted token main stores encrypted, or the GitHub CLI's login. */
 export type GithubAuthSource = "token" | "gh";
 
+// --- Calendar (CALENDAR-SPEC §2.2, §6) ---------------------------------------
+
+/** What macOS says about the Calendars permission. */
+export type CalendarStatus = "notDetermined" | "denied" | "restricted" | "fullAccess" | "writeOnly";
+/** Plus "unavailable": the helper is missing or would not start (a dev build, a broken bundle). */
+export type CalendarReadStatus = CalendarStatus | "unavailable";
+
+/** A calendar in Calendar.app. Metadata only; no event data. */
+export type CalendarInfo = { id: string; title: string; color: string; source: string; allowsWrite: boolean; subscribed: boolean; birthday: boolean };
+
+/** One event, exactly the fields the helper reads. Never notes or attendee names. */
+export type CalendarEvent = {
+  id: string;
+  calendarId: string;
+  title: string;
+  start: string;
+  end: string;
+  allDay: boolean;
+  timeZone: string | null;
+  location: string | null;
+  url: string | null;
+  myStatus: "accepted" | "declined" | "tentative" | "pending" | "delegated" | "unknown" | null;
+  organizerIsMe: boolean;
+  attendeeCount: number;
+  isRecurring: boolean;
+  occurrenceDate: string | null;
+};
+
+/** The JSON fixture `DESKA_CALENDAR_FIXTURE` names (tests and dev only, never a packaged build). */
+export type CalendarFixture = { status: CalendarReadStatus; calendars: CalendarInfo[]; events: CalendarEvent[] };
+
 /** What `gh auth token` said: "not-found" = no `gh` on the login-shell PATH, "logged-out" = it gave no token. */
 export type GithubCliState = "ok" | "not-found" | "logged-out";
 
@@ -149,6 +180,26 @@ export interface DeskaBridge {
     /** "Check again": with the CLI source, reads its token again. */
     recheck(): Promise<GithubAuthStatus>;
   };
+  /**
+   * Calendar access (CALENDAR-SPEC §6). Only the permission and one macOS
+   * hand-over cross the bridge: no event, calendar name or meeting link. The
+   * page reads events from the server route. Absent in builds before C1.
+   */
+  calendar?: {
+    /** macOS's answer for Calendars. Never triggers a prompt. */
+    status(): Promise<CalendarReadStatus>;
+    /**
+     * "Connect calendars": asks macOS for full access. Only a click may call
+     * this (§2.2); the page then saves its prefs through the server.
+     */
+    connect(): Promise<CalendarReadStatus>;
+    /** "Open in Calendar": hands the event's identifier to Calendar.app. */
+    openEvent(eventId: string): Promise<boolean>;
+    /** Opens System Settings → Privacy & Security → Calendars. */
+    openSettings(): Promise<void>;
+    /** Calendar.app (or a sync) reported a change: re-read the panel. Carries no data. */
+    onChanged(listener: () => void): () => void;
+  };
 }
 
 /** IPC channels the bridge uses. */
@@ -172,10 +223,15 @@ export const CHANNELS = {
   desktopSet: "deska:desktop-set",
   backupFolderChoose: "deska:backup-folder-choose",
   backupFolderClear: "deska:backup-folder-clear",
+  calendarStatus: "deska:calendar-status",
+  calendarConnect: "deska:calendar-connect",
+  calendarOpenEvent: "deska:calendar-open-event",
+  calendarOpenSettings: "deska:calendar-open-settings",
   quickAddClose: "deska:quick-add-close",
   quickAddResize: "deska:quick-add-resize",
   /** main → renderer */
   openTask: "deska:open-task",
+  calendarChanged: "deska:calendar-changed",
 } as const;
 
 /** Where a token message's token came from. */
@@ -208,6 +264,11 @@ export type ServerMessage =
   | { type: "transcribe-key"; key: string | null; id: number }
   /** The second backup folder (null = none), set by main from its prefs at start and on every change. */
   | { type: "backup-mirror"; dir: string | null }
+  /** An answer to a `calendar-request`: the helper's result, or why it failed. */
+  | { type: "calendar-result"; id: number; ok: true; result: unknown }
+  | { type: "calendar-result"; id: number; ok: false; error: string }
+  /** Calendar.app changed (or synced); carries no data. */
+  | { type: "calendar-changed" }
   /** Run a sync now: the Mac woke from sleep (powerMonitor "resume"). */
   | { type: "sync"; reason: "wake" }
   | { type: "stop" };
@@ -222,7 +283,13 @@ export type ServerReply =
   /** Reminders that just fired, to show as native notifications (D12). */
   | { type: "reminders"; items: ReminderItem[] }
   /** The Dock badge: open tasks overdue or due today (D12). */
-  | { type: "badge"; count: number };
+  | { type: "badge"; count: number }
+  /**
+   * The server needs calendar data for `GET /api/calendar/events`
+   * (CALENDAR-SPEC §2.2). Main answers with `calendar-result`; the permission
+   * request is never on this path, only the page's "Connect calendars" is.
+   */
+  | { type: "calendar-request"; id: number; cmd: "status" | "calendars" | "events"; from?: string; to?: string; calendarIds?: string[] };
 
 /** An API key for an AI endpoint: one printable token, no spaces, no quotes. */
 export const AI_KEY = /^[\x21\x23-\x7e]{8,512}$/;

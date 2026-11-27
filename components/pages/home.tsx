@@ -5,6 +5,9 @@
 // has and changes nothing but a local task's completion.
 import Link from "next/link";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { CalendarPanel } from "../calendar/calendar-panel";
+import { useCalendar } from "../calendar/use-calendar";
+import { countMeetings } from "@/lib/calendar/layout";
 import { optionColor } from "@/lib/client/colors";
 import { EDITING_OFF } from "@/lib/client/edit";
 import { formatDate, lastDay, longAgo, plainName } from "@/lib/client/format";
@@ -415,7 +418,8 @@ export function HomePage() {
   const { data } = useAppData();
   const { meta } = data;
   const { tasks, projects, openCompose } = useTasks();
-  const { today, now } = useToday();
+  const { today, now, tz } = useToday();
+  const feed = useCalendar(today, tz);
   const { scope } = useDefaultScope();
   const { snoozes } = useSnoozes();
   const { unseen, changes } = useWatchlist();
@@ -431,20 +435,33 @@ export function HomePage() {
   const current = tasksOnly ? null : (meta.releases.find((r) => r.id === meta.currentReleaseId) ?? null);
   const scopeAdded = useScopeAdded(current);
   const model = useMemo(
-    () => homeModel({ data, tasks, projects, today, scope, tasksOnly, snoozes, watch: { unseen, changes }, scopeAdded }),
-    [data, tasks, projects, today, scope, tasksOnly, snoozes, unseen, changes, scopeAdded],
+    () =>
+      homeModel({
+        data,
+        tasks,
+        projects,
+        today,
+        scope,
+        tasksOnly,
+        snoozes,
+        watch: { unseen, changes },
+        scopeAdded,
+        calendar: { connected: feed.data?.connected === true, meetings: countMeetings(feed.data?.events ?? [], today, tz) },
+      }),
+    [data, tasks, projects, today, scope, tasksOnly, snoozes, unseen, changes, scopeAdded, feed.data, tz],
   );
 
   const blocks: Record<HomePanel, ReactNode> = {
     work: <MyWork key="work" tabs={model.tabs} />,
     sprint: model.sprint && <SprintPanel key="sprint" sprint={model.sprint} />,
     epics: model.epics && <Epics key="epics" rows={model.epics} />,
+    calendar: <CalendarPanel key="calendar" feed={feed} today={today} tz={tz} />,
     attention: model.attention && <Attention key="attention" rows={model.attention} />,
     changes: model.changes && <Changes key="changes" changes={model.changes} />,
   };
   // What this install can show at all: Customize lists only those.
   const available = useMemo(() => {
-    const has: Record<HomePanel, boolean> = { work: true, sprint: model.sprint != null, epics: model.epics != null, attention: model.attention != null, changes: model.changes != null };
+    const has: Record<HomePanel, boolean> = { work: true, sprint: model.sprint != null, epics: model.epics != null, calendar: true, attention: model.attention != null, changes: model.changes != null };
     return new Set((Object.keys(has) as HomePanel[]).filter((id) => has[id]));
   }, [model]);
   const shown = panels.filter((p) => !p.hidden && available.has(p.id));

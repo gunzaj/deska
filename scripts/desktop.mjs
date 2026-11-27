@@ -28,6 +28,21 @@ function compileDesktop() {
   run(bin("tsc"), ["-p", "tsconfig.desktop.json"]);
 }
 
+/**
+ * The calendar helper (CALENDAR-SPEC §2.2). A universal Swift build, so the
+ * one .dmg works on both architectures; CI's macos runner has the toolchain.
+ */
+function buildCalendarHelper() {
+  const pkg = path.join(root, "desktop", "calendar");
+  run("swift", ["build", "-c", "release", "--arch", "arm64", "--arch", "x86_64", "--package-path", pkg]);
+  const built = path.join(pkg, ".build", "out", "Products", "Release", "deska-calendar");
+  if (!existsSync(built)) throw new Error(`the calendar helper was not built (${built})`);
+  const out = path.join(BUILD, "calendar");
+  rmSync(out, { recursive: true, force: true });
+  mkdirSync(out, { recursive: true });
+  cpSync(built, path.join(out, "deska-calendar"));
+}
+
 function dev() {
   compileDesktop();
   const electron = require("electron");
@@ -80,6 +95,8 @@ function stage() {
   compileDesktop();
   rmSync(path.join(root, DIST_DIR), { recursive: true, force: true });
   rmSync(BUILD, { recursive: true, force: true });
+  // After the reset: buildCalendarHelper() writes into BUILD/calendar.
+  buildCalendarHelper();
   run(bin("next"), ["build"], { NEXT_OUTPUT: "standalone", NEXT_DIST_DIR: DIST_DIR });
 
   // The server: Next's standalone output, plus the static assets Next leaves
@@ -153,7 +170,11 @@ function build() {
     // extraResources silently drops node_modules folders.
     afterPack: afterPackHook(),
     // The Dock icons Settings offers (Contents/Resources/app-icons/<id>.png).
-    extraResources: [{ from: path.join(root, "desktop", "assets", "app-icons"), to: "app-icons", filter: ["*.png"] }],
+    extraResources: [
+      { from: path.join(root, "desktop", "assets", "app-icons"), to: "app-icons", filter: ["*.png"] },
+      // The calendar helper (CALENDAR-SPEC §2.2): Contents/Resources/deska-calendar.
+      { from: path.join(root, "desktop", "build", "calendar", "deska-calendar"), to: "deska-calendar" },
+    ],
     asar: true,
     npmRebuild: false,
     nodeGypRebuild: false,
@@ -171,7 +192,13 @@ function build() {
       // The server folder is the same JavaScript in both architectures.
       x64ArchFiles: "Contents/Resources/server/**",
       // Ramble records audio (item 13); macOS shows this line in the prompt.
-      extendInfo: { NSMicrophoneUsageDescription: "Deska records a short voice note to create tasks. The audio goes only to the transcription endpoint you set." },
+      // The calendar helper reads the calendars already in Calendar.app
+      // (CALENDAR-SPEC §2.2, C-A).
+      extendInfo: {
+        NSMicrophoneUsageDescription: "Deska records a short voice note to create tasks. The audio goes only to the transcription endpoint you set.",
+        NSCalendarsFullAccessUsageDescription: "Deska shows your meetings next to your tasks.",
+        NSCalendarsUsageDescription: "Deska shows your meetings next to your tasks.",
+      },
     },
     dmg: { title: "Deska" },
     copyright: "MIT License",

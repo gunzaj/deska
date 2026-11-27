@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Page } from "@/components/app/shell";
+import { CalendarSettings } from "@/components/calendar/calendar-settings";
 import { AiSettingsSection } from "@/components/github/ai-settings";
 import { CloseSettings } from "@/components/github/close-settings";
 import { DesktopSettings } from "@/components/github/desktop-settings";
@@ -21,6 +22,7 @@ export default function SettingsPage() {
         <CloseSettings />
         <WritesSettings />
         <DesktopSettings />
+        <CalendarSettings />
         <AiSettingsSection />
         <LocalDataSettings />
       </div>
