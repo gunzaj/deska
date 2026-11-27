@@ -32,8 +32,8 @@ export type CalendarInfo = {
 export type CalendarAttendeeStatus = "accepted" | "declined" | "tentative" | "pending" | "delegated" | "unknown";
 
 /**
- * One event, exactly the fields the helper reads (CALENDAR-SPEC §2.2). No
- * notes, no attendee names or emails; `attendeeCount` is only a number.
+ * One event, exactly the fields the helper sends (CALENDAR-SPEC §2.2). No
+ * notes text, no attendee names or emails; `attendeeCount` is only a number.
  */
 export type CalendarEvent = {
   id: string;
@@ -48,6 +48,8 @@ export type CalendarEvent = {
   timeZone: string | null;
   location: string | null;
   url: string | null;
+  /** An allowlisted meeting link the helper found in the event's notes; the notes themselves never leave it. */
+  meetingUrl: string | null;
   myStatus: CalendarAttendeeStatus | null;
   organizerIsMe: boolean;
   attendeeCount: number;

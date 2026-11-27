@@ -22,7 +22,7 @@ export type CalendarReadStatus = CalendarStatus | "unavailable";
 /** A calendar in Calendar.app. Metadata only; no event data. */
 export type CalendarInfo = { id: string; title: string; color: string; source: string; allowsWrite: boolean; subscribed: boolean; birthday: boolean };
 
-/** One event, exactly the fields the helper reads. Never notes or attendee names. */
+/** One event, exactly the fields the helper sends. Never the notes' text or attendee names. */
 export type CalendarEvent = {
   id: string;
   calendarId: string;
@@ -33,6 +33,8 @@ export type CalendarEvent = {
   timeZone: string | null;
   location: string | null;
   url: string | null;
+  /** An allowlisted meeting link the helper found in the event's notes; the notes themselves never leave it. */
+  meetingUrl: string | null;
   myStatus: "accepted" | "declined" | "tentative" | "pending" | "delegated" | "unknown" | null;
   organizerIsMe: boolean;
   attendeeCount: number;
