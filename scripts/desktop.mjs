@@ -34,8 +34,13 @@ function compileDesktop() {
  */
 function buildCalendarHelper() {
   const pkg = path.join(root, "desktop", "calendar");
-  run("swift", ["build", "-c", "release", "--arch", "arm64", "--arch", "x86_64", "--package-path", pkg]);
-  const built = path.join(pkg, ".build", "out", "Products", "Release", "deska-calendar");
+  const arches = ["-c", "release", "--arch", "arm64", "--arch", "x86_64"];
+  run("swift", ["build", ...arches, "--package-path", pkg]);
+  // SwiftPM's output path for a universal build depends on the toolchain
+  // (`.build/out/Products/Release` here, `.build/apple/Products/Release` on
+  // older Xcodes), so ask it instead of guessing.
+  const binPath = execFileSync("swift", ["build", ...arches, "--show-bin-path", "--package-path", pkg], { encoding: "utf8" }).trim();
+  const built = path.join(binPath, "deska-calendar");
   if (!existsSync(built)) throw new Error(`the calendar helper was not built (${built})`);
   const out = path.join(BUILD, "calendar");
   rmSync(out, { recursive: true, force: true });
