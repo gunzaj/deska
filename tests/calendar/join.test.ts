@@ -1,4 +1,6 @@
 // CALENDAR-SPEC §6 (C-G): Join opens only https links on the meeting allowlist.
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { isMeetingUrl, MEETING_HOSTS, MEETING_HOST_SUFFIXES, meetingJoinUrl } from "@/lib/calendar/join";
 import { MEETING_HOSTS as MAIN_HOSTS, MEETING_HOST_SUFFIXES as MAIN_SUFFIXES } from "@/desktop/navigation";
@@ -47,6 +49,12 @@ describe("meetingJoinUrl", () => {
     expect(meetingJoinUrl({ url: null, location: "https://evil.example/x, then https://acme.zoom.us/j/9" })).toBe("https://acme.zoom.us/j/9");
   });
 
+  it("uses the link from the notes last, and only when it is on the allowlist", () => {
+    expect(meetingJoinUrl({ url: null, location: "Room 3", meetingUrl: "https://meet.google.com/abc-defg-hij" })).toBe("https://meet.google.com/abc-defg-hij");
+    expect(meetingJoinUrl({ url: null, location: "https://acme.zoom.us/j/9", meetingUrl: "https://meet.google.com/abc" })).toBe("https://acme.zoom.us/j/9");
+    expect(meetingJoinUrl({ url: null, location: null, meetingUrl: "https://example.com/abc" })).toBeNull();
+  });
+
   it("gives no link for an event without an allowlisted URL", () => {
     expect(meetingJoinUrl({ url: "https://example.com/meeting", location: "Room 2" })).toBeNull();
     expect(meetingJoinUrl({ url: null, location: null })).toBeNull();
@@ -57,5 +65,12 @@ describe("allowlist parity", () => {
   it("main and the page use the same hosts (§6: main is what enforces it)", () => {
     expect([...MAIN_HOSTS]).toEqual([...MEETING_HOSTS]);
     expect([...MAIN_SUFFIXES]).toEqual([...MEETING_HOST_SUFFIXES]);
+  });
+
+  it("the helper picks links out of notes with the same hosts", () => {
+    const swift = readFileSync(path.join(process.cwd(), "desktop/calendar/Sources/deska-calendar/main.swift"), "utf8");
+    const list = (name: string) => JSON.parse(new RegExp(`let ${name} = (\\[[^\\]]*\\])`).exec(swift)![1]!) as string[];
+    expect(list("meetingHosts")).toEqual([...MEETING_HOSTS]);
+    expect(list("meetingHostSuffixes")).toEqual([...MEETING_HOST_SUFFIXES]);
   });
 });

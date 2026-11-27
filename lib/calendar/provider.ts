@@ -4,6 +4,7 @@
 // `DESKA_CALENDAR_FIXTURE` answers instead; main passes that variable only from
 // an unpackaged build, and a fixture is never read in a packaged app.
 import { readFileSync } from "node:fs";
+import { isMeetingUrl } from "./join";
 import type { CalendarEvent, CalendarFixture, CalendarInfo, CalendarReadStatus } from "./types";
 
 export type CalendarCommand = "status" | "calendars" | "events";
@@ -57,6 +58,7 @@ function normalizeEvent(e: CalendarEvent): CalendarEvent {
     timeZone: typeof e.timeZone === "string" ? e.timeZone : null,
     location: typeof e.location === "string" ? e.location : null,
     url: typeof e.url === "string" ? e.url : null,
+    meetingUrl: typeof e.meetingUrl === "string" && isMeetingUrl(e.meetingUrl) ? e.meetingUrl : null,
     myStatus: e.myStatus ?? null,
     organizerIsMe: e.organizerIsMe === true,
     attendeeCount: typeof e.attendeeCount === "number" ? e.attendeeCount : 0,
