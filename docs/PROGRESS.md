@@ -30,7 +30,7 @@
 | H1 | in review | — | Home page (`/home`, the start page), tiles, My work, Current sprint; sidebar regrouped into Home + Tasks + GitHub; `G H`; migration 0010 (`user_prefs.start_page`, `user_prefs.home`) |
 | H2 | in review | — | Home: Needs attention, What changed, Epics in this sprint; no migration |
 | H3 | in review | — | Customize Home (hide and reorder panels); column added in 0010 |
-| C1 | in review | — | Meetings on Home, read-only ([CALENDAR-SPEC](CALENDAR-SPEC.md), SPEC §4.11): the `deska-calendar` Swift helper, Settings → Calendar, the `calendar` Home panel, the two `/api/calendar` routes, Join allowlist; no migration |
+| C1 | in review | [#62](https://github.com/gunzaj/deska/pull/62) | Meetings on Home, read-only ([CALENDAR-SPEC](CALENDAR-SPEC.md), SPEC §4.11): the `deska-calendar` Swift helper, Settings → Calendar, the `calendar` Home panel, the two `/api/calendar` routes, Join allowlist; no migration |
 
 ## Decisions to review
 - **Calendar C1** ([CALENDAR-SPEC](CALENDAR-SPEC.md), SPEC §4.11), built in one pass at the maintainer's request. C1 only: C2 (Planner, drag and drop), C3 (calendar writes, only after the maintainer's go) and C4 (AI meetings) are not built. Where the build differs from CALENDAR-SPEC or had to choose:
