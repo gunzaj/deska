@@ -13,6 +13,7 @@ const state = vi.hoisted(() => ({
   prefs: { enabled: true, calendarIds: ["work"], hideDeclined: true, weekStart: "monday", workStart: "08:00", workEnd: "18:00" } as CalendarPrefs,
   saved: [] as unknown[],
   known: undefined as string[] | undefined,
+  calendarsFail: false,
 }));
 
 vi.mock("@/lib/session", () => ({ getViewerLogin: async () => "alice" }));
@@ -28,7 +29,11 @@ vi.mock("@/lib/settings", () => ({
 }));
 vi.mock("@/lib/calendar/provider", () => ({
   calendarStatus: async () => state.status,
-  calendarCalendars: async () => state.calendars,
+  calendarCalendars: async () => (state.calendarsFail ? [] : state.calendars),
+  readCalendars: async () => {
+    if (state.calendarsFail) throw new Error("calendar helper did not answer");
+    return state.calendars;
+  },
   calendarEvents: async () => state.events,
 }));
 
@@ -65,6 +70,7 @@ beforeEach(() => {
   state.prefs = parseCalendarPrefs({ enabled: true, calendarIds: ["work"] });
   state.saved = [];
   state.known = undefined;
+  state.calendarsFail = false;
 });
 
 describe("GET /api/calendar/events (§2.2, §3.2)", () => {
@@ -100,6 +106,20 @@ describe("GET /api/calendar/events (§2.2, §3.2)", () => {
     state.status = "denied";
     body = (await (await eventsRoute.GET(get(`/api/calendar/events?${DAY}`))).json()) as typeof body;
     expect(body).toMatchObject({ connected: false, events: [] });
+  });
+
+  it("write-only access reads nothing: macOS gives no events without full access", async () => {
+    state.status = "writeOnly";
+    const body = (await (await eventsRoute.GET(get(`/api/calendar/events?${DAY}`))).json()) as { connected: boolean; events: unknown[] };
+    expect(body).toMatchObject({ status: "writeOnly", connected: false, events: [] });
+    const settings = (await (await calendarRoute.GET(get("/api/calendar"))).json()) as { calendars: unknown[] };
+    expect(settings.calendars).toEqual([]);
+  });
+
+  it("a failed calendar read is an error, never an empty day (§3.3)", async () => {
+    state.calendarsFail = true;
+    const res = await eventsRoute.GET(get(`/api/calendar/events?${DAY}`));
+    expect(res.status).toBeGreaterThanOrEqual(500);
   });
 
   it("refuses a malformed, reversed or too-long window", async () => {

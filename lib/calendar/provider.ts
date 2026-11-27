@@ -94,11 +94,16 @@ export async function calendarStatus(): Promise<CalendarReadStatus> {
   }
 }
 
-/** The calendars this Mac has; empty when access is not granted. */
+/** The calendars this Mac has. Throws when the helper cannot answer. */
+export async function readCalendars(): Promise<CalendarInfo[]> {
+  const list = await ask<CalendarInfo[]>("calendars");
+  return Array.isArray(list) ? list.filter(isCalendar).map(normalizeCalendar) : [];
+}
+
+/** The calendars this Mac has; empty when access is not granted or the read failed (Settings). */
 export async function calendarCalendars(): Promise<CalendarInfo[]> {
   try {
-    const list = await ask<CalendarInfo[]>("calendars");
-    return Array.isArray(list) ? list.filter(isCalendar).map(normalizeCalendar) : [];
+    return await readCalendars();
   } catch {
     return [];
   }

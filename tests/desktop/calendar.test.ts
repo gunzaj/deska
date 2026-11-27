@@ -72,6 +72,12 @@ describe("CalendarHelper fixtures (§2.2)", () => {
     await expect(helper.events("2026-01-01T00:00:00Z", "2026-03-01T00:00:00Z", ["work"])).rejects.toThrow("invalid calendar window");
   });
 
+  it("reads nothing with write-only access", async () => {
+    const helper = new CalendarHelper(null, fixtureFile("write-only.json", { status: "writeOnly", calendars, events }));
+    expect(await helper.calendars()).toEqual([]);
+    expect(await helper.events("2026-11-27T00:00:00Z", "2026-11-28T00:00:00Z", ["work"])).toEqual([]);
+  });
+
   it("says unavailable when there is neither a helper nor a fixture", async () => {
     const helper = new CalendarHelper(null, null);
     expect(await helper.status()).toBe("unavailable");

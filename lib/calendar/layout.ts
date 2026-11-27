@@ -172,8 +172,10 @@ export function layoutDay(events: readonly CalendarEventView[], day: string, opt
     const clippedEnd = Math.min(e, endMs);
     // Midnight at either edge is 00:00 / 24:00 of this day, not of the next one.
     const startMin = clippedStart <= startMs ? 0 : minuteOfDay(clippedStart, tz);
-    const endMin = clippedEnd >= endMs ? DAY_MINUTES : minuteOfDay(clippedEnd, tz);
-    if (endMin <= startMin) continue;
+    const rawEnd = clippedEnd >= endMs ? DAY_MINUTES : minuteOfDay(clippedEnd, tz);
+    if (rawEnd < startMin) continue;
+    // A zero-length event (start = end) is counted as a meeting, so it is drawn too.
+    const endMin = Math.max(rawEnd, Math.min(startMin + 1, DAY_MINUTES));
     timed.push({ event, startMin, endMin, column: 0, columns: 1, continuesBefore: s < startMs, continuesAfter: e > endMs });
   }
   const columns = assignColumns(timed);

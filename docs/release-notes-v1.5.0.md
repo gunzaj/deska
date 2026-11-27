@@ -12,7 +12,7 @@ Your meetings, next to your tasks. Deska reads the calendars already in macOS Ca
 - **Meeting details.** Click a meeting for a read-only popover: time (with the event's own zone when it differs), calendar, location, how many people are invited, **Join** when it has a meeting link, and **Open in Calendar**. Nothing is editable.
 - **Join opens the meeting, not a browser tab full of anything.** Join is offered only for `https` links on a short list of meeting hosts (Google Meet, Microsoft Teams, Zoom, Webex). Any other link stays plain text, so a calendar event cannot open an arbitrary page.
 - **Settings → Calendar.** Your calendars grouped by account with their colours; first connect turns on every calendar except subscribed holiday and birthday ones. Choose to hide declined events (on), which day the week starts on (Monday) and your working hours (08:00–18:00), which set the grid's range. "Disconnect" stops reading and forgets the chosen calendars; it doesn't change macOS permissions.
-- **Permission, honestly.** Reading starts only when you click "Connect calendars" and macOS allows it. If access is denied, the panel says so and offers System Settings → Privacy & Security → Calendars. macOS may ask again after an update, because the app is signed ad hoc.
+- **Permission, honestly.** Reading starts only when you click "Connect calendars" and macOS allows it. If access is denied, the panel says so and offers System Settings → Privacy & Security → Calendars. Deska needs **Full Access** to Calendars: with write-only access it can't read events and asks you to switch. macOS may ask again after an update, because the app is signed ad hoc; Settings → Calendar then offers "Connect calendars" again and keeps your calendar choices.
 - **Customize Home** can hide and move the Calendar panel like any other, and tasks-only mode shows it too.
 
 ### Privacy
@@ -55,6 +55,7 @@ You only do this the first time after each update. Because the signature is ad h
 - One repository and one project at a time. macOS only.
 - No editing of issue titles or bodies. Comments can be posted, not edited or deleted.
 - Deska reads only calendars Calendar.app already has, so a calendar account it can't see there doesn't appear here either.
+- **Join** appears only when the meeting link is in the event's URL or location. Deska never reads event notes, so a link that exists only there is not offered.
 - The Calendar panel shows one day. There is no week view, no task drag and drop, and no link to a Planner page yet.
 - Relationships: only issues Deska has synced can be linked (none from other repositories), a new issue can't be created as a sub-issue, and sub-issues can't be reordered.
 - At most 30 tabs. A tab that is not shown does not keep unsaved text.

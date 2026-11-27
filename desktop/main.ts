@@ -133,15 +133,20 @@ function calendarHelperPath(): string | null {
 /**
  * Starts the calendar helper. A fixture (`DESKA_CALENDAR_FIXTURE`) answers
  * instead of EventKit in tests and dev, and is ignored in a packaged build.
- * A change reported by Calendar.app re-reads every open window and tells the
- * server; no event data goes over the bridge (CALENDAR-SPEC §6).
+ * A change reported by Calendar.app re-reads every open window; no event data
+ * goes over the bridge (CALENDAR-SPEC §6).
  */
 function startCalendar(): CalendarHelper {
   const fixture = !app.isPackaged && process.env.DESKA_CALENDAR_FIXTURE ? path.resolve(process.env.DESKA_CALENDAR_FIXTURE) : null;
   const helper = new CalendarHelper(calendarHelperPath(), fixture);
+  // A sync reports changes in bursts: tell the windows once it goes quiet.
+  let quiet: NodeJS.Timeout | null = null;
   helper.onChanged(() => {
-    server?.send({ type: "calendar-changed" });
-    for (const win of BrowserWindow.getAllWindows()) if (!win.isDestroyed()) win.webContents.send(CHANNELS.calendarChanged);
+    if (quiet) clearTimeout(quiet);
+    quiet = setTimeout(() => {
+      quiet = null;
+      for (const win of BrowserWindow.getAllWindows()) if (!win.isDestroyed()) win.webContents.send(CHANNELS.calendarChanged);
+    }, 750);
   });
   return helper;
 }

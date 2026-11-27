@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { HttpError, route } from "@/lib/server/route";
 import { meetingJoinUrl } from "@/lib/calendar/join";
-import { calendarCalendars, calendarEvents, calendarStatus } from "@/lib/calendar/provider";
+import { calendarEvents, calendarStatus, readCalendars } from "@/lib/calendar/provider";
 import type { CalendarEventView, CalendarReadStatus } from "@/lib/calendar/types";
 import { readCalendarPrefs } from "@/lib/settings";
 
@@ -18,7 +18,8 @@ const query = z
   })
   .strict();
 
-const MAY_READ: readonly CalendarReadStatus[] = ["fullAccess", "writeOnly"];
+/** Write-only access cannot read events or calendars: only full access reads. */
+const MAY_READ: readonly CalendarReadStatus[] = ["fullAccess"];
 
 /**
  * Today's (or a day's) meetings for the Home panel and the Planner
@@ -42,7 +43,8 @@ export const GET = route({ auth: "viewer", query, invalid: "invalid calendar win
     return { status, connected: prefs.enabled && MAY_READ.includes(status), calendars: [], events: [], readAt, prefs: drawing };
   }
 
-  const calendars = await calendarCalendars();
+  // A failed read throws: it must not look like "no calendars chosen" (§3.3).
+  const calendars = await readCalendars();
   const chosen = calendars.filter((c) => prefs.calendarIds.includes(c.id));
   if (chosen.length === 0) return { status, connected: true, calendars: [], events: [], readAt, prefs: drawing };
   const byId = new Map(chosen.map((c) => [c.id, c]));

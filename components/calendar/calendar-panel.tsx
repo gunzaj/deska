@@ -4,7 +4,7 @@
 // the next meeting, and a read-only popover with Join and Open in Calendar.
 // Nothing here edits a calendar; the panel only reads the server route.
 import { useEffect, useRef, useState } from "react";
-import { countMeetings, eventTimeLabel, eventZoneNote, meetingsOn, nextMeeting } from "@/lib/calendar/layout";
+import { countMeetings, eventTimeLabel, eventZoneNote, nextMeeting } from "@/lib/calendar/layout";
 import { addDays } from "@/lib/tasks/dates";
 import type { CalendarEventView } from "@/lib/calendar/types";
 import { Icon } from "../icons";
@@ -15,6 +15,10 @@ import { CalendarDayGrid } from "./day-grid";
 function dayLabel(day: string, today: string): string {
   if (day === today) return "Today";
   return "Tomorrow";
+}
+
+function tomorrowLine(n: number): string {
+  return n === 0 ? "No meetings tomorrow" : `${n} meeting${n === 1 ? "" : "s"} tomorrow`;
 }
 
 function shortDate(day: string): string {
@@ -118,6 +122,8 @@ export function CalendarPanel({ feed, today, tz }: { feed: CalendarFeed; today: 
       const status = await connectCalendars();
       if (status === "denied" || status === "restricted") setNote("Calendar access was not granted.");
       else if (status === "notDetermined") setNote("Allow Calendars for Deska in System Settings, then try again.");
+      else if (status === "writeOnly") setNote("Deska has write-only access. Choose Full Access in System Settings → Privacy & Security → Calendars.");
+      else if (status !== "fullAccess") setNote("Deska could not reach macOS Calendar. Try again.");
       feed.refresh();
     } catch (e) {
       setNote(e instanceof Error ? e.message : "Could not connect calendars.");
@@ -163,6 +169,14 @@ export function CalendarPanel({ feed, today, tz }: { feed: CalendarFeed; today: 
           <p className="font-medium">See your meetings here</p>
           <p className="mt-1 text-muted">Calendar access is available in the Deska desktop app.</p>
         </div>
+      ) : !data && feed.error ? (
+        // The first read failed: say so instead of waiting forever (§3.3).
+        <div className="space-y-2 px-4 py-4 text-[12.5px]" data-calendar-error>
+          <p className="font-medium">Couldn’t read your calendar</p>
+          <button type="button" className={btn.outline} onClick={feed.refresh}>
+            Try again
+          </button>
+        </div>
       ) : !connected && (feed.loading || !data) ? (
         <p className="px-4 py-6 text-center text-[12.5px] text-faint">Reading your calendar…</p>
       ) : !connected ? (
@@ -178,7 +192,7 @@ export function CalendarPanel({ feed, today, tz }: { feed: CalendarFeed; today: 
         <p className="px-4 py-6 text-center text-[12.5px] text-faint">Reading your calendar…</p>
       ) : (
         <div className="px-4 py-2.5">
-          {day === today ? <NextLine events={events} tz={tz} /> : <p className="text-[12px] text-muted">{meetingsOn(events, day, tz, false).filter((e) => !e.allDay).length} meeting(s) tomorrow</p>}
+          {day === today ? <NextLine events={events} tz={tz} /> : <p className="text-[12px] text-muted">{tomorrowLine(countMeetings(events, day, tz))}</p>}
           {feed.error && (
             <p className="mt-1 text-[11.5px] text-critical" data-calendar-stale>
               Couldn’t refresh · showing the last read

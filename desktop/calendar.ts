@@ -10,6 +10,8 @@ import { readFileSync } from "node:fs";
 import type { CalendarEvent, CalendarFixture, CalendarInfo, CalendarReadStatus } from "./bridge";
 
 const REQUEST_TIMEOUT_MS = 10_000;
+/** The macOS prompt waits for a person: the answer may take minutes, not seconds. */
+const PROMPT_TIMEOUT_MS = 10 * 60_000;
 /** The helper refuses a longer window too. */
 const MAX_WINDOW_MS = 42 * 86_400_000;
 
@@ -115,14 +117,14 @@ export class CalendarHelper {
     if (this.fixture) return this.fixture.status;
     if (!this.bin) return "unavailable";
     try {
-      return mapStatus(await this.request("requestAccess"));
+      return mapStatus(await this.request("requestAccess", {}, PROMPT_TIMEOUT_MS));
     } catch {
       return "unavailable";
     }
   }
 
   async calendars(): Promise<CalendarInfo[]> {
-    if (this.fixture) return this.fixture.status === "fullAccess" || this.fixture.status === "writeOnly" ? this.fixture.calendars : [];
+    if (this.fixture) return this.fixture.status === "fullAccess" ? this.fixture.calendars : [];
     const list = await this.request("calendars");
     return Array.isArray(list) ? list.filter(isCalendar).map(pickCalendar) : [];
   }
@@ -132,7 +134,7 @@ export class CalendarHelper {
     const end = Date.parse(to);
     if (Number.isNaN(start) || Number.isNaN(end) || end <= start || end - start > MAX_WINDOW_MS) throw new Error("invalid calendar window");
     if (this.fixture) {
-      if (this.fixture.status !== "fullAccess" && this.fixture.status !== "writeOnly") return [];
+      if (this.fixture.status !== "fullAccess") return [];
       const ids = new Set(calendarIds);
       return this.fixture.events.filter((e) => ids.has(e.calendarId) && Date.parse(e.start) < end && Date.parse(e.end) > start).sort((a, b) => Date.parse(a.start) - Date.parse(b.start));
     }
@@ -146,14 +148,14 @@ export class CalendarHelper {
     this.child = null;
   }
 
-  private request(cmd: "status" | "calendars" | "events" | "requestAccess", args: Record<string, unknown> = {}): Promise<unknown> {
+  private request(cmd: "status" | "calendars" | "events" | "requestAccess", args: Record<string, unknown> = {}, timeoutMs = REQUEST_TIMEOUT_MS): Promise<unknown> {
     const child = this.ensureChild();
     const id = this.nextId++;
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
         this.pending.delete(id);
         reject(new Error(`calendar helper did not answer ${cmd}`));
-      }, REQUEST_TIMEOUT_MS);
+      }, timeoutMs);
       timer.unref?.();
       this.pending.set(id, { resolve, reject, timer });
       child.stdin.write(`${JSON.stringify({ id, cmd, ...args })}\n`, (error) => {

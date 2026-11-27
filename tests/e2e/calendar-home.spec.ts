@@ -247,3 +247,30 @@ test("tasks-only mode shows the Calendar panel", async ({ browser, request }) =>
   await expect(page.locator('[data-home-panel="calendar"]')).toContainText("Standup");
   await context.close();
 });
+
+test("a first read that fails says so and offers to try again (§3.3)", async ({ browser }) => {
+  const { context, page } = await as(browser);
+  let fail = true;
+  await page.route("**/api/calendar/events**", (route) =>
+    fail ? route.fulfill({ status: 500, json: { error: "calendar helper did not answer" } }) : route.fulfill({ json: feed([{ id: "a", title: "Standup", start: todayAt(9).toISOString(), end: todayAt(9, 15).toISOString() }]) }),
+  );
+  await page.goto("/home");
+  const panel = page.locator('[data-home-panel="calendar"]');
+  await expect(panel.locator("[data-calendar-error]")).toContainText("Couldn’t read your calendar");
+  fail = false;
+  await panel.getByRole("button", { name: "Try again" }).click();
+  await expect(panel).toContainText("Standup");
+  await context.close();
+});
+
+test("Settings → Calendar offers to connect again when macOS forgot the permission", async ({ browser }) => {
+  const { context, page } = await as(browser);
+  await page.route("**/api/calendar", (route) =>
+    route.fulfill({ json: { status: "notDetermined", calendars: [], prefs: { enabled: true, calendarIds: ["work"], hideDeclined: true, weekStart: "monday", workStart: "08:00", workEnd: "18:00" } } }),
+  );
+  await page.goto("/settings");
+  const section = page.locator("[data-calendar-settings]");
+  await expect(section.getByRole("button", { name: "Connect calendars" })).toBeVisible();
+  await expect(section).toContainText("after an update");
+  await context.close();
+});

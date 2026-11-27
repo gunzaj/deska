@@ -100,7 +100,7 @@ export function saveCalendarSettings(patch: Partial<CalendarPrefs>): Promise<{ p
 export async function connectCalendars(): Promise<CalendarReadStatus> {
   const bridge = window.deska?.calendar;
   const status = bridge ? await bridge.connect() : (await readCalendarSettings()).status;
-  if (status !== "fullAccess" && status !== "writeOnly") return status;
+  if (status !== "fullAccess") return status;
   const view = await readCalendarSettings();
   // Keep a choice the user already made; first connect picks the defaults.
   if (!view.prefs.enabled || view.prefs.calendarIds.length === 0) {

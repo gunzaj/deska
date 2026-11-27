@@ -28,6 +28,19 @@ let iso: ISO8601DateFormatter = {
     return f
 }()
 
+// JavaScript's `toISOString()` always writes milliseconds, which the formatter
+// above refuses; requests are parsed with either form.
+let isoMillis: ISO8601DateFormatter = {
+    let f = ISO8601DateFormatter()
+    f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+    f.timeZone = TimeZone(secondsFromGMT: 0)
+    return f
+}()
+
+func parseInstant(_ text: String) -> Date? {
+    return iso.date(from: text) ?? isoMillis.date(from: text)
+}
+
 func writeLine(_ object: [String: Any]) {
     guard JSONSerialization.isValidJSONObject(object),
           let data = try? JSONSerialization.data(withJSONObject: object, options: []),
@@ -161,8 +174,8 @@ func handle(_ line: String) {
     case "events":
         guard let fromText = raw["from"] as? String,
               let toText = raw["to"] as? String,
-              let from = iso.date(from: fromText),
-              let to = iso.date(from: toText),
+              let from = parseInstant(fromText),
+              let to = parseInstant(toText),
               to > from,
               to.timeIntervalSince(from) <= maxWindow
         else {

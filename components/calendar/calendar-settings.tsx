@@ -54,10 +54,12 @@ export function CalendarSettings() {
   }, [view]);
 
   const status = view?.status;
-  const granted = status === "fullAccess" || status === "writeOnly";
+  const prefs = view?.prefs;
+  const granted = status === "fullAccess";
+  // Reading was on, but macOS asks again (after an update) or gave write-only access.
+  const lostAccess = prefs?.enabled === true && !granted;
   const denied = status === "denied" || status === "restricted";
   const unavailable = status === "unavailable";
-  const prefs = view?.prefs;
 
   return (
     <section aria-labelledby="calendar-h" className="space-y-3" data-calendar-settings>
@@ -71,17 +73,29 @@ export function CalendarSettings() {
           <div className="space-y-2">
             <p className="font-medium">Deska can’t read your calendars</p>
             <p className="text-[12px] text-muted">macOS has not given Deska access to Calendars.</p>
-            <button type="button" disabled={busy} onClick={() => setOpenSettings(true)} className="inline-flex h-8 items-center gap-1.5 rounded-md border border-line px-3 font-medium hover:bg-hover">
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => {
+                const bridge = window.deska?.calendar;
+                if (bridge) void bridge.openSettings();
+                setOpenSettings(true);
+              }}
+              className="inline-flex h-8 items-center gap-1.5 rounded-md border border-line px-3 font-medium hover:bg-hover">
               Open System Settings
             </button>
             {openSettings && (
               <p className="text-[12px] text-faint">Open System Settings → Privacy &amp; Security → Calendars and allow Deska, then come back to Settings.</p>
             )}
           </div>
-        ) : !prefs?.enabled ? (
+        ) : !prefs?.enabled || !granted ? (
           <div className="space-y-2">
             <p className="font-medium">Meetings next to your tasks</p>
-            <p className="text-[12px] text-muted">Deska reads the calendars already in Calendar.app (Google, iCloud, Exchange). Nothing is uploaded and no event is stored.</p>
+            <p className="text-[12px] text-muted">
+              {lostAccess
+                ? "macOS needs to allow Calendars for Deska again; this can happen after an update. Your calendar choices are kept."
+                : "Deska reads the calendars already in Calendar.app (Google, iCloud, Exchange). Nothing is uploaded and no event is stored."}
+            </p>
             <button
               type="button"
               disabled={busy}
@@ -92,6 +106,8 @@ export function CalendarSettings() {
                   await load();
                   if (answer === "denied" || answer === "restricted") return "macOS did not allow access.";
                   if (answer === "notDetermined") return "Allow Calendars for Deska in System Settings, then try again.";
+                  if (answer === "writeOnly") return "Deska has write-only access. Choose Full Access for Deska in System Settings → Privacy & Security → Calendars.";
+                  if (answer !== "fullAccess") return "Deska could not reach macOS Calendar. Try again.";
                   return "Calendars connected.";
                 })
               }
@@ -115,6 +131,8 @@ export function CalendarSettings() {
                         <input
                           type="checkbox"
                           checked={prefs.calendarIds.includes(c.id)}
+                          // One save at a time: each sends the whole list.
+                          disabled={busy}
                           onChange={() => void save({ calendarIds: prefs.calendarIds.includes(c.id) ? prefs.calendarIds.filter((id) => id !== c.id) : [...prefs.calendarIds, c.id] })}
                           aria-label={`Show ${c.title}`}
                         />

@@ -6,7 +6,8 @@ import { readCalendarPrefs, saveCalendarPrefs } from "@/lib/settings";
 
 export const dynamic = "force-dynamic";
 
-const MAY_READ: readonly CalendarReadStatus[] = ["fullAccess", "writeOnly"];
+/** Write-only access cannot read events or calendars: only full access reads. */
+const MAY_READ: readonly CalendarReadStatus[] = ["fullAccess"];
 
 /**
  * Settings → Calendar (CALENDAR-SPEC §3.1): macOS's permission state, the

@@ -28,6 +28,11 @@ function event(over: Partial<CalendarEventView> & Pick<CalendarEventView, "start
 const opts = { tz: "UTC", workStart: "08:00", workEnd: "18:00", hideDeclined: true };
 
 describe("layoutDay (§3.5)", () => {
+  it("draws a zero-length event, since it is counted as a meeting", () => {
+    const day = layoutDay([event({ start: "2026-11-27T10:00:00Z", end: "2026-11-27T10:00:00Z" })], "2026-11-27", opts);
+    expect(day.timed.map((t) => [t.startMin, t.endMin])).toEqual([[600, 601]]);
+  });
+
   it("puts overlapping events side by side", () => {
     const a = event({ start: "2026-11-27T10:00:00Z", end: "2026-11-27T11:00:00Z" });
     const b = event({ start: "2026-11-27T10:30:00Z", end: "2026-11-27T11:30:00Z" });

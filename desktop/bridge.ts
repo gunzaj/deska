@@ -267,8 +267,6 @@ export type ServerMessage =
   /** An answer to a `calendar-request`: the helper's result, or why it failed. */
   | { type: "calendar-result"; id: number; ok: true; result: unknown }
   | { type: "calendar-result"; id: number; ok: false; error: string }
-  /** Calendar.app changed (or synced); carries no data. */
-  | { type: "calendar-changed" }
   /** Run a sync now: the Mac woke from sleep (powerMonitor "resume"). */
   | { type: "sync"; reason: "wake" }
   | { type: "stop" };

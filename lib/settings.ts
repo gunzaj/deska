@@ -155,21 +155,8 @@ export async function readCalendarPrefs(knownIds?: Iterable<string>): Promise<Ca
 }
 
 export async function saveCalendarPrefs(prefs: CalendarPrefs): Promise<void> {
-  await set(KEYS.calendar, prefs);
-}
-
-/**
- * After a backup or export was imported: calendar IDs belong to one Mac, so
- * any the current Mac does not know are dropped (CALENDAR-SPEC §3.1). Without
- * a calendar list (no helper, no fixture) the stored value is left alone.
- */
-export async function normalizeImportedCalendarPrefs(knownIds: readonly string[]): Promise<void> {
-  if (knownIds.length === 0) return;
-  const stored = await get(KEYS.calendar);
-  if (!stored || typeof stored !== "object") return;
-  const prefs = parseCalendarPrefs(stored, knownIds);
-  const before = (stored as { calendarIds?: unknown }).calendarIds;
-  if (JSON.stringify(before) !== JSON.stringify(prefs.calendarIds)) await set(KEYS.calendar, prefs);
+  // No list or issue depends on these: saving must not bump the data ETag.
+  await setCosmetic(KEYS.calendar, prefs);
 }
 
 /** Bumped by every save: part of the data ETag, so a remap reaches the browser. */
@@ -258,7 +245,9 @@ export async function saveCloseDoneStatus(optionId: string | null): Promise<void
 /** AI assist settings (SPEC §4.9). Never the API key. */
 export async function readAiSettings(): Promise<AiSettings> {
   return parseAiSettings(await get(KEYS.ai));
-}export async function saveAiSettings(s: AiSettings): Promise<void> {
+}
+
+export async function saveAiSettings(s: AiSettings): Promise<void> {
   await set(KEYS.ai, s);
 }
 
