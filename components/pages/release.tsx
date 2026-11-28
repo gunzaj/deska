@@ -186,6 +186,7 @@ export function ReleasePage({ id }: { id: string }) {
       icon={<Icon name="calendar" size={15} />}
       base={base}
       defaults={SPRINT_DEFAULTS}
+      prefsKey="release"
       headerExtra={
         <>
           {readOnly && (

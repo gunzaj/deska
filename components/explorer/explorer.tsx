@@ -85,6 +85,7 @@ export function Explorer({
   base = NO_FILTERS,
   defaults,
   view,
+  prefsKey,
   headerExtra,
   summary,
   hideIds,
@@ -98,6 +99,8 @@ export function Explorer({
   base?: Filter[];
   defaults: ExplorerState;
   view?: View;
+  /** A built-in page: its filters and display options are saved under this key (`my`, `epics`, `release`, `dimension:<id>`). */
+  prefsKey?: string;
   headerExtra?: ReactNode;
   /** A band under the toolbar. A function gets the rows as filtered, so it can say what the filters did. */
   summary?: ReactNode | ((ctx: { rows: ClientIssue[]; filtered: boolean; filters: Filter[] }) => ReactNode);
@@ -111,7 +114,7 @@ export function Explorer({
   const { data } = useAppData();
   const { status: connection } = useConnection();
   const { sync } = useAppSync();
-  const { upsertView } = useAppViews();
+  const { upsertView, listPrefs, saveListPref, clearListPref } = useAppViews();
   const { toast } = useToast();
   const { openCompose } = useTasks();
   const router = useRouter();
@@ -119,10 +122,17 @@ export function Explorer({
   // The issue open in the side panel (improvement 1): the row stays highlighted.
   const peeked = Number(params.get("issue")) || null;
   const openIssue = useOpenIssue();
-  const saved = useMemo<ExplorerState>(() => (view ? stateOf(view) : defaults), [view, defaults]);
+  // A built-in page opens with its saved defaults (§4.2), or the factory preset until one is saved.
+  const pageSaved = prefsKey ? listPrefs[prefsKey] : undefined;
+  const saved = useMemo<ExplorerState>(() => (view ? stateOf(view) : pageSaved ?? defaults), [view, pageSaved, defaults]);
+  // Serialized, so a change to a page's saved defaults (Save, Reset to default) re-syncs the list.
+  const savedKey = useMemo(
+    () => (view ? view.id : prefsKey ? `${prefsKey}:${JSON.stringify(pageSaved ?? null)}` : JSON.stringify(defaults)),
+    [view, prefsKey, pageSaved, defaults],
+  );
   const [state, setState] = useUrlExplorerState<ExplorerState>({
     saved,
-    savedKey: view?.id ?? JSON.stringify(defaults),
+    savedKey,
     decode: readUrlState,
     encode: encodeState,
     same: sameState,
@@ -304,7 +314,14 @@ export function Explorer({
 
   // Saving
   const [dialog, setDialog] = useState<null | "new" | "rename">(null);
-  const modified = !!view && !sameState(state, saved);
+  // Only a saved view or a built-in page keeps a state of its own; on /views/new "Save view" is always offered.
+  const modified = (!!view || !!prefsKey) && !sameState(state, saved);
+  const dropUrlState = () => {
+    // The saved defaults now say the same, so the URL need not carry them.
+    const url = new URL(window.location.href);
+    url.searchParams.delete("s");
+    window.history.replaceState(null, "", url);
+  };
   const saveAs = async (name: string) => {
     const v: View = {
       id: newViewId(),
@@ -316,14 +333,30 @@ export function Explorer({
     setDialog(null);
     if (res) router.push(`/views/${res.id}`);
   };
+  /** A saved view or a built-in page: both keep the current state as their own. */
   const saveCurrent = async () => {
-    if (!view) return;
-    const res = await upsertView(applyState(view, state));
-    if (res) {
-      const url = new URL(window.location.href);
-      url.searchParams.delete("s");
-      window.history.replaceState(null, "", url);
+    if (view) {
+      const res = await upsertView(applyState(view, state));
+      if (res) dropUrlState();
+      return;
     }
+    if (!prefsKey) return;
+    if (!(await saveListPref(prefsKey, state))) {
+      toast({ message: "Could not save these defaults", kind: "error" });
+      return;
+    }
+    dropUrlState();
+    toast({ message: `Saved for ${typeof title === "string" ? title : "this page"}` });
+  };
+  /** Forget a built-in page's saved defaults: it opens the factory way again. */
+  const resetPage = async () => {
+    if (!prefsKey) return;
+    if (!(await clearListPref(prefsKey))) {
+      toast({ message: "Could not reset this page", kind: "error" });
+      return;
+    }
+    dropUrlState();
+    toast({ message: "Reset to the default view" });
   };
 
   const toggleSort = (field: string, additive = false) => {
@@ -340,6 +373,7 @@ export function Explorer({
         onReset={() => setState(saved)}
         onSave={saveCurrent}
         onOpenDialog={setDialog}
+        page={prefsKey ? { saved: pageSaved != null, onResetToDefault: () => void resetPage() } : undefined}
       />
     </>
   );

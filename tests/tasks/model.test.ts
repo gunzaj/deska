@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { addDays, dueLabel, localToday } from "@/lib/tasks/dates";
-import { compareTasks, createTaskSchema, HOME_PANELS, patchTaskSchema, prefsSchema, resolveHome, resolveSidebar, SIDEBAR_SECTIONS, startPath, type Task } from "@/lib/tasks/model";
+import { compareTasks, createTaskSchema, HOME_PANEL_SIZE, HOME_PANELS, moveHomePanel, patchTaskSchema, prefsSchema, resolveHome, resolveSidebar, SIDEBAR_SECTIONS, startPath, type Task } from "@/lib/tasks/model";
 
 function task(p: Partial<Task>): Task {
   return {
@@ -131,11 +131,22 @@ describe("start page and Home layout (HOME-SPEC §3.1, §5)", () => {
   });
 
   it("Home panels: saved order first, panels added later at the end, unknown ones dropped", () => {
-    expect(resolveHome(null)).toEqual(HOME_PANELS.map((id) => ({ id, hidden: false })));
-    const out = resolveHome({ order: ["changes", "work", "gone" as never], hidden: ["epics"] });
+    expect(resolveHome(null)).toEqual(HOME_PANELS.map((id) => ({ id, hidden: false, size: HOME_PANEL_SIZE[id] })));
+    const out = resolveHome({ order: ["changes", "work", "gone" as never], hidden: ["epics"], sizes: { changes: "full" } });
     expect(out.map((p) => p.id)).toEqual(["changes", "work", "sprint", "epics", "calendar", "attention"]);
     expect(out.filter((p) => p.hidden).map((p) => p.id)).toEqual(["epics"]);
+    expect(out.find((p) => p.id === "changes")?.size).toBe("full");
+    expect(out.find((p) => p.id === "work")?.size).toBe("wide");
     expect(prefsSchema.safeParse({ home: { order: ["work"], hidden: ["sprint"] } }).success).toBe(true);
+    expect(prefsSchema.safeParse({ home: { order: [], hidden: [], sizes: { work: "half" } } }).success).toBe(true);
+    expect(prefsSchema.safeParse({ home: { order: [], hidden: [], sizes: { work: "huge" } } }).success).toBe(false);
     expect(prefsSchema.safeParse({ home: { order: ["tiles"], hidden: [] } }).success).toBe(false);
+  });
+
+  it("moving a Home panel lands it before or after the target and ignores itself", () => {
+    const rows = HOME_PANELS.map((id) => ({ id }));
+    expect(moveHomePanel(rows, "changes", "work", false).map((r) => r.id)).toEqual(["changes", "work", "sprint", "epics", "calendar", "attention"]);
+    expect(moveHomePanel(rows, "work", "sprint", true).map((r) => r.id)).toEqual(["sprint", "work", "epics", "calendar", "attention", "changes"]);
+    expect(moveHomePanel(rows, "work", "work", true)).toBe(rows);
   });
 });

@@ -37,35 +37,65 @@ test("Start page: My issues makes Deska open on My issues; Today on Today; Home 
   await context.close();
 });
 
-test("Customize Home hides and reorders panels, and the layout survives a reload", async ({ browser }) => {
-  const { context, page } = await as(browser);
+test("Customize Home: drag a panel, resize it and hide one; the layout survives a reload", async ({ browser }) => {
+  // Tall enough to show every panel: a drag that scrolls between mouse-down and
+  // mouse-up never starts (the same note as the sidebar drag test).
+  const { context, page } = await as(browser, "alice", { viewport: { width: 1280, height: 2400 } });
   await page.goto("/home");
   const panels = () => page.locator("[data-home-panel]").evaluateAll((els) => els.map((e) => (e as HTMLElement).dataset.homePanel));
+  const widget = (id: string) => page.locator(`[data-home-widget="${id}"]`);
   await expect.poll(panels).toEqual(["work", "sprint", "epics", "calendar", "attention", "changes"]);
 
   await page.getByRole("button", { name: "Customize Home" }).click();
-  const dialog = page.getByRole("dialog", { name: "Customize Home" });
+  await expect(page.locator("[data-home-edit]")).toHaveCount(6);
+
+  // Hide Epics: it leaves the grid and waits in the Hidden strip.
   let done = saved(page);
-  await dialog.getByLabel("Show Epics in this sprint").uncheck();
+  await page.getByRole("button", { name: "Hide Epics in this sprint" }).click();
   await done;
+  await expect.poll(panels).toEqual(["work", "sprint", "calendar", "attention", "changes"]);
+  await expect(page.getByRole("button", { name: "Show Epics in this sprint" })).toBeVisible();
+
+  // Resize My work to full width.
   done = saved(page);
-  await dialog.getByRole("button", { name: "Move Current sprint up" }).click();
+  await page.getByLabel("Size of My work").selectOption("full");
   await done;
-  await expect(dialog.getByRole("button", { name: "Move Current sprint up" })).toBeDisabled();
-  await dialog.getByRole("button", { name: "Close" }).click();
-  await expect.poll(panels).toEqual(["sprint", "work", "calendar", "attention", "changes"]);
+  await expect(widget("work")).toHaveAttribute("data-size", "full");
+
+  // Drag What changed to the top: a drop in the top half lands before My work.
+  done = saved(page);
+  await page.locator('[data-home-drag="changes"]').dragTo(widget("work"), { targetPosition: { x: 20, y: 5 } });
+  await done;
+  await expect.poll(panels).toEqual(["changes", "work", "sprint", "calendar", "attention"]);
+
+  // The arrow buttons move a panel too, without a mouse.
+  done = saved(page);
+  await page.getByRole("button", { name: "Move What changed down" }).click();
+  await done;
+  await expect.poll(panels).toEqual(["work", "changes", "sprint", "calendar", "attention"]);
+
+  // Bringing Epics back returns it to its stored slot.
+  done = saved(page);
+  await page.getByRole("button", { name: "Show Epics in this sprint" }).click();
+  await done;
+  await expect.poll(panels).toEqual(["work", "changes", "sprint", "epics", "calendar", "attention"]);
+
+  await page.getByRole("button", { name: "Done" }).click();
+  await expect(page.locator("[data-home-edit]")).toHaveCount(0);
+
+  await page.reload();
+  await expect.poll(panels).toEqual(["work", "changes", "sprint", "epics", "calendar", "attention"]);
+  await expect(widget("work")).toHaveAttribute("data-size", "full");
   // The tiles are not part of the layout.
   await expect(page.locator("[data-home-tile]")).toHaveCount(5);
 
-  await page.reload();
-  await expect.poll(panels).toEqual(["sprint", "work", "calendar", "attention", "changes"]);
-
   await page.getByRole("button", { name: "Customize Home" }).click();
   done = saved(page);
-  await dialog.getByRole("button", { name: "Reset" }).click();
+  await page.getByRole("button", { name: "Reset" }).click();
   await done;
-  await dialog.getByRole("button", { name: "Close" }).click();
+  await page.getByRole("button", { name: "Done" }).click();
   await expect.poll(panels).toEqual(["work", "sprint", "epics", "calendar", "attention", "changes"]);
+  await expect(widget("work")).toHaveAttribute("data-size", "wide");
   await context.close();
 });
 

@@ -12,6 +12,7 @@ import { ConfigError, displayRepo, githubTarget, type GithubTarget } from "./con
 import { parseCalendarPrefs, type CalendarPrefs } from "./calendar/settings";
 import { parseAiSettings, type AiSettings } from "./ai/types";
 import { parseMapping, type FieldMapping } from "./sync/field-map";
+import { parseListPrefs, type ListPrefs, type ListState } from "./views/list-prefs";
 
 /** The repository and project chosen in onboarding step 2. */
 export type StoredTarget = {
@@ -36,6 +37,7 @@ const KEYS = {
   aiEndpointModes: "ai.endpoint-modes",
   theme: "ui.theme",
   tabs: "ui.tabs",
+  lists: "ui.lists",
   calendar: "calendar.prefs",
 } as const;
 
@@ -139,6 +141,41 @@ export async function readTabs(): Promise<unknown> {
 
 export async function saveTabs(tabs: unknown): Promise<void> {
   await setCosmetic(KEYS.tabs, tabs);
+}
+
+/**
+ * The built-in lists' own defaults (SPEC §4.2): filters and display options a
+ * page opens with, keyed by page (`my`, `epics`, `release`,
+ * `dimension:<optionId>`). A cosmetic key: saving one changes no issue, so it
+ * never bumps `settingsVersion()` or refetches the data. An unreadable or
+ * invalid value reads as no defaults at all.
+ */
+export async function readListPrefs(): Promise<ListPrefs> {
+  try {
+    return parseListPrefs(await get(KEYS.lists));
+  } catch {
+    return {};
+  }
+}
+
+export async function saveListPref(key: string, state: ListState): Promise<ListPrefs> {
+  const all = await readListPrefs();
+  const next = { ...all, [key]: state };
+  await setCosmetic(KEYS.lists, next);
+  return next;
+}
+
+/** Drop one page's defaults, or all of them when no key is given. */
+export async function clearListPrefs(key?: string): Promise<ListPrefs> {
+  if (!key) {
+    await setCosmetic(KEYS.lists, {});
+    return {};
+  }
+  const all = await readListPrefs();
+  const next = { ...all };
+  delete next[key];
+  await setCosmetic(KEYS.lists, next);
+  return next;
 }
 
 /**

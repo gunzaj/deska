@@ -13,7 +13,8 @@ Your meetings, next to your tasks. Deska reads the calendars already in macOS Ca
 - **Join opens the meeting, not a browser tab full of anything.** Join is offered only for `https` links on a short list of meeting hosts (Google Meet, Microsoft Teams, Zoom, Webex). The link is taken from the event's URL, its location or its notes. Any other link stays plain text, so a calendar event cannot open an arbitrary page.
 - **Settings → Calendar.** Your calendars grouped by account with their colours; first connect turns on every calendar except subscribed holiday and birthday ones. Choose to hide declined events (on), which day the week starts on (Monday) and your working hours (08:00–18:00), which set the grid's range. "Disconnect" stops reading and forgets the chosen calendars; it doesn't change macOS permissions.
 - **Permission, honestly.** Reading starts only when you click "Connect calendars" and macOS allows it. If access is denied, the panel says so and offers System Settings → Privacy & Security → Calendars. Deska needs **Full Access** to Calendars: with write-only access it can't read events and asks you to switch. macOS may ask again after an update, because the app is signed ad hoc; Settings → Calendar then offers "Connect calendars" again and keeps your calendar choices.
-- **Customize Home** can hide and move the Calendar panel like any other, and tasks-only mode shows it too.
+- **Customize Home, on the page.** The Customize Home button turns Home into edit mode instead of opening a dialog. Drag a panel by its handle (or use the arrow buttons), give it one of four widths (a third, a half, two-thirds or full), or hide it; hidden panels wait in a strip below and come back with one click. Reset restores the default layout. The Calendar panel moves and hides like any other, and tasks-only mode shows it too.
+- **Lists remember how you left them.** My issues, All issues, Backlog, Epics, a Release page and a team (dimension value) page keep the filters and display options you save there. Change something and **Save** makes it that page's default; **Reset** goes back to it, and ⋯ → **Reset to default** forgets it. ⋯ → **Save as view…** still makes a named view. Every Release page shares one default.
 - **Settings** shows the app version in its header.
 
 ### Privacy
@@ -22,6 +23,7 @@ Calendars come from EventKit on this Mac: macOS syncs the accounts, Deska makes 
 
 ### Changed
 
+- Home's panels sit on a grid now. The default looks like the old two columns, and a layout you customized keeps its order and hidden panels.
 - Home's narrow column now starts with the Calendar panel. If you already customized Home, your layout is unchanged; the panel appears at its default spot until you move or hide it.
 
 ### Not in this release

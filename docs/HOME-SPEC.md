@@ -191,6 +191,8 @@ Unit tests in `home.test.ts` for each list and its cap; e2e for "Mark all seen" 
 - Customize Home: hide and reorder panels, same pattern and dialog style as Customize sidebar. Stored in `user_prefs` as `home: { order, hidden }`, validated like `sidebar`.
 - Tiles are not separately configurable in H3.
 
+**[Changed in v1.5.0, at the maintainer's request]** The dialog became in-place editing: panels are dragged by a handle (or moved with arrow buttons), sized (1/3, 1/2, 2/3 or full) and hidden into a strip below the grid. `user_prefs.home` gains an optional `sizes` map. See `docs/SPEC.md` §4.10 and the v1.5.0 decision in `docs/PROGRESS.md`.
+
 ---
 
 ## 6. Files expected to change

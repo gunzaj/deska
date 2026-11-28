@@ -85,6 +85,8 @@ export async function resetSharedSettings(request: APIRequestContext) {
     request.patch("/api/me/prefs", { headers, data: { tz: null, defaultTeam: null, startPage: null, home: null } }),
     request.post("/api/ai/settings", { headers, data: DEFAULT_AI_SETTINGS }),
     request.post("/api/settings/theme", { headers, data: { theme: "system" } }),
+    // The built-in lists' saved filters and display options (SPEC §4.2).
+    request.delete("/api/me/list-prefs", { headers }),
   ]);
   for (const r of results) if (!r.ok()) throw new Error(`resetSharedSettings: ${r.url()} answered ${r.status()}`);
 }

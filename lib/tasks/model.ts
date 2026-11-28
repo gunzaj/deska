@@ -274,18 +274,43 @@ export function startPath(page: StartPage | null | undefined, tasksOnly = false)
   return "/home";
 }
 
-/** Home's panels a user can reorder or hide (HOME-SPEC §5), in their default order. */
+/** Home's panels a user can move, resize or hide, in their default order. */
 export const HOME_PANELS = ["work", "sprint", "epics", "calendar", "attention", "changes"] as const;
 export type HomePanel = (typeof HOME_PANELS)[number];
-export type HomeLayout = { order: HomePanel[]; hidden: HomePanel[] };
+
+/** A panel's width on the 12-column Home grid at 900 px and wider. Below that every panel is full width. */
+export const HOME_SIZES = ["third", "half", "wide", "full"] as const;
+export type HomeSize = (typeof HOME_SIZES)[number];
+/** The default widths: the wide column (My work, sprint, epics) is two-thirds, the narrow one a third. */
+export const HOME_PANEL_SIZE: Record<HomePanel, HomeSize> = { work: "wide", sprint: "wide", epics: "wide", calendar: "third", attention: "third", changes: "third" };
+
+/** One panel as the page renders it: its stored hidden flag and width. */
+export type HomeRow = { id: HomePanel; hidden: boolean; size: HomeSize };
+/** `sizes` is optional so layouts saved before sizes existed keep their default widths. */
+export type HomeLayout = { order: HomePanel[]; hidden: HomePanel[]; sizes?: Partial<Record<HomePanel, HomeSize>> };
 const homePanel = z.enum(HOME_PANELS);
-const homeSchema = z.object({ order: z.array(homePanel).max(HOME_PANELS.length * 2), hidden: z.array(homePanel).max(HOME_PANELS.length * 2) }).strict();
+const homeSize = z.enum(HOME_SIZES);
+const homeSchema = z
+  .object({ order: z.array(homePanel).max(HOME_PANELS.length * 2), hidden: z.array(homePanel).max(HOME_PANELS.length * 2), sizes: z.record(homePanel, homeSize).optional() })
+  .strict();
 
 /** Saved layout → every panel once, saved order first; panels added later keep their default slot at the end. */
-export function resolveHome(layout: HomeLayout | null | undefined): { id: HomePanel; hidden: boolean }[] {
+export function resolveHome(layout: HomeLayout | null | undefined): HomeRow[] {
   const hidden = new Set(layout?.hidden ?? []);
   const order = [...new Set([...(layout?.order ?? []), ...HOME_PANELS])].filter((id): id is HomePanel => (HOME_PANELS as readonly string[]).includes(id));
-  return order.map((id) => ({ id, hidden: hidden.has(id) }));
+  return order.map((id) => ({ id, hidden: hidden.has(id), size: layout?.sizes?.[id] ?? HOME_PANEL_SIZE[id] }));
+}
+
+/** Move a panel before or after another one; used by dragging on Home and by the keyboard buttons. */
+export function moveHomePanel<T extends { id: HomePanel }>(rows: T[], from: HomePanel, to: HomePanel, after: boolean): T[] {
+  if (from === to) return rows;
+  const i = rows.findIndex((r) => r.id === from);
+  const next = [...rows];
+  const [moved] = i >= 0 ? next.splice(i, 1) : [];
+  const j = next.findIndex((r) => r.id === to);
+  if (!moved || j < 0) return rows;
+  next.splice(j + (after ? 1 : 0), 0, moved);
+  return next;
 }
 
 export const prefsSchema = z

@@ -20,7 +20,7 @@ const DB_PORT = 3101;
 // (issue #6). On the shared server, the files run in parallel workers, and one
 // spec's "My default" emptied another spec's issue list mid-test.
 const SETTINGS_PORT = 3102;
-const SHARED_SETTINGS = /(ai-settings|user-menu|filters|release-team|settings-timezone|home-settings|calendar-home)\.spec\.ts/;
+const SHARED_SETTINGS = /(ai-settings|user-menu|filters|release-team|settings-timezone|home-settings|calendar-home|list-prefs)\.spec\.ts/;
 
 // `E2E_PROJECT=mocks pnpm test:e2e` runs one project and starts only its
 // server (each server below carries its project's name). A warmed `next dev`
