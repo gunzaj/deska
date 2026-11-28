@@ -21,7 +21,6 @@ const todayAt = (hours: number, minutes = 0): Date => {
   d.setHours(hours, minutes, 0, 0);
   return d;
 };
-const inMinutes = (minutes: number): Date => new Date(Date.now() + minutes * 60_000);
 
 type Ev = {
   id: string;
@@ -73,6 +72,11 @@ function mockFeed(page: Page, body: () => unknown) {
 
 test("Home shows today's meetings in order, the all-day band, the next line and the context count", async ({ browser }) => {
   const { context, page } = await as(browser);
+  // The page's clock is pinned to 10:00: with the real time, a run late in the
+  // evening put "in 90 minutes" on tomorrow and the second meeting left today.
+  const now = todayAt(10);
+  await page.clock.setFixedTime(now);
+  const inMinutes = (minutes: number): Date => new Date(now.getTime() + minutes * 60_000);
   const midnight = todayAt(0);
   const tomorrow = todayAt(0);
   tomorrow.setDate(tomorrow.getDate() + 1);
