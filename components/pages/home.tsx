@@ -3,6 +3,7 @@
 // Home (HOME-SPEC §3–§5): the cockpit. Everything shown is decided by the pure
 // `homeModel`; this file only renders it. Home reads what the client already
 // has and changes nothing but a local task's completion.
+import { useMasonry } from "./home-masonry";
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { CalendarPanel } from "../calendar/calendar-panel";
@@ -482,6 +483,8 @@ export function HomePage() {
   const noThird = !shown.some((p) => p.size === "third");
   const span = (size: HomeSize) => SPAN[size === "wide" && noThird ? "full" : size];
   const writeOff = !meta.writeMode;
+  // Panels pack by their real height: no hole under a short panel beside a tall one.
+  const gridRef = useMasonry<HTMLDivElement>(shown.map((p) => p.id).join());
 
   // Every change goes straight to prefs, as in Customize sidebar.
   const apply = (next: typeof panels) => void save(next);
@@ -572,7 +575,7 @@ export function HomePage() {
           </div>
         )}
 
-        <div className="grid grid-cols-1 gap-4 min-[900px]:grid-flow-row-dense min-[900px]:grid-cols-12" data-home-grid>
+        <div ref={gridRef} className="grid grid-cols-1 gap-4 min-[900px]:grid-flow-row-dense min-[900px]:grid-cols-12" data-home-grid>
           {shown.map((p, i) => {
             const line = drag && over?.id === p.id ? (over.after ? "after" : "before") : null;
             return (
@@ -580,7 +583,7 @@ export function HomePage() {
                 key={p.id}
                 data-home-widget={p.id}
                 data-size={p.size}
-                className={`relative col-span-1 min-w-0 ${span(p.size)} ${drag === p.id ? "opacity-50" : ""}`}
+                className={`col-span-1 min-w-0 ${span(p.size)} ${drag === p.id ? "opacity-50" : ""}`}
                 onDragOver={
                   editing
                     ? (e) => {
@@ -606,31 +609,34 @@ export function HomePage() {
                     : undefined
                 }
               >
-                {line && <span aria-hidden className={`pointer-events-none absolute inset-x-0 z-10 h-0.5 rounded-full bg-brand-border ${line === "after" ? "-bottom-2" : "-top-2"}`} />}
-                {editing && (
-                  <HomeEditBar
-                    id={p.id}
-                    size={p.size}
-                    first={i === 0}
-                    last={i === shown.length - 1}
-                    dragging={drag === p.id}
-                    onMove={(by) => move(p.id, by)}
-                    onSize={(size) => resize(p.id, size)}
-                    onHide={() => setHidden(p.id, true)}
-                    onDragStart={(e) => {
-                      e.dataTransfer.setData("text/plain", p.id);
-                      e.dataTransfer.effectAllowed = "move";
-                      dragRef.current = p.id;
-                      setDrag(p.id);
-                    }}
-                    onDragEnd={() => {
-                      dragRef.current = null;
-                      setDrag(null);
-                      setOver(null);
-                    }}
-                  />
-                )}
-                {blocks[p.id]}
+                {/* One child holding everything: useMasonry measures it to size the panel's rows. */}
+                <div className="relative">
+                  {line && <span aria-hidden className={`pointer-events-none absolute inset-x-0 z-10 h-0.5 rounded-full bg-brand-border ${line === "after" ? "-bottom-2" : "-top-2"}`} />}
+                  {editing && (
+                    <HomeEditBar
+                      id={p.id}
+                      size={p.size}
+                      first={i === 0}
+                      last={i === shown.length - 1}
+                      dragging={drag === p.id}
+                      onMove={(by) => move(p.id, by)}
+                      onSize={(size) => resize(p.id, size)}
+                      onHide={() => setHidden(p.id, true)}
+                      onDragStart={(e) => {
+                        e.dataTransfer.setData("text/plain", p.id);
+                        e.dataTransfer.effectAllowed = "move";
+                        dragRef.current = p.id;
+                        setDrag(p.id);
+                      }}
+                      onDragEnd={() => {
+                        dragRef.current = null;
+                        setDrag(null);
+                        setOver(null);
+                      }}
+                    />
+                  )}
+                  {blocks[p.id]}
+                </div>
               </div>
             );
           })}

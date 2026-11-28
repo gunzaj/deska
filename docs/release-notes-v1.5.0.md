@@ -15,6 +15,8 @@ Your meetings, next to your tasks. Deska reads the calendars already in macOS Ca
 - **Permission, honestly.** Reading starts only when you click "Connect calendars" and macOS allows it. If access is denied, the panel says so and offers System Settings → Privacy & Security → Calendars. Deska needs **Full Access** to Calendars: with write-only access it can't read events and asks you to switch. macOS may ask again after an update, because the app is signed ad hoc; Settings → Calendar then offers "Connect calendars" again and keeps your calendar choices.
 - **Customize Home, on the page.** The Customize Home button turns Home into edit mode instead of opening a dialog. Drag a panel by its handle (or use the arrow buttons), give it one of four widths (a third, a half, two-thirds or full), or hide it; hidden panels wait in a strip below and come back with one click. Reset restores the default layout. The Calendar panel moves and hides like any other, and tasks-only mode shows it too.
 - **Lists remember how you left them.** My issues, All issues, Backlog, Epics, a Release page and a team (dimension value) page keep the filters and display options you save there. Change something and **Save** makes it that page's default; **Reset** goes back to it, and ⋯ → **Reset to default** forgets it. ⋯ → **Save as view…** still makes a named view. Every Release page shares one default.
+- **Search by the first digits of a number.** In a list, typing `15` narrows to every issue whose number starts with 15, with or without `#`; before, only the whole number matched. The search box has an ✕ to clear it.
+- **Issues Deska hasn't synced.** The first import skips issues closed long ago. Ask for one by number and Deska fetches it from GitHub: ⌘K offers "Look up #N on GitHub", an empty list offers "Open #N", and the panel loads it. From then on it is in your lists like any other issue.
 - **Settings** shows the app version in its header.
 
 ### Privacy
@@ -23,7 +25,7 @@ Calendars come from EventKit on this Mac: macOS syncs the accounts, Deska makes 
 
 ### Changed
 
-- Home's panels sit on a grid now. The default looks like the old two columns, and a layout you customized keeps its order and hidden panels.
+- Home's panels sit on a grid now, packed by their height: a short panel beside a tall one leaves no gap under it. The default looks like the old two columns, and a layout you customized keeps its order and hidden panels.
 - Home's narrow column now starts with the Calendar panel. If you already customized Home, your layout is unchanged; the panel appears at its default spot until you move or hide it.
 
 ### Not in this release
