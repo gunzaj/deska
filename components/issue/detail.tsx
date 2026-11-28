@@ -11,7 +11,7 @@ import { useAppData } from "../app/provider";
 import { panelBack, useOpenIssue, usePanelBack } from "../app/open-issue";
 import { useCells } from "../explorer/cells";
 import { Icon } from "../icons";
-import { Avatar, EmptyHint, OptionDot } from "../props";
+import { Avatar, OptionDot } from "../props";
 import { LinkedTasks } from "../tasks/issue-tasks";
 import { Dialog } from "../ui/dialog";
 import { btn } from "../ui/popover";
@@ -24,6 +24,7 @@ import { FieldPicker } from "./field-picker";
 import { Relationships } from "./relationships";
 import { useMediaRefresh } from "./media-refresh";
 import { CommentBox, type PostedComment } from "./comment-box";
+import { MissingIssue } from "./missing";
 
 // Client cache so flipping between issues with j/k is instant on revisit.
 const detailCache = new Map<number, { at: number; detail: IssueDetail }>();
@@ -270,20 +271,8 @@ export function IssueDetailView({ number, mode, onClose }: { number: number; mod
   // A video whose signed URL expired gets a new one; the next visit starts from that rendering.
   const media = useMediaRefresh<HTMLDivElement>(number, (fresh) => detailCache.set(number, { at: Date.now(), detail: fresh }));
 
-  if (!issue) {
-    return (
-      <div className="flex h-full flex-col">
-        {onClose && (
-          <div className="flex h-12 items-center justify-end border-b border-line px-3">
-            <button type="button" onClick={onClose} aria-label="Close" className={btn.icon}>
-              <Icon name="x" size={16} />
-            </button>
-          </div>
-        )}
-        <EmptyHint icon="search" title={`Issue #${number} is not in the Deska cache`} hint="It may not be an issue, or it was closed before the import window." />
-      </div>
-    );
-  }
+  // Not cached (closed before the import window, usually): fetch it from GitHub.
+  if (!issue) return <MissingIssue number={number} onClose={onClose} />;
 
   const ancestors = ancestry(issue, byNodeId);
   const comments = [

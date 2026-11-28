@@ -147,19 +147,20 @@ export function matchesFilter(row: ViewRow, f: Filter, ctx: ViewContext): boolea
 }
 
 /**
- * `#123` (or a bare number) matches that issue exactly — substring matching made
- * "#12" also hit #120–#129. Anything else is a case-insensitive match on the
- * title, where every word must appear. Bodies are not searched: they are not
- * in the client payload (IMPROVEMENTS S5, Q2).
+ * `#329` (or a bare number) matches every issue whose number starts with those
+ * digits, so the list narrows while the number is being typed; a bare number
+ * also matches titles that contain it. Anything else is a case-insensitive
+ * match on the title, where every word must appear. Bodies are not searched:
+ * they are not in the client payload (IMPROVEMENTS S5, Q2).
  */
 export function compileText(raw: string): RowTest {
   const q = raw.trim().toLowerCase();
   if (!q) return () => true;
   const num = /^#?(\d+)$/.exec(q);
   if (num) {
-    const n = Number(num[1]);
+    const digits = num[1]!;
     const bare = !q.startsWith("#");
-    return (row) => row.number === n || (bare && row.title.toLowerCase().includes(q));
+    return (row) => String(row.number).startsWith(digits) || (bare && row.title.toLowerCase().includes(q));
   }
   const words = q.split(/\s+/);
   return (row) => {

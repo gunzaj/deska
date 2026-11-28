@@ -140,6 +140,7 @@ export function Explorer({
 
   // Search box: debounced into a `text` filter.
   const textValue = (state.filters.find((f) => f.field === "text") as { value?: string } | undefined)?.value ?? "";
+  const searchedNumber = /^#?[1-9]\d*$/.test(textValue.trim()) ? Number(textValue.trim().replace("#", "")) : null;
   const [q, setQ] = useSearchDraft(textValue, (want) => {
     const rest = state.filters.filter((f) => f.field !== "text");
     setState({ ...state, filters: want ? [...rest, { field: "text", op: "contains", value: want }] : rest });
@@ -401,7 +402,23 @@ export function Explorer({
           aria-label="Search issues"
           className="min-w-0 flex-1 bg-transparent text-[12.5px] outline-none placeholder:text-faint"
         />
-        {!q && <Kbd>/</Kbd>}
+        {q ? (
+          <button
+            type="button"
+            onClick={() => {
+              setQ("");
+              searchRef.current?.focus();
+            }}
+            aria-label="Clear search"
+            title="Clear search"
+            className="-mr-1 grid size-5 shrink-0 place-items-center rounded text-faint hover:bg-hover hover:text-fg"
+            data-clear-search
+          >
+            <Icon name="x" size={12} />
+          </button>
+        ) : (
+          <Kbd>/</Kbd>
+        )}
       </label>
       {onlyIds && (
         <button type="button" onClick={() => setOnlyIds(null)} aria-label="Show all issues again" className="flex h-7 items-center gap-1.5 rounded-md border border-critical bg-critical-soft px-2 text-[12px] font-medium text-critical">
@@ -484,9 +501,17 @@ export function Explorer({
               }
               action={
                 state.filters.length || (defaultApplies && !teamScope.off) ? (
-                  <button type="button" onClick={clearAll} className="inline-flex h-8 items-center rounded-md border border-line px-3 font-medium hover:bg-hover" data-clear-filters>
-                    Clear filters
-                  </button>
+                  <div className="flex flex-wrap justify-center gap-2">
+                    {/* A number that matched nothing here: the issue is hidden by the filters, or not in the cache yet (the panel looks it up). */}
+                    {searchedNumber != null && (
+                      <button type="button" onClick={() => openIssue(searchedNumber)} className="inline-flex h-8 items-center rounded-md border border-line px-3 font-medium hover:bg-hover" data-open-searched>
+                        Open #{searchedNumber}
+                      </button>
+                    )}
+                    <button type="button" onClick={clearAll} className="inline-flex h-8 items-center rounded-md border border-line px-3 font-medium hover:bg-hover" data-clear-filters>
+                      Clear filters
+                    </button>
+                  </div>
                 ) : undefined
               }
             />

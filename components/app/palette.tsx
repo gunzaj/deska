@@ -281,8 +281,16 @@ export function CommandPalette() {
         router.push(`/issues?s=${encodeState({ ...PRESETS.all, filters: [{ field: "text", op: "contains", value: query }] })}`),
     };
     // A bare number most likely means "go to issue"; otherwise commands first.
-    const isNumber = /^#?\d+$/.test(query);
-    return isNumber ? [...issues, ...cmds, ...taskItems, searchAll] : [...cmds, ...issues, ...taskItems, searchAll];
+    const num = /^#?(\d+)$/.exec(query);
+    if (!num) return [...cmds, ...issues, ...taskItems, searchAll];
+    // A number the cache doesn't hold (closed before the import window): the
+    // panel fetches it from GitHub when it opens.
+    const n = Number(num[1]);
+    const lookup: Item[] =
+      n > 0 && !byNumber.has(n)
+        ? [{ id: `lookup:${n}`, section: "Issues", label: `Look up #${n} on GitHub`, keywords: "", icon: ico("search"), run: ({ meta, shift }) => (meta ? openInTab(n, shift) : openIssue(n)) }]
+        : [];
+    return [...issues, ...lookup, ...cmds, ...taskItems, searchAll];
     // openIssue and router are used above: without them the memo keeps a stale
     // openIssue after a client-side navigation.
   }, [q, commands, data.issues, data.meta.demo, recent, byNumber, tasks, remote, targetActions, openIssue, openInTab, router]);

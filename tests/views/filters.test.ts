@@ -46,9 +46,17 @@ describe("one board card (v5 3.8)", () => {
 
 describe("text search", () => {
   const row = { number: 123, title: "Crash on start, stack trace" };
-  it("matches #number exactly, not as a prefix", () => {
+  it("matches a number by its first digits, with or without #", () => {
     expect(matchesText(row, "#123")).toBe(true);
-    expect(matchesText(row, "#12")).toBe(false);
+    expect(matchesText(row, "#12")).toBe(true);
+    expect(matchesText(row, "12")).toBe(true);
+    expect(matchesText(row, "1")).toBe(true);
+    expect(matchesText(row, "#23")).toBe(false);
+    expect(matchesText(row, "1234")).toBe(false);
+  });
+  it("a bare number also matches a title that contains it", () => {
+    expect(matchesText({ number: 7, title: "Support 2048-bit keys" }, "2048")).toBe(true);
+    expect(matchesText({ number: 7, title: "Support 2048-bit keys" }, "#2048")).toBe(false);
   });
   it("matches every word of the title, case-insensitively", () => {
     expect(matchesText(row, "crash trace")).toBe(true);

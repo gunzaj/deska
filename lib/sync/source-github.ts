@@ -353,6 +353,25 @@ export class GitHubSource implements SyncSource {
     return out;
   }
 
+  /**
+   * The node ID of issue `number` in this repository, or null when there is no
+   * such issue (a pull request's number is not one). For looking up an issue
+   * the cache doesn't hold, e.g. one closed before the import window.
+   */
+  async issueNodeId(number: number): Promise<string | null> {
+    try {
+      const res = await this.gql(`query($owner:String!,$repo:String!,$number:Int!) { repository(owner:$owner,name:$repo) { issue(number:$number) { id } } }`, {
+        owner: this.owner,
+        repo: this.repo,
+        number,
+      });
+      return (res as { repository?: { issue?: { id?: string } | null } | null } | null)?.repository?.issue?.id ?? null;
+    } catch (e) {
+      if (!isRateLimitError(e) && isNotFoundError(e)) return null;
+      throw e;
+    }
+  }
+
   /** Sub-issue counts for a batch of issues, for the reconcile's refresh (§4.4). */
   async fetchSubSummaries(nodeIds: string[]): Promise<Map<string, { subTotal: number | null; subCompleted: number | null }>> {
     const extras = await this.issueExtras(nodeIds);
